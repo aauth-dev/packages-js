@@ -14,7 +14,7 @@ export async function bridgeTransports(
       if (msg.id !== undefined) {
         const errorResponse: JSONRPCMessage = {
           jsonrpc: '2.0',
-          error: { code: -32001, message: `${err.message || err}` },
+          error: { code: -32603, message: `${err.message || err}` },
           id: msg.id as number,
         }
         local.send(errorResponse).catch(() => {})
