@@ -1,7 +1,7 @@
 export { createSignedFetch } from './signed-fetch.js'
 export { createAAuthFetch } from './aauth-fetch.js'
 export { parseAAuthHeader } from './aauth-header.js'
-export { exchangeToken } from './token-exchange.js'
+export { exchangeToken, TokenExchangeError } from './token-exchange.js'
 export { pollDeferred } from './deferred.js'
 export type {
   GetKeyMaterial,

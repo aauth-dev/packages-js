@@ -1,6 +1,20 @@
 import type { FetchLike } from './types.js'
 import { pollDeferred } from './deferred.js'
+import type { AAuthError } from './deferred.js'
 import { parseAAuthHeader } from './aauth-header.js'
+
+export class TokenExchangeError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly aauthError?: AAuthError,
+  ) {
+    const msg = aauthError?.error_description
+      || aauthError?.error
+      || `Token exchange failed with status ${status}`
+    super(msg)
+    this.name = 'TokenExchangeError'
+  }
+}
 
 export interface TokenExchangeOptions {
   signedFetch: FetchLike
@@ -111,10 +125,10 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
       return parseTokenResponse(await result.response.json() as Record<string, unknown>)
     }
 
-    throw new Error(`Token exchange failed with status ${result.response.status}`)
+    throw new TokenExchangeError(result.response.status, result.error)
   }
 
-  throw new Error(`Token endpoint returned unexpected status ${response.status}`)
+  throw new TokenExchangeError(response.status)
 }
 
 async function fetchMetadata(signedFetch: FetchLike, authServerUrl: string): Promise<AuthServerMetadata> {

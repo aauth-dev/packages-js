@@ -8,7 +8,7 @@ vi.mock('./deferred.js', () => ({
   pollDeferred: mockPollDeferred,
 }))
 
-import { exchangeToken } from './token-exchange.js'
+import { exchangeToken, TokenExchangeError } from './token-exchange.js'
 
 describe('exchangeToken', () => {
   let mockFetch: ReturnType<typeof vi.fn>
@@ -184,7 +184,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
-    })).rejects.toThrow('Token endpoint returned unexpected status 500')
+    })).rejects.toThrow('Token exchange failed with status 500')
   })
 
   it('throws on 202 without Location header', async () => {
@@ -213,5 +213,32 @@ describe('exchangeToken', () => {
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
     })).rejects.toThrow('Token exchange failed with status 403')
+  })
+
+  it('throws TokenExchangeError with error details on denial', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(metadata), { status: 200 }))
+    mockFetch.mockResolvedValueOnce(new Response(null, {
+      status: 202,
+      headers: { Location: 'https://auth.example/pending/x' },
+    }))
+    mockPollDeferred.mockResolvedValueOnce({
+      response: new Response(null, { status: 403 }),
+      error: { error: 'denied', error_description: 'User denied the request' },
+    })
+
+    const promise = exchangeToken({
+      signedFetch: mockFetch,
+      authServerUrl: 'https://auth.example',
+      resourceToken: 'rt',
+    })
+    await expect(promise).rejects.toBeInstanceOf(TokenExchangeError)
+    try {
+      await promise
+    } catch (err) {
+      const texErr = err as TokenExchangeError
+      expect(texErr.status).toBe(403)
+      expect(texErr.aauthError?.error).toBe('denied')
+      expect(texErr.message).toBe('User denied the request')
+    }
   })
 })
