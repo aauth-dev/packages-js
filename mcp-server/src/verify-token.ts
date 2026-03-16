@@ -31,6 +31,7 @@ export interface VerifiedAuthToken {
   cnf: { jwk: JWK }
   sub?: string
   scope?: string
+  tenant?: string
   iat: number
   exp: number
 }
@@ -203,6 +204,9 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
   if (claims.sub) result.sub = claims.sub as string
   if ((claims as Record<string, unknown>).scope) {
     result.scope = (claims as Record<string, unknown>).scope as string
+  }
+  if ((claims as Record<string, unknown>).tenant) {
+    result.tenant = (claims as Record<string, unknown>).tenant as string
   }
 
   return result
