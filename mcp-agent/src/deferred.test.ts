@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { pollDeferred } from './deferred.js'
 
 describe('pollDeferred', () => {
@@ -167,7 +167,7 @@ describe('pollDeferred', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 
-  it('calls onInteraction with initial interaction code', async () => {
+  it('calls onInteraction with initial interaction url and code', async () => {
     const onInteraction = vi.fn()
     const done = new Response('ok', { status: 200 })
     mockFetch.mockResolvedValueOnce(done)
@@ -175,19 +175,20 @@ describe('pollDeferred', () => {
     await pollDeferred({
       signedFetch: mockFetch,
       locationUrl: 'https://auth.example/pending/123',
+      interactionUrl: 'https://auth.example/interact',
       interactionCode: 'ABCD1234',
       onInteraction,
     })
 
-    expect(onInteraction).toHaveBeenCalledWith('ABCD1234', 'https://auth.example')
+    expect(onInteraction).toHaveBeenCalledWith('https://auth.example/interact', 'ABCD1234')
   })
 
-  it('calls onInteraction from 202 AAuth header', async () => {
+  it('calls onInteraction from 202 AAuth-Requirement header', async () => {
     const onInteraction = vi.fn()
     const pending = new Response(null, {
       status: 202,
       headers: {
-        aauth: 'require=interaction; code="WXYZ5678"',
+        'aauth-requirement': 'requirement=interaction; url="https://auth.example/interact"; code="WXYZ5678"',
         'Retry-After': '1',
       },
     })
@@ -200,7 +201,7 @@ describe('pollDeferred', () => {
       onInteraction,
     })
 
-    expect(onInteraction).toHaveBeenCalledWith('WXYZ5678', 'https://auth.example')
+    expect(onInteraction).toHaveBeenCalledWith('https://auth.example/interact', 'WXYZ5678')
   })
 
   it('handles clarification flow', async () => {
@@ -282,6 +283,3 @@ describe('pollDeferred', () => {
     expect(result.response.status).toBe(418)
   })
 })
-
-// Need afterEach to be importable
-import { afterEach } from 'vitest'

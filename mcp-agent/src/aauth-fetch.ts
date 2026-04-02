@@ -7,9 +7,10 @@ import type { GetKeyMaterial, FetchLike } from './types.js'
 
 export interface AAuthFetchOptions {
   getKeyMaterial: GetKeyMaterial
-  onInteraction?: (code: string, endpoint: string) => void
+  authServerUrl?: string
+  onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
-  purpose?: string
+  justification?: string
   loginHint?: string
   tenant?: string
   domainHint?: string
@@ -25,16 +26,17 @@ interface CachedToken {
  * Create a protocol-aware fetch that handles the full AAuth challenge-response flow.
  *
  * Wraps createSignedFetch with:
- * 1. 401 AAuth challenge handling (token exchange + retry)
+ * 1. 401 AAuth-Requirement challenge handling (token exchange + retry)
  * 2. 202 resource interaction (polling)
  * 3. Auth token caching by {resource origin, authServer}
  */
 export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
   const {
     getKeyMaterial,
+    authServerUrl: configuredAuthServer,
     onInteraction,
     onClarification,
-    purpose,
+    justification,
     loginHint,
     tenant,
     domainHint,
@@ -68,21 +70,27 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       return response
     }
 
-    // 401 with AAuth challenge: token exchange flow
+    // 401 with AAuth-Requirement challenge: token exchange flow
     if (response.status === 401) {
-      const aauthHeader = response.headers.get('aauth')
+      const aauthHeader = response.headers.get('aauth-requirement')
       if (!aauthHeader) {
         return response // Not an AAuth challenge
       }
 
       const challenge = parseAAuthHeader(aauthHeader)
 
-      if (challenge.require === 'auth-token' && challenge.resourceToken && challenge.authServer) {
+      if (challenge.requirement === 'auth-token' && challenge.resourceToken) {
+        // The agent sends the resource token to its own auth server
+        const authServerUrl = configuredAuthServer
+        if (!authServerUrl) {
+          throw new Error('auth-token challenge received but no authServerUrl configured')
+        }
+
         const result = await exchangeToken({
           signedFetch,
-          authServerUrl: challenge.authServer,
+          authServerUrl,
           resourceToken: challenge.resourceToken,
-          purpose,
+          justification,
           loginHint,
           tenant,
           domainHint,
@@ -91,11 +99,11 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         })
 
         // Cache the auth token
-        const key = cacheKey(resourceOrigin, challenge.authServer)
+        const key = cacheKey(resourceOrigin, authServerUrl)
         tokenCache.set(key, {
           authToken: result.authToken,
           expiresAt: Date.now() + result.expiresIn * 1000,
-          authServer: challenge.authServer,
+          authServer: authServerUrl,
         })
 
         // Retry with auth token
@@ -120,7 +128,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
 async function handleResourceInteraction(
   response: Response,
   signedFetch: FetchLike,
-  onInteraction?: (code: string, endpoint: string) => void,
+  onInteraction?: (url: string, code: string) => void,
   onClarification?: (question: string) => Promise<string>,
 ): Promise<Response> {
   if (response.status !== 202) {
@@ -132,22 +140,25 @@ async function handleResourceInteraction(
     return response // No Location → return as-is
   }
 
+  let interactionUrl: string | undefined
   let interactionCode: string | undefined
-  const aauthHeader = response.headers.get('aauth')
+  const aauthHeader = response.headers.get('aauth-requirement')
   if (aauthHeader) {
     try {
       const challenge = parseAAuthHeader(aauthHeader)
-      if (challenge.require === 'interaction' && challenge.code) {
+      if (challenge.requirement === 'interaction' && challenge.url && challenge.code) {
+        interactionUrl = challenge.url
         interactionCode = challenge.code
       }
     } catch {
-      // Not a valid AAuth header — ignore
+      // Not a valid AAuth-Requirement header — ignore
     }
   }
 
   const result = await pollDeferred({
     signedFetch,
     locationUrl,
+    interactionUrl,
     interactionCode,
     onInteraction,
     onClarification,

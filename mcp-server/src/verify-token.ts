@@ -17,6 +17,7 @@ export interface VerifyTokenOptions {
 export interface VerifiedAgentToken {
   type: 'agent'
   iss: string
+  dwk: string
   sub: string
   cnf: { jwk: JWK }
   iat: number
@@ -26,6 +27,7 @@ export interface VerifiedAgentToken {
 export interface VerifiedAuthToken {
   type: 'auth'
   iss: string
+  dwk: string
   aud: string | string[]
   agent: string
   cnf: { jwk: JWK }
@@ -117,6 +119,11 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
     throw new AAuthTokenError(errorCode, 'Missing required claim: exp')
   }
 
+  const dwk = (claims as Record<string, unknown>).dwk as string | undefined
+  if (!dwk) {
+    throw new AAuthTokenError(errorCode, 'Missing required claim: dwk')
+  }
+
   const cnf = claims.cnf as { jwk?: JWK } | undefined
   if (!cnf?.jwk) {
     throw new AAuthTokenError(errorCode, 'Missing required claim: cnf.jwk')
@@ -150,10 +157,8 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
     )
   }
 
-  // 5. Resolve JWKS URI from metadata
-  const metadataPath = isAgent
-    ? '/.well-known/aauth-agent.json'
-    : '/.well-known/aauth-issuer.json'
+  // 5. Resolve JWKS URI from metadata using dwk claim
+  const metadataPath = `/.well-known/${dwk}`
 
   const jwksUri = await resolveJwksUri(claims.iss, metadataPath)
 
@@ -185,6 +190,7 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
     return {
       type: 'agent',
       iss: claims.iss,
+      dwk,
       sub: claims.sub as string,
       cnf: { jwk: cnf.jwk },
       iat: claims.iat as number,
@@ -195,6 +201,7 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
   const result: VerifiedAuthToken = {
     type: 'auth',
     iss: claims.iss,
+    dwk,
     aud: claims.aud as string | string[],
     agent: (claims as Record<string, unknown>).agent as string,
     cnf: { jwk: cnf.jwk },

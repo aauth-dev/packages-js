@@ -49,12 +49,12 @@ describe('createAAuthFetch', () => {
     expect(mockHttpSigFetch).toHaveBeenCalledOnce()
   })
 
-  it('handles 401 AAuth challenge → token exchange → retry', async () => {
-    // First request → 401 with AAuth challenge
+  it('handles 401 AAuth-Requirement challenge → token exchange → retry', async () => {
+    // First request → 401 with AAuth-Requirement challenge
     const challengeResponse = new Response('unauthorized', {
       status: 401,
       headers: {
-        aauth: 'require=auth-token; resource-token="rt123"; auth-server="https://auth.example"',
+        'aauth-requirement': 'requirement=auth-token; resource-token="rt123"',
       },
     })
     mockHttpSigFetch.mockResolvedValueOnce(challengeResponse)
@@ -69,7 +69,11 @@ describe('createAAuthFetch', () => {
     const okResponse = new Response('{"data":"secret"}', { status: 200 })
     mockHttpSigFetch.mockResolvedValueOnce(okResponse)
 
-    const fetch = createAAuthFetch({ getKeyMaterial, purpose: 'read files' })
+    const fetch = createAAuthFetch({
+      getKeyMaterial,
+      authServerUrl: 'https://auth.example',
+      justification: 'read files',
+    })
     const result = await fetch('https://resource.example/api', { method: 'GET' })
 
     expect(result).toBe(okResponse)
@@ -79,7 +83,7 @@ describe('createAAuthFetch', () => {
     expect(mockExchangeToken).toHaveBeenCalledWith(expect.objectContaining({
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt123',
-      purpose: 'read files',
+      justification: 'read files',
     }))
 
     // Verify retry used the auth token in signatureKey
@@ -88,7 +92,7 @@ describe('createAAuthFetch', () => {
     expect(retryCall[1].signatureKey).toEqual({ type: 'jwt', jwt: 'eyJ.auth.token' })
   })
 
-  it('returns 401 without AAuth header as-is', async () => {
+  it('returns 401 without AAuth-Requirement header as-is', async () => {
     const response = new Response('unauthorized', { status: 401 })
     mockHttpSigFetch.mockResolvedValueOnce(response)
 
@@ -100,12 +104,12 @@ describe('createAAuthFetch', () => {
   })
 
   it('handles 202 resource interaction with polling', async () => {
-    // Request → 202 with Location and interaction code
+    // Request → 202 with Location and interaction
     const pendingResponse = new Response(null, {
       status: 202,
       headers: {
         Location: 'https://resource.example/pending/xyz',
-        aauth: 'require=interaction; code="CODE1234"',
+        'aauth-requirement': 'requirement=interaction; url="https://resource.example/interact"; code="CODE1234"',
       },
     })
     mockHttpSigFetch.mockResolvedValueOnce(pendingResponse)
@@ -122,6 +126,7 @@ describe('createAAuthFetch', () => {
     expect(mockPollDeferred).toHaveBeenCalledOnce()
     expect(mockPollDeferred).toHaveBeenCalledWith(expect.objectContaining({
       locationUrl: 'https://resource.example/pending/xyz',
+      interactionUrl: 'https://resource.example/interact',
       interactionCode: 'CODE1234',
     }))
   })
@@ -131,7 +136,7 @@ describe('createAAuthFetch', () => {
     mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
       status: 401,
       headers: {
-        aauth: 'require=auth-token; resource-token="rt1"; auth-server="https://auth.example"',
+        'aauth-requirement': 'requirement=auth-token; resource-token="rt1"',
       },
     }))
     mockExchangeToken.mockResolvedValueOnce({
@@ -140,7 +145,10 @@ describe('createAAuthFetch', () => {
     })
     mockHttpSigFetch.mockResolvedValueOnce(new Response('ok1', { status: 200 }))
 
-    const fetch = createAAuthFetch({ getKeyMaterial })
+    const fetch = createAAuthFetch({
+      getKeyMaterial,
+      authServerUrl: 'https://auth.example',
+    })
 
     // First request
     await fetch('https://resource.example/api')
@@ -161,7 +169,7 @@ describe('createAAuthFetch', () => {
   it('returns pseudonym 401 challenge as-is (no exchange needed)', async () => {
     const response = new Response('', {
       status: 401,
-      headers: { aauth: 'require=pseudonym' },
+      headers: { 'aauth-requirement': 'requirement=pseudonym' },
     })
     mockHttpSigFetch.mockResolvedValueOnce(response)
 
@@ -176,7 +184,7 @@ describe('createAAuthFetch', () => {
     mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
       status: 401,
       headers: {
-        aauth: 'require=auth-token; resource-token="rt"; auth-server="https://auth.example"',
+        'aauth-requirement': 'requirement=auth-token; resource-token="rt"',
       },
     }))
     mockExchangeToken.mockResolvedValueOnce({
@@ -187,6 +195,7 @@ describe('createAAuthFetch', () => {
 
     const fetch = createAAuthFetch({
       getKeyMaterial,
+      authServerUrl: 'https://auth.example',
       loginHint: 'user@acme.com',
       tenant: 'acme.com',
       domainHint: 'acme.com',

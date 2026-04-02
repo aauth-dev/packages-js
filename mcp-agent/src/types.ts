@@ -3,13 +3,18 @@ export interface SignatureKeyJwt {
   jwt: string
 }
 
+export interface SignatureKeyJktJwt {
+  type: 'jkt-jwt'
+  jwt: string
+}
+
 export interface SignatureKeyHwk {
   type: 'hwk'
 }
 
 export interface KeyMaterial {
   signingKey: JsonWebKey
-  signatureKey: SignatureKeyJwt | SignatureKeyHwk
+  signatureKey: SignatureKeyJwt | SignatureKeyJktJwt | SignatureKeyHwk
 }
 
 export type GetKeyMaterial = () => Promise<KeyMaterial>

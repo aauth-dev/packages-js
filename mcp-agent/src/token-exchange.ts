@@ -20,12 +20,12 @@ export interface TokenExchangeOptions {
   signedFetch: FetchLike
   authServerUrl: string
   resourceToken: string
-  purpose?: string
+  justification?: string
   localhostCallback?: string
   loginHint?: string
   tenant?: string
   domainHint?: string
-  onInteraction?: (code: string, interactionEndpoint: string) => void
+  onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
 }
 
@@ -36,7 +36,6 @@ export interface TokenExchangeResult {
 
 interface AuthServerMetadata {
   token_endpoint: string
-  interaction_endpoint?: string
   jwks_uri: string
 }
 
@@ -55,7 +54,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     signedFetch,
     authServerUrl,
     resourceToken,
-    purpose,
+    justification,
     localhostCallback,
     loginHint,
     tenant,
@@ -71,7 +70,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   const body: Record<string, string> = {
     resource_token: resourceToken,
   }
-  if (purpose) body.purpose = purpose
+  if (justification) body.justification = justification
   if (localhostCallback) body.localhost_callback = localhostCallback
   if (loginHint) body.login_hint = loginHint
   if (tenant) body.tenant = tenant
@@ -98,26 +97,24 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
       throw new Error('202 response missing Location header')
     }
 
-    // Check for interaction code in AAuth header
+    // Check for interaction url and code in AAuth-Requirement header
+    let interactionUrl: string | undefined
     let interactionCode: string | undefined
-    const aauthHeader = response.headers.get('aauth')
+    const aauthHeader = response.headers.get('aauth-requirement')
     if (aauthHeader) {
       const challenge = parseAAuthHeader(aauthHeader)
-      if (challenge.require === 'interaction' && challenge.code) {
+      if (challenge.requirement === 'interaction' && challenge.url && challenge.code) {
+        interactionUrl = challenge.url
         interactionCode = challenge.code
       }
     }
 
-    // Wrap onInteraction to include the interaction_endpoint from metadata
-    const wrappedOnInteraction = onInteraction && metadata.interaction_endpoint
-      ? (code: string, _serverUrl: string) => onInteraction(code, metadata.interaction_endpoint!)
-      : onInteraction
-
     const result = await pollDeferred({
       signedFetch,
       locationUrl: resolveUrl(authServerUrl, locationUrl),
+      interactionUrl,
       interactionCode,
-      onInteraction: wrappedOnInteraction,
+      onInteraction,
       onClarification,
     })
 

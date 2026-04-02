@@ -76,48 +76,51 @@ const AGENT_URL = 'https://agent.example'
 const DELEGATE_URL = 'https://delegate.example'
 const AUTH_SERVER_URL = 'https://auth.example'
 const RESOURCE_URL = 'https://resource.example'
+const INTERACTION_URL = 'https://auth.example/interact'
 
 // =============================================================================
-// Suite 1: AAuth header round-trip
+// Suite 1: AAuth-Requirement header round-trip
 // =============================================================================
 
-describe('AAuth header round-trip (server builds → agent parses)', () => {
+describe('AAuth-Requirement header round-trip (server builds → agent parses)', () => {
   it('round-trips auth-token challenge', () => {
     const header = buildAAuthHeader('auth-token', {
       resourceToken: 'rt_abc123',
-      authServer: 'https://auth.example',
     })
     const parsed = parseAAuthHeader(header)
 
-    expect(parsed.require).toBe('auth-token')
+    expect(parsed.requirement).toBe('auth-token')
     expect(parsed.resourceToken).toBe('rt_abc123')
-    expect(parsed.authServer).toBe('https://auth.example')
   })
 
   it('round-trips interaction challenge', () => {
-    const header = buildAAuthHeader('interaction', { code: 'CODE1234' })
+    const header = buildAAuthHeader('interaction', {
+      url: 'https://auth.example/interact',
+      code: 'CODE1234',
+    })
     const parsed = parseAAuthHeader(header)
 
-    expect(parsed.require).toBe('interaction')
+    expect(parsed.requirement).toBe('interaction')
+    expect(parsed.url).toBe('https://auth.example/interact')
     expect(parsed.code).toBe('CODE1234')
   })
 
   it('round-trips pseudonym level', () => {
     const header = buildAAuthHeader('pseudonym')
     const parsed = parseAAuthHeader(header)
-    expect(parsed.require).toBe('pseudonym')
+    expect(parsed.requirement).toBe('pseudonym')
   })
 
   it('round-trips identity level', () => {
     const header = buildAAuthHeader('identity')
     const parsed = parseAAuthHeader(header)
-    expect(parsed.require).toBe('identity')
+    expect(parsed.requirement).toBe('identity')
   })
 
   it('round-trips approval level', () => {
     const header = buildAAuthHeader('approval')
     const parsed = parseAAuthHeader(header)
-    expect(parsed.require).toBe('approval')
+    expect(parsed.requirement).toBe('approval')
   })
 })
 
@@ -158,6 +161,7 @@ describe('verifyToken with real tokens', () => {
     expect(result.type).toBe('agent')
     const agent = result as VerifiedAgentToken
     expect(agent.iss).toBe(AGENT_URL)
+    expect(agent.dwk).toBe('aauth-agent.json')
     expect(agent.sub).toBe(DELEGATE_URL)
     expect(agent.cnf.jwk).toEqual(keys.agentEphemeral.pubJwk)
     expect(agent.iat).toBeTypeOf('number')
@@ -190,6 +194,7 @@ describe('verifyToken with real tokens', () => {
     expect(result.type).toBe('auth')
     const auth = result as VerifiedAuthToken
     expect(auth.iss).toBe(AUTH_SERVER_URL)
+    expect(auth.dwk).toBe('aauth-issuer.json')
     expect(auth.aud).toBe(RESOURCE_URL)
     expect(auth.agent).toBe(AGENT_URL)
     expect(auth.sub).toBe('user-456')
@@ -253,7 +258,10 @@ describe('Full 401 challenge-response (direct grant)', () => {
     mockHttpSigFetch.mockImplementation(server.httpSigFetch)
     globalThis.fetch = server.globalFetch as typeof fetch
 
-    const aAuthFetch = createAAuthFetch({ getKeyMaterial })
+    const aAuthFetch = createAAuthFetch({
+      getKeyMaterial,
+      authServerUrl: AUTH_SERVER_URL,
+    })
     const result = await aAuthFetch(`${RESOURCE_URL}/api/data`)
 
     expect(result.status).toBe(200)
@@ -285,7 +293,10 @@ describe('Full 401 challenge-response (direct grant)', () => {
     mockHttpSigFetch.mockImplementation(server.httpSigFetch)
     globalThis.fetch = server.globalFetch as typeof fetch
 
-    const aAuthFetch = createAAuthFetch({ getKeyMaterial })
+    const aAuthFetch = createAAuthFetch({
+      getKeyMaterial,
+      authServerUrl: AUTH_SERVER_URL,
+    })
 
     // First request — full challenge-response
     const result1 = await aAuthFetch(`${RESOURCE_URL}/api/data`)
@@ -302,7 +313,7 @@ describe('Full 401 challenge-response (direct grant)', () => {
     expect(callCountAfterSecond - callCountAfterFirst).toBe(1)
   })
 
-  it('purpose and hints pass through to token endpoint body', async () => {
+  it('justification and hints pass through to token endpoint body', async () => {
     const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
@@ -322,7 +333,8 @@ describe('Full 401 challenge-response (direct grant)', () => {
 
     const aAuthFetch = createAAuthFetch({
       getKeyMaterial,
-      purpose: 'read user files',
+      authServerUrl: AUTH_SERVER_URL,
+      justification: 'read user files',
       loginHint: 'alice@acme.com',
       tenant: 'acme.com',
       domainHint: 'acme.com',
@@ -331,7 +343,7 @@ describe('Full 401 challenge-response (direct grant)', () => {
 
     expect(capturedBody).toBeDefined()
     expect(capturedBody!.resource_token).toBeDefined()
-    expect(capturedBody!.purpose).toBe('read user files')
+    expect(capturedBody!.justification).toBe('read user files')
     expect(capturedBody!.login_hint).toBe('alice@acme.com')
     expect(capturedBody!.tenant).toBe('acme.com')
     expect(capturedBody!.domain_hint).toBe('acme.com')
@@ -356,11 +368,14 @@ describe('Deferred/interaction grant', () => {
     globalThis.fetch = originalFetch
   })
 
-  it('token endpoint returns 202 → onInteraction receives code → resolve → poll gets 200 → retry succeeds', async () => {
+  it('token endpoint returns 202 → onInteraction receives url and code → resolve → poll gets 200 → retry succeeds', async () => {
     const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
-    const interactionManager = new InteractionManager({ baseUrl: AUTH_SERVER_URL })
+    const interactionManager = new InteractionManager({
+      baseUrl: AUTH_SERVER_URL,
+      interactionUrl: INTERACTION_URL,
+    })
     const server = createMockServer({
       keys,
       resourceUrl: RESOURCE_URL,
@@ -375,24 +390,15 @@ describe('Deferred/interaction grant', () => {
     mockHttpSigFetch.mockImplementation(server.httpSigFetch)
     globalThis.fetch = server.globalFetch as typeof fetch
 
+    let receivedUrl: string | undefined
     let receivedCode: string | undefined
-    let receivedEndpoint: string | undefined
-    const onInteraction = (code: string, endpoint: string) => {
+    const onInteraction = (url: string, code: string) => {
+      receivedUrl = url
       receivedCode = code
-      receivedEndpoint = endpoint
 
       // Simulate external resolution: resolve the pending request
       // after a short delay to allow the poll to start
       setTimeout(async () => {
-        // Find the pending request and resolve it with an auth token
-        // The interactionManager has the pending request stored
-        const pendingIds = Array.from({ length: interactionManager.size })
-        // We need to get the pending ID - it's the one that was created
-        // Since we can't easily get IDs, resolve by iterating
-        // InteractionManager doesn't expose iteration, but we know there's exactly one
-        // We'll use the pending endpoint URL to extract the ID
-        // The pending URL is in the 202 Location header, which the poll uses
-
         // Create an auth token for resolution
         const authJwt = await createAuthJwt(keys, {
           iss: AUTH_SERVER_URL,
@@ -401,9 +407,6 @@ describe('Deferred/interaction grant', () => {
           sub: 'user-deferred',
         })
 
-        // We need the pending ID - extract from the httpSigFetch calls
-        // The 202 response from token endpoint had a Location header
-        // The pollDeferred function will GET that URL
         // Find calls to /pending/ to get the ID
         const pendingCalls = mockHttpSigFetch.mock.calls.filter(
           (call: unknown[]) => String(call[0]).includes('/pending/'),
@@ -418,30 +421,36 @@ describe('Deferred/interaction grant', () => {
 
     const aAuthFetch = createAAuthFetch({
       getKeyMaterial,
+      authServerUrl: AUTH_SERVER_URL,
       onInteraction,
     })
 
     const result = await aAuthFetch(`${RESOURCE_URL}/api/data`)
 
     expect(result.status).toBe(200)
+    expect(receivedUrl).toBe(INTERACTION_URL)
     expect(receivedCode).toBeDefined()
     expect(receivedCode!.length).toBeGreaterThan(0)
-    expect(receivedEndpoint).toBeDefined()
   })
 
-  it('InteractionManager createPending builds correct AAuth header with code', () => {
-    const manager = new InteractionManager({ baseUrl: AUTH_SERVER_URL })
+  it('InteractionManager createPending builds correct AAuth-Requirement header with url and code', () => {
+    const manager = new InteractionManager({
+      baseUrl: AUTH_SERVER_URL,
+      interactionUrl: INTERACTION_URL,
+    })
     const { headers, pending } = manager.createPending()
 
     expect(pending.code).toBeDefined()
     expect(pending.code.length).toBe(8)
     expect(headers.Location).toMatch(/\/pending\//)
-    expect(headers.AAuth).toContain('require=interaction')
-    expect(headers.AAuth).toContain(`code="${pending.code}"`)
+    expect(headers['AAuth-Requirement']).toContain('requirement=interaction')
+    expect(headers['AAuth-Requirement']).toContain(`url="${INTERACTION_URL}"`)
+    expect(headers['AAuth-Requirement']).toContain(`code="${pending.code}"`)
 
-    // The code round-trips through parse
-    const parsed = parseAAuthHeader(headers.AAuth)
-    expect(parsed.require).toBe('interaction')
+    // The header round-trips through parse
+    const parsed = parseAAuthHeader(headers['AAuth-Requirement'])
+    expect(parsed.requirement).toBe('interaction')
+    expect(parsed.url).toBe(INTERACTION_URL)
     expect(parsed.code).toBe(pending.code)
   })
 })
@@ -463,13 +472,6 @@ describe('ServerManager with AAuth signing (mocked MCP SDK)', () => {
     const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
-    // For this test, we mock createSignedFetch at the mcp-openclaw level
-    // (it's already mocked via vi.mock above since ServerManager imports from @aauth/mcp-agent)
-    // But ServerManager uses the real import which is mocked.
-    // We need to use the server-manager import which has mocked dependencies.
-
-    // Since @aauth/mcp-agent is NOT mocked (we only mock @hellocoop/httpsig),
-    // ServerManager will use the real createSignedFetch. We just verify it connects.
     const manager = new ServerManager({
       servers: { myfiles: `${RESOURCE_URL}/mcp` },
       getKeyMaterial,

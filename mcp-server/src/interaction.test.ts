@@ -7,6 +7,7 @@ describe('InteractionManager', () => {
   beforeEach(() => {
     manager = new InteractionManager({
       baseUrl: 'https://resource.example',
+      interactionUrl: 'https://resource.example/interact',
     })
   })
 
@@ -21,8 +22,9 @@ describe('InteractionManager', () => {
     expect(headers.Location).toMatch(/^https:\/\/resource\.example\/pending\/[a-f0-9]+$/)
     expect(headers['Retry-After']).toBe('0')
     expect(headers['Cache-Control']).toBe('no-store')
-    expect(headers.AAuth).toContain('require=interaction')
-    expect(headers.AAuth).toContain(`code="${pending.code}"`)
+    expect(headers['AAuth-Requirement']).toContain('requirement=interaction')
+    expect(headers['AAuth-Requirement']).toContain('url="https://resource.example/interact"')
+    expect(headers['AAuth-Requirement']).toContain(`code="${pending.code}"`)
   })
 
   it('generates unique IDs and codes', () => {
@@ -71,6 +73,7 @@ describe('InteractionManager', () => {
   it('cleans up expired pending requests', async () => {
     const shortManager = new InteractionManager({
       baseUrl: 'https://resource.example',
+      interactionUrl: 'https://resource.example/interact',
       ttl: 0, // expire immediately
     })
 
@@ -89,6 +92,7 @@ describe('InteractionManager', () => {
   it('uses custom pendingPath', () => {
     const custom = new InteractionManager({
       baseUrl: 'https://resource.example',
+      interactionUrl: 'https://resource.example/interact',
       pendingPath: '/api/pending',
     })
 
@@ -99,6 +103,7 @@ describe('InteractionManager', () => {
   it('uses custom code length', () => {
     const custom = new InteractionManager({
       baseUrl: 'https://resource.example',
+      interactionUrl: 'https://resource.example/interact',
       codeLength: 12,
     })
 
@@ -109,6 +114,7 @@ describe('InteractionManager', () => {
   it('strips trailing slash from baseUrl', () => {
     const custom = new InteractionManager({
       baseUrl: 'https://resource.example/',
+      interactionUrl: 'https://resource.example/interact',
     })
 
     const { headers } = custom.createPending()

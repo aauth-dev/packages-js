@@ -35,6 +35,7 @@ export async function createResourceToken(
 
   const payload: Record<string, unknown> = {
     iss: resource,
+    dwk: 'aauth-resource.json',
     aud: authServer,
     agent,
     agent_jkt: agentJkt,

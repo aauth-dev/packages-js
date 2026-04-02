@@ -81,6 +81,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'agent+jwt', {
       iss,
+      dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
       cnf: { jwk: ephPubJwk },
     })
@@ -89,6 +90,7 @@ describe('verifyToken', () => {
 
     expect(result.type).toBe('agent')
     expect(result.iss).toBe(iss)
+    expect(result.dwk).toBe('aauth-agent.json')
     if (result.type === 'agent') {
       expect(result.sub).toBe('https://delegate.example')
     }
@@ -107,6 +109,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'auth+jwt', {
       iss,
+      dwk: 'aauth-issuer.json',
       aud: 'https://resource.example',
       agent: 'https://agent.example',
       sub: 'user-123',
@@ -118,6 +121,7 @@ describe('verifyToken', () => {
 
     expect(result.type).toBe('auth')
     expect(result.iss).toBe(iss)
+    expect(result.dwk).toBe('aauth-issuer.json')
     if (result.type === 'auth') {
       expect(result.aud).toBe('https://resource.example')
       expect(result.agent).toBe('https://agent.example')
@@ -131,6 +135,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'unknown+jwt', {
       iss: 'https://example.com',
+      dwk: 'aauth-agent.json',
       sub: 'test',
       cnf: { jwk: ephPubJwk },
     })
@@ -145,6 +150,7 @@ describe('verifyToken', () => {
 
     // Sign without iss
     const jwt = await signToken(root.privateKey, 'agent+jwt', {
+      dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
       cnf: { jwk: ephPubJwk },
     })
@@ -154,11 +160,26 @@ describe('verifyToken', () => {
     ).rejects.toThrow('Missing required claim: iss')
   })
 
+  it('throws on missing dwk claim', async () => {
+    const { root, ephPubJwk, ephThumbprint } = await createKeys()
+
+    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+      iss: 'https://agent.example',
+      sub: 'https://delegate.example',
+      cnf: { jwk: ephPubJwk },
+    })
+
+    await expect(
+      verifyToken({ jwt, httpSignatureThumbprint: ephThumbprint }),
+    ).rejects.toThrow('Missing required claim: dwk')
+  })
+
   it('throws on missing sub for agent token', async () => {
     const { root, ephPubJwk, ephThumbprint } = await createKeys()
 
     const jwt = await signToken(root.privateKey, 'agent+jwt', {
       iss: 'https://agent.example',
+      dwk: 'aauth-agent.json',
       cnf: { jwk: ephPubJwk },
     })
 
@@ -172,6 +193,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'auth+jwt', {
       iss: 'https://auth.example',
+      dwk: 'aauth-issuer.json',
       agent: 'https://agent.example',
       cnf: { jwk: ephPubJwk },
     })
@@ -186,6 +208,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'auth+jwt', {
       iss: 'https://auth.example',
+      dwk: 'aauth-issuer.json',
       aud: 'https://resource.example',
       cnf: { jwk: ephPubJwk },
     })
@@ -200,6 +223,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'agent+jwt', {
       iss: 'https://agent.example',
+      dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
     })
 
@@ -214,6 +238,7 @@ describe('verifyToken', () => {
     const past = Math.floor(Date.now() / 1000) - 3600
     const jwt = await new SignJWT({
       iss: 'https://agent.example',
+      dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
       cnf: { jwk: ephPubJwk },
       iat: past - 3600,
@@ -236,6 +261,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'agent+jwt', {
       iss: 'https://agent.example',
+      dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
       cnf: { jwk: ephPubJwk },
     })
@@ -259,6 +285,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'agent+jwt', {
       iss,
+      dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
       cnf: { jwk: ephPubJwk },
     })
@@ -282,6 +309,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'agent+jwt', {
       iss,
+      dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
       cnf: { jwk: ephPubJwk },
     })

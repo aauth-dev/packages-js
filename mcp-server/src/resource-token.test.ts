@@ -21,6 +21,7 @@ describe('createResourceToken', () => {
     // Verify payload
     const [payload, header] = mockSign.mock.calls[0]
     expect(payload.iss).toBe('https://resource.example')
+    expect(payload.dwk).toBe('aauth-resource.json')
     expect(payload.aud).toBe('https://auth.example')
     expect(payload.agent).toBe('https://dickhardt.github.io')
     expect(payload.agent_jkt).toBe('jkt_thumbprint_123')

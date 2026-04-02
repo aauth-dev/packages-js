@@ -15,7 +15,6 @@ describe('exchangeToken', () => {
 
   const metadata = {
     token_endpoint: 'https://auth.example/aauth/token',
-    interaction_endpoint: 'https://auth.example/aauth/interaction',
     jwks_uri: 'https://auth.example/aauth/jwks',
   }
 
@@ -43,7 +42,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'eyJ.resource.token',
-      purpose: 'access files',
+      justification: 'access files',
     })
 
     expect(result).toEqual({
@@ -69,11 +68,11 @@ describe('exchangeToken', () => {
       }),
     )
 
-    // Verify body contains resource_token and purpose
+    // Verify body contains resource_token and justification
     const body = JSON.parse(mockFetch.mock.calls[1][1].body)
     expect(body).toEqual({
       resource_token: 'eyJ.resource.token',
-      purpose: 'access files',
+      justification: 'access files',
     })
   })
 
@@ -88,7 +87,7 @@ describe('exchangeToken', () => {
       status: 202,
       headers: {
         Location: '/aauth/pending/abc123',
-        aauth: 'require=interaction; code="XYZW9999"',
+        'aauth-requirement': 'requirement=interaction; url="https://auth.example/interact"; code="XYZW9999"',
       },
     }))
 
@@ -120,6 +119,7 @@ describe('exchangeToken', () => {
     expect(mockPollDeferred).toHaveBeenCalledOnce()
     const pollOpts = mockPollDeferred.mock.calls[0][0]
     expect(pollOpts.locationUrl).toBe('https://auth.example/aauth/pending/abc123')
+    expect(pollOpts.interactionUrl).toBe('https://auth.example/interact')
     expect(pollOpts.interactionCode).toBe('XYZW9999')
   })
 
@@ -136,7 +136,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
-      purpose: 'read logs',
+      justification: 'read logs',
       loginHint: 'user@acme.com',
       tenant: 'acme.com',
       domainHint: 'acme.com',
@@ -146,7 +146,7 @@ describe('exchangeToken', () => {
     const body = JSON.parse(mockFetch.mock.calls[1][1].body)
     expect(body).toEqual({
       resource_token: 'rt',
-      purpose: 'read logs',
+      justification: 'read logs',
       login_hint: 'user@acme.com',
       tenant: 'acme.com',
       domain_hint: 'acme.com',

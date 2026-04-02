@@ -1,45 +1,48 @@
-export type RequireLevel = 'pseudonym' | 'identity' | 'auth-token' | 'approval' | 'interaction'
+export type RequirementLevel = 'pseudonym' | 'identity' | 'auth-token' | 'approval' | 'interaction'
+
+/** @deprecated Use RequirementLevel instead */
+export type RequireLevel = RequirementLevel
 
 export interface AAuthChallenge {
-  require: RequireLevel
+  requirement: RequirementLevel
   resourceToken?: string
-  authServer?: string
+  url?: string
   code?: string
 }
 
 /**
- * Parse an AAuth response header value into a structured challenge.
+ * Parse an AAuth-Requirement response header value into a structured challenge.
  *
  * Formats:
- *   AAuth: require=pseudonym
- *   AAuth: require=identity
- *   AAuth: require=auth-token; resource-token="..."; auth-server="https://..."
- *   AAuth: require=approval
- *   AAuth: require=interaction; code="ABCD1234"
+ *   AAuth-Requirement: requirement=pseudonym
+ *   AAuth-Requirement: requirement=identity
+ *   AAuth-Requirement: requirement=auth-token; resource-token="..."
+ *   AAuth-Requirement: requirement=approval
+ *   AAuth-Requirement: requirement=interaction; url="https://..."; code="ABCD1234"
  */
 export function parseAAuthHeader(headerValue: string): AAuthChallenge {
   const trimmed = headerValue.trim()
   if (!trimmed) {
-    throw new Error('Empty AAuth header')
+    throw new Error('Empty AAuth-Requirement header')
   }
 
-  // Parse the require= value (unquoted token)
-  const requireMatch = trimmed.match(/^require=([a-z-]+)/)
-  if (!requireMatch) {
-    throw new Error('Missing require= in AAuth header')
+  // Parse the requirement= value (unquoted token)
+  const requirementMatch = trimmed.match(/^requirement=([a-z-]+)/)
+  if (!requirementMatch) {
+    throw new Error('Missing requirement= in AAuth-Requirement header')
   }
 
-  const validLevels: RequireLevel[] = ['pseudonym', 'identity', 'auth-token', 'approval', 'interaction']
-  const requireStr = requireMatch[1]
-  if (!validLevels.includes(requireStr as RequireLevel)) {
-    throw new Error(`Unknown require level: ${requireStr}`)
+  const validLevels: RequirementLevel[] = ['pseudonym', 'identity', 'auth-token', 'approval', 'interaction']
+  const requirementStr = requirementMatch[1]
+  if (!validLevels.includes(requirementStr as RequirementLevel)) {
+    throw new Error(`Unknown requirement level: ${requirementStr}`)
   }
-  const require = requireStr as RequireLevel
+  const requirement = requirementStr as RequirementLevel
 
-  const challenge: AAuthChallenge = { require }
+  const challenge: AAuthChallenge = { requirement }
 
   // Parse semicolon-separated parameters
-  const params = trimmed.slice(requireMatch[0].length)
+  const params = trimmed.slice(requirementMatch[0].length)
   if (params.trim()) {
     const paramPairs = params.split(';').slice(1) // skip first empty segment
     for (const pair of paramPairs) {
@@ -55,8 +58,8 @@ export function parseAAuthHeader(headerValue: string): AAuthChallenge {
         case 'resource-token':
           challenge.resourceToken = value
           break
-        case 'auth-server':
-          challenge.authServer = value
+        case 'url':
+          challenge.url = value
           break
         case 'code':
           challenge.code = value
@@ -66,17 +69,19 @@ export function parseAAuthHeader(headerValue: string): AAuthChallenge {
   }
 
   // Validate required params for specific levels
-  if (require === 'auth-token') {
+  if (requirement === 'auth-token') {
     if (!challenge.resourceToken) {
       throw new Error('auth-token challenge missing resource-token')
     }
-    if (!challenge.authServer) {
-      throw new Error('auth-token challenge missing auth-server')
-    }
   }
 
-  if (require === 'interaction' && !challenge.code) {
-    throw new Error('interaction challenge missing code')
+  if (requirement === 'interaction') {
+    if (!challenge.url) {
+      throw new Error('interaction challenge missing url')
+    }
+    if (!challenge.code) {
+      throw new Error('interaction challenge missing code')
+    }
   }
 
   return challenge

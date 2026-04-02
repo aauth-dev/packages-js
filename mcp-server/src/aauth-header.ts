@@ -1,49 +1,49 @@
-type RequireLevel = 'pseudonym' | 'identity' | 'auth-token' | 'approval' | 'interaction'
+type RequirementLevel = 'pseudonym' | 'identity' | 'auth-token' | 'approval' | 'interaction'
 
 /**
- * Build an AAuth response header value per the AAuth spec.
+ * Build an AAuth-Requirement response header value per the AAuth spec.
  *
  * Overloads:
- *   buildAAuthHeader('pseudonym')          → 'require=pseudonym'
- *   buildAAuthHeader('identity')           → 'require=identity'
- *   buildAAuthHeader('auth-token', {...})  → 'require=auth-token; resource-token="..."; auth-server="..."'
- *   buildAAuthHeader('approval')           → 'require=approval'
- *   buildAAuthHeader('interaction', {...}) → 'require=interaction; code="..."'
+ *   buildAAuthHeader('pseudonym')          → 'requirement=pseudonym'
+ *   buildAAuthHeader('identity')           → 'requirement=identity'
+ *   buildAAuthHeader('auth-token', {...})  → 'requirement=auth-token; resource-token="..."'
+ *   buildAAuthHeader('approval')           → 'requirement=approval'
+ *   buildAAuthHeader('interaction', {...}) → 'requirement=interaction; url="..."; code="..."'
  */
-export function buildAAuthHeader(require: 'pseudonym'): string
-export function buildAAuthHeader(require: 'identity'): string
-export function buildAAuthHeader(require: 'auth-token', params: { resourceToken: string; authServer: string }): string
-export function buildAAuthHeader(require: 'approval'): string
-export function buildAAuthHeader(require: 'interaction', params: { code: string }): string
+export function buildAAuthHeader(requirement: 'pseudonym'): string
+export function buildAAuthHeader(requirement: 'identity'): string
+export function buildAAuthHeader(requirement: 'auth-token', params: { resourceToken: string }): string
+export function buildAAuthHeader(requirement: 'approval'): string
+export function buildAAuthHeader(requirement: 'interaction', params: { url: string; code: string }): string
 export function buildAAuthHeader(
-  require: RequireLevel,
-  params?: { resourceToken?: string; authServer?: string; code?: string },
+  requirement: RequirementLevel,
+  params?: { resourceToken?: string; url?: string; code?: string },
 ): string {
-  switch (require) {
+  switch (requirement) {
     case 'pseudonym':
-      return 'require=pseudonym'
+      return 'requirement=pseudonym'
 
     case 'identity':
-      return 'require=identity'
+      return 'requirement=identity'
 
     case 'approval':
-      return 'require=approval'
+      return 'requirement=approval'
 
     case 'auth-token': {
-      if (!params?.resourceToken || !params?.authServer) {
-        throw new Error('auth-token requires resourceToken and authServer')
+      if (!params?.resourceToken) {
+        throw new Error('auth-token requires resourceToken')
       }
-      return `require=auth-token; resource-token="${params.resourceToken}"; auth-server="${params.authServer}"`
+      return `requirement=auth-token; resource-token="${params.resourceToken}"`
     }
 
     case 'interaction': {
-      if (!params?.code) {
-        throw new Error('interaction requires code')
+      if (!params?.url || !params?.code) {
+        throw new Error('interaction requires url and code')
       }
-      return `require=interaction; code="${params.code}"`
+      return `requirement=interaction; url="${params.url}"; code="${params.code}"`
     }
 
     default:
-      throw new Error(`Unknown require level: ${require}`)
+      throw new Error(`Unknown requirement level: ${requirement}`)
   }
 }

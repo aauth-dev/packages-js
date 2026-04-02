@@ -12,6 +12,7 @@ export interface PendingRequest<T = unknown> {
 
 export interface InteractionManagerOptions {
   baseUrl: string
+  interactionUrl: string  // the interaction endpoint URL for AAuth-Requirement header
   pendingPath?: string   // default: '/pending'
   codeLength?: number    // default: 8
   ttl?: number           // default: 600s
@@ -32,12 +33,14 @@ const DEFAULT_TTL = 600
 export class InteractionManager {
   private pending = new Map<string, PendingRequest>()
   private baseUrl: string
+  private interactionUrl: string
   private pendingPath: string
   private codeLength: number
   private ttl: number
 
   constructor(options: InteractionManagerOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '')
+    this.interactionUrl = options.interactionUrl.replace(/\/$/, '')
     this.pendingPath = options.pendingPath ?? DEFAULT_PENDING_PATH
     this.codeLength = options.codeLength ?? DEFAULT_CODE_LENGTH
     this.ttl = options.ttl ?? DEFAULT_TTL
@@ -73,7 +76,7 @@ export class InteractionManager {
       Location: locationUrl,
       'Retry-After': '0',
       'Cache-Control': 'no-store',
-      AAuth: buildAAuthHeader('interaction', { code }),
+      'AAuth-Requirement': buildAAuthHeader('interaction', { url: this.interactionUrl, code }),
     }
 
     return { headers, pending }

@@ -53,6 +53,7 @@ export async function createAgentJwt(keys: TestKeys, agentUrl: string, delegateU
   const now = Math.floor(Date.now() / 1000)
   return new SignJWT({
     iss: agentUrl,
+    dwk: 'aauth-agent.json',
     sub: delegateUrl,
     cnf: { jwk: keys.agentEphemeral.pubJwk },
     iat: now,
@@ -69,6 +70,7 @@ export async function createAuthJwt(
   const now = Math.floor(Date.now() / 1000)
   const claims: Record<string, unknown> = {
     iss: opts.iss,
+    dwk: 'aauth-issuer.json',
     aud: opts.aud,
     agent: opts.agent,
     cnf: { jwk: keys.agentEphemeral.pubJwk },
@@ -124,7 +126,7 @@ export function createMockServer(config: MockServerConfig): MockServer {
   } = config
 
   const interactionManager = config.interactionManager ?? (
-    deferredMode ? new InteractionManager({ baseUrl: authServerUrl }) : undefined
+    deferredMode ? new InteractionManager({ baseUrl: authServerUrl, interactionUrl: `${authServerUrl}/interact` }) : undefined
   )
 
   // Resource server sign function for createResourceToken
@@ -178,11 +180,10 @@ export function createMockServer(config: MockServerConfig): MockServer {
           )
           const aauthHeader = buildAAuthHeader('auth-token', {
             resourceToken,
-            authServer: authServerUrl,
           })
           return new Response('Auth token required', {
             status: 401,
-            headers: { AAuth: aauthHeader },
+            headers: { 'AAuth-Requirement': aauthHeader },
           })
         }
 

@@ -4,8 +4,9 @@ import type { FetchLike } from './types.js'
 export interface DeferredOptions {
   signedFetch: FetchLike
   locationUrl: string
+  interactionUrl?: string
   interactionCode?: string
-  onInteraction?: (code: string, serverUrl: string) => void
+  onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   maxPollDuration?: number // total timeout in seconds, default 300
 }
@@ -31,12 +32,13 @@ const DEFAULT_PREFER_WAIT = 45
  * Transient: 202 (continue polling), 503 (backoff then retry)
  *
  * On 202 with clarification body: calls onClarification, POSTs response back.
- * On 202 with AAuth: require=interaction header: calls onInteraction.
+ * On 202 with AAuth-Requirement: requirement=interaction header: calls onInteraction.
  */
 export async function pollDeferred(options: DeferredOptions): Promise<DeferredResult> {
   const {
     signedFetch,
     locationUrl,
+    interactionUrl,
     interactionCode,
     onInteraction,
     onClarification,
@@ -44,11 +46,10 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
   } = options
 
   const deadline = Date.now() + maxPollDuration * 1000
-  const serverOrigin = new URL(locationUrl).origin
 
-  // Notify about initial interaction code if present
-  if (interactionCode && onInteraction) {
-    onInteraction(interactionCode, serverOrigin)
+  // Notify about initial interaction url and code if present
+  if (interactionUrl && interactionCode && onInteraction) {
+    onInteraction(interactionUrl, interactionCode)
   }
 
   let backoffMs = 1000
@@ -89,16 +90,16 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
         }
       }
 
-      // Check for interaction code in AAuth header
-      const aauthHeader = response.headers.get('aauth')
+      // Check for interaction in AAuth-Requirement header
+      const aauthHeader = response.headers.get('aauth-requirement')
       if (aauthHeader && onInteraction) {
         try {
           const challenge = parseAAuthHeader(aauthHeader)
-          if (challenge.require === 'interaction' && challenge.code) {
-            onInteraction(challenge.code, serverOrigin)
+          if (challenge.requirement === 'interaction' && challenge.url && challenge.code) {
+            onInteraction(challenge.url, challenge.code)
           }
         } catch {
-          // Not a valid AAuth header — ignore
+          // Not a valid AAuth-Requirement header — ignore
         }
       }
 

@@ -33,6 +33,7 @@ export async function signAgentToken(
 
   const jwt = await new SignJWT({
     iss: agentUrl,
+    dwk: 'aauth-agent.json',
     sub: delegateUrl,
     cnf: { jwk: ephPubJwk },
     iat: now,
