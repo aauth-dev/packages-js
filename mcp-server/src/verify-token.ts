@@ -96,14 +96,14 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
   const header = decodeProtectedHeader(rawJwt)
   const typ = header.typ
 
-  if (typ !== 'agent+jwt' && typ !== 'auth+jwt') {
+  if (typ !== 'aa-agent+jwt' && typ !== 'aa-auth+jwt') {
     throw new AAuthTokenError(
-      typ === 'agent+jwt' ? 'invalid_agent_token' : 'invalid_auth_token',
+      typ === 'aa-agent+jwt' ? 'invalid_agent_token' : 'invalid_auth_token',
       `Unknown JWT typ: ${typ}`,
     )
   }
 
-  const isAgent = typ === 'agent+jwt'
+  const isAgent = typ === 'aa-agent+jwt'
   const errorCode = isAgent ? 'invalid_agent_token' : 'invalid_auth_token'
 
   // 2. Decode and validate required claims

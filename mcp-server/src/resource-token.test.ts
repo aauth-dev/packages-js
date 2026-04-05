@@ -32,7 +32,7 @@ describe('createResourceToken', () => {
 
     // Verify header
     expect(header.alg).toBe('EdDSA')
-    expect(header.typ).toBe('resource+jwt')
+    expect(header.typ).toBe('aa-resource+jwt')
   })
 
   it('includes scope when provided', async () => {
@@ -86,7 +86,7 @@ describe('createResourceToken', () => {
     })
     expect(header).toEqual({
       alg: 'EdDSA',
-      typ: 'resource+jwt',
+      typ: 'aa-resource+jwt',
     })
   })
 })

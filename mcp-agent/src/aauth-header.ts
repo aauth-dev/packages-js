@@ -1,4 +1,4 @@
-export type RequirementLevel = 'pseudonym' | 'identity' | 'auth-token' | 'approval' | 'interaction'
+export type RequirementLevel = 'pseudonym' | 'identity' | 'auth-token' | 'approval' | 'interaction' | 'clarification' | 'claims'
 
 /** @deprecated Use RequirementLevel instead */
 export type RequireLevel = RequirementLevel

@@ -79,7 +79,7 @@ describe('verifyToken', () => {
       rootPubJwk, iss, '/.well-known/aauth-agent.json',
     ) as typeof fetch
 
-    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss,
       dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
@@ -107,7 +107,7 @@ describe('verifyToken', () => {
       rootPubJwk, iss, '/.well-known/aauth-issuer.json',
     ) as typeof fetch
 
-    const jwt = await signToken(root.privateKey, 'auth+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-auth+jwt', {
       iss,
       dwk: 'aauth-issuer.json',
       aud: 'https://resource.example',
@@ -149,7 +149,7 @@ describe('verifyToken', () => {
     const { root, ephPubJwk, ephThumbprint } = await createKeys()
 
     // Sign without iss
-    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
       cnf: { jwk: ephPubJwk },
@@ -163,7 +163,7 @@ describe('verifyToken', () => {
   it('throws on missing dwk claim', async () => {
     const { root, ephPubJwk, ephThumbprint } = await createKeys()
 
-    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss: 'https://agent.example',
       sub: 'https://delegate.example',
       cnf: { jwk: ephPubJwk },
@@ -177,7 +177,7 @@ describe('verifyToken', () => {
   it('throws on missing sub for agent token', async () => {
     const { root, ephPubJwk, ephThumbprint } = await createKeys()
 
-    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss: 'https://agent.example',
       dwk: 'aauth-agent.json',
       cnf: { jwk: ephPubJwk },
@@ -191,7 +191,7 @@ describe('verifyToken', () => {
   it('throws on missing aud for auth token', async () => {
     const { root, ephPubJwk, ephThumbprint } = await createKeys()
 
-    const jwt = await signToken(root.privateKey, 'auth+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-auth+jwt', {
       iss: 'https://auth.example',
       dwk: 'aauth-issuer.json',
       agent: 'https://agent.example',
@@ -206,7 +206,7 @@ describe('verifyToken', () => {
   it('throws on missing agent for auth token', async () => {
     const { root, ephPubJwk, ephThumbprint } = await createKeys()
 
-    const jwt = await signToken(root.privateKey, 'auth+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-auth+jwt', {
       iss: 'https://auth.example',
       dwk: 'aauth-issuer.json',
       aud: 'https://resource.example',
@@ -221,7 +221,7 @@ describe('verifyToken', () => {
   it('throws on missing cnf.jwk', async () => {
     const { root, ephThumbprint } = await createKeys()
 
-    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss: 'https://agent.example',
       dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
@@ -244,7 +244,7 @@ describe('verifyToken', () => {
       iat: past - 3600,
       exp: past, // expired 1 hour ago
     })
-      .setProtectedHeader({ alg: 'EdDSA', typ: 'agent+jwt', kid: 'root-1' })
+      .setProtectedHeader({ alg: 'EdDSA', typ: 'aa-agent+jwt', kid: 'root-1' })
       .sign(root.privateKey)
 
     await expect(
@@ -259,7 +259,7 @@ describe('verifyToken', () => {
     const otherPubJwk = await exportJWK(other.publicKey)
     const wrongThumbprint = await calculateJwkThumbprint(otherPubJwk, 'sha256')
 
-    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss: 'https://agent.example',
       dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
@@ -283,7 +283,7 @@ describe('verifyToken', () => {
       new Response('Server Error', { status: 500 }),
     ) as typeof fetch
 
-    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss,
       dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',
@@ -307,7 +307,7 @@ describe('verifyToken', () => {
       otherPubJwk, iss, '/.well-known/aauth-agent.json',
     ) as typeof fetch
 
-    const jwt = await signToken(root.privateKey, 'agent+jwt', {
+    const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss,
       dwk: 'aauth-agent.json',
       sub: 'https://delegate.example',

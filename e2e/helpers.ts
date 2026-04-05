@@ -59,7 +59,7 @@ export async function createAgentJwt(keys: TestKeys, agentUrl: string, delegateU
     iat: now,
     exp: now + 3600,
   })
-    .setProtectedHeader({ alg: 'EdDSA', typ: 'agent+jwt', kid: 'agent-root-1' })
+    .setProtectedHeader({ alg: 'EdDSA', typ: 'aa-agent+jwt', kid: 'agent-root-1' })
     .sign(keys.agentRoot.privateKey)
 }
 
@@ -81,7 +81,7 @@ export async function createAuthJwt(
   if (opts.scope) claims.scope = opts.scope
 
   return new SignJWT(claims)
-    .setProtectedHeader({ alg: 'EdDSA', typ: 'auth+jwt', kid: 'auth-1' })
+    .setProtectedHeader({ alg: 'EdDSA', typ: 'aa-auth+jwt', kid: 'auth-1' })
     .sign(keys.authServer.privateKey)
 }
 
@@ -228,7 +228,7 @@ export function createMockServer(config: MockServerConfig): MockServer {
         })
       }
 
-      // Direct mode: create real auth+jwt and return it
+      // Direct mode: create real aa-auth+jwt and return it
       const authJwt = await createAuthJwt(keys, {
         iss: authServerUrl,
         aud: resourceUrl,

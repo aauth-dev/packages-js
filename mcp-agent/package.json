@@ -1,6 +1,6 @@
 {
   "name": "@aauth/mcp-agent",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Authenticated MCP transport with HTTP Signatures for AAuth agents",
   "type": "module",
   "exports": {

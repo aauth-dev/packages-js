@@ -39,7 +39,7 @@ export async function signAgentToken(
     iat: now,
     exp: now + lifetime,
   })
-    .setProtectedHeader({ alg: 'EdDSA', typ: 'agent+jwt', kid })
+    .setProtectedHeader({ alg: 'EdDSA', typ: 'aa-agent+jwt', kid })
     .sign(rootKey)
 
   return {
