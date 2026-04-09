@@ -1,18 +1,18 @@
 export interface StdioArgs {
   serverUrl: string
-  agentUrl: string
+  agentUrl?: string
   delegate?: string
   tokenLifetime?: number
 }
 
 function usage(): never {
-  console.error(`Usage: aauth-mcp-stdio <server-url> --agent-url <url> [--delegate <name>] [--token-lifetime <sec>]
+  console.error(`Usage: aauth-mcp-stdio <server-url> [--agent-url <url>] [--delegate <name>] [--token-lifetime <sec>]
 
 Arguments:
   server-url               Remote MCP server URL
 
 Options:
-  --agent-url <url>        Agent URL (or AAUTH_AGENT_URL env var)
+  --agent-url <url>        Agent URL (or AAUTH_AGENT_URL env var, or from ~/.aauth/config.json)
   --delegate <name>        Delegate name (or AAUTH_DELEGATE env var)
   --token-lifetime <sec>   Token lifetime in seconds (or AAUTH_TOKEN_LIFETIME env var, default: 3600)
 
@@ -67,11 +67,7 @@ export function parseArgs(argv: string[]): StdioArgs {
     tokenLifetime = parseInt(envLifetime, 10)
   }
 
-  if (!agentUrl) {
-    console.error('Error: --agent-url or AAUTH_AGENT_URL is required')
-    process.exit(1)
-  }
-
+  // agentUrl is now optional — createAgentToken will resolve from ~/.aauth/config.json
   return {
     serverUrl,
     agentUrl,

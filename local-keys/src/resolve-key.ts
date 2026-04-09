@@ -18,7 +18,9 @@ import type { ResolvedKey, KeyBackend } from './types.js'
  */
 export async function resolveKey(agentUrl: string): Promise<ResolvedKey> {
   // Step 1: Try to fetch the published JWKS
-  const jwksKeys = await fetchAgentJwks(agentUrl)
+  // Use cached jwks_uri from config if available, otherwise discover from agent server
+  const agentConfig = getAgentConfig(agentUrl)
+  const jwksKeys = await fetchAgentJwks(agentUrl, agentConfig?.jwksUri)
 
   // Step 2: Discover all local keys
   const localKeys = await discoverLocalKeys()
@@ -30,7 +32,6 @@ export async function resolveKey(agentUrl: string): Promise<ResolvedKey> {
   }
 
   // Step 4: Fall back to config
-  const agentConfig = getAgentConfig(agentUrl)
   if (agentConfig && Object.keys(agentConfig.keys).length > 0) {
     const configMatch = await resolveFromConfig(agentConfig.keys, localKeys)
     if (configMatch) return configMatch
@@ -55,17 +56,45 @@ export async function resolveKey(agentUrl: string): Promise<ResolvedKey> {
 
 // === JWKS Fetching ===
 
-async function fetchAgentJwks(agentUrl: string): Promise<JWK[]> {
+async function fetchAgentJwks(agentUrl: string, cachedJwksUri?: string): Promise<JWK[]> {
   try {
-    // Fetch aauth-agent.json to find jwks_uri
+    // Fetch agent server metadata and JWKS in parallel when possible
     const metaUrl = `${agentUrl.replace(/\/$/, '')}/.well-known/aauth-agent.json`
+
+    if (cachedJwksUri) {
+      // Fetch both in parallel: JWKS from cache + metadata to verify
+      const [jwksResp, metaResp] = await Promise.all([
+        fetch(cachedJwksUri, { signal: AbortSignal.timeout(5000) }).catch(() => null),
+        fetch(metaUrl, { signal: AbortSignal.timeout(5000) }).catch(() => null),
+      ])
+
+      // Verify the agent server still points to the same jwks_uri
+      if (metaResp?.ok) {
+        const meta = (await metaResp.json()) as { jwks_uri?: string }
+        if (meta.jwks_uri && meta.jwks_uri !== cachedJwksUri) {
+          // jwks_uri changed — fetch from the new location instead
+          const freshResp = await fetch(meta.jwks_uri, { signal: AbortSignal.timeout(5000) })
+          if (freshResp.ok) {
+            const jwks = (await freshResp.json()) as { keys?: JWK[] }
+            return jwks.keys || []
+          }
+        }
+      }
+
+      // Use the cached jwks_uri response
+      if (jwksResp?.ok) {
+        const jwks = (await jwksResp.json()) as { keys?: JWK[] }
+        return jwks.keys || []
+      }
+    }
+
+    // No cache — discover from agent server metadata
     const metaResp = await fetch(metaUrl, { signal: AbortSignal.timeout(5000) })
     if (!metaResp.ok) return []
 
     const meta = (await metaResp.json()) as { jwks_uri?: string }
     if (!meta.jwks_uri) return []
 
-    // Fetch the JWKS
     const jwksResp = await fetch(meta.jwks_uri, { signal: AbortSignal.timeout(5000) })
     if (!jwksResp.ok) return []
 

@@ -71,6 +71,10 @@ export interface AgentHosting {
 
 export interface AgentConfig {
   personServerUrl?: string
+  /** The agent server metadata URL, e.g. https://me.github.io/.well-known/aauth-agent.json */
+  agentServerUrl?: string
+  /** Cached jwks_uri from the agent server metadata */
+  jwksUri?: string
   hosting?: AgentHosting
   keys: Record<string, LocalKeyMeta>  // kid → local metadata
 }

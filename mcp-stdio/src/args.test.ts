@@ -107,12 +107,13 @@ describe('parseArgs', () => {
     expect(mockExit).toHaveBeenCalledWith(1)
   })
 
-  it('exits on missing agent-url', () => {
-    expect(() => parseArgs([
+  it('allows missing agent-url (resolved from config at runtime)', () => {
+    const result = parseArgs([
       'node', 'cli.js',
       'https://example.com/mcp',
-    ])).toThrow('process.exit called')
-    expect(mockExit).toHaveBeenCalledWith(1)
+    ])
+    expect(result.serverUrl).toBe('https://example.com/mcp')
+    expect(result.agentUrl).toBeUndefined()
   })
 
   it('exits on non-numeric token-lifetime', () => {

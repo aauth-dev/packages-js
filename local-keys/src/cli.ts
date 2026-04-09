@@ -11,6 +11,7 @@ import {
   addKeyToAgent,
   setPersonServer,
   setHosting,
+  setAgentConfig,
   getAgentConfig,
   listConfiguredAgents,
 } from './config.js'
@@ -57,6 +58,17 @@ function generateKid(): string {
   return `${date}_${hex}`
 }
 
+function ensureAgentUrls(agentUrl: string) {
+  const existing = getAgentConfig(agentUrl)
+  if (!existing?.agentServerUrl) {
+    setAgentConfig(agentUrl, {
+      ...existing || { keys: {} },
+      agentServerUrl: `${agentUrl.replace(/\/$/, '')}/.well-known/aauth-agent.json`,
+      jwksUri: existing?.jwksUri || `${agentUrl.replace(/\/$/, '')}/.well-known/jwks.json`,
+    })
+  }
+}
+
 // === Commands ===
 
 function cmdDiscover() {
@@ -83,8 +95,8 @@ async function cmdGenerate(flags: Record<string, string>) {
       aauth: { device: deviceLabel, created: new Date().toISOString().slice(0, 10) },
     }
 
-    // Store in keychain if agent URL provided
     if (agentUrl) {
+      ensureAgentUrls(agentUrl)
       const existing = readKeychain(agentUrl)
       const data = existing ?? { current: actualKid, keys: {} }
       data.current = actualKid
@@ -107,6 +119,7 @@ async function cmdGenerate(flags: Record<string, string>) {
     }
 
     if (agentUrl) {
+      ensureAgentUrls(agentUrl)
       addKeyToAgent(agentUrl, kid, {
         backend,
         algorithm,
@@ -190,6 +203,13 @@ function cmdAddAgent(flags: Record<string, string>, positional: string[]) {
 
   if (flags['person-server']) {
     setPersonServer(agentUrl, flags['person-server'])
+  }
+
+  ensureAgentUrls(agentUrl)
+
+  if (flags['jwks-uri']) {
+    const existing = getAgentConfig(agentUrl)
+    setAgentConfig(agentUrl, { ...existing!, jwksUri: flags['jwks-uri'] })
   }
 
   if (flags.hosting) {
