@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { importJWK, SignJWT, generateKeyPair, exportJWK } from 'jose'
 import type { JWK } from 'jose'
 import { readKeychain } from './keychain.js'
@@ -67,6 +67,7 @@ async function signWithSoftwareKey(
     iss: agentUrl,
     dwk: 'aauth-agent.json',
     sub: delegateUrl,
+    jti: randomUUID(),
     cnf: { jwk: ephPubJwk },
     iat: now,
     exp: now + lifetime,
@@ -116,6 +117,7 @@ async function signWithHardwareKey(
     iss: agentUrl,
     dwk: 'aauth-agent.json',
     sub: delegateUrl,
+    jti: randomUUID(),
     cnf: { jwk: ephPubJwk },
     iat: now,
     exp: now + lifetime,

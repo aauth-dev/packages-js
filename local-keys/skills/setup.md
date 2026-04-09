@@ -65,11 +65,16 @@ Each command outputs JSON with:
 npx @aauth/local-keys generate --agent <agent-url>
 ```
 
-### 3. Set the person server (if known)
+### 3. Set the person server
 
-If the user has a person server URL:
+The person server URL is included as the `ps` claim in agent tokens. Set it during setup:
 ```
 npx @aauth/local-keys add-agent <agent-url> --person-server <person-server-url>
+```
+
+The default person server is `https://issuer.hello.coop`. If the user doesn't specify one, use the default:
+```
+npx @aauth/local-keys add-agent <agent-url> --person-server https://issuer.hello.coop
 ```
 
 ### 4. Choose a hosting platform
