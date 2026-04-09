@@ -14,11 +14,14 @@
   },
   "files": [
     "dist",
-    "skills"
+    "skills",
+    "bin",
+    "se-helper"
   ],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "npm run build"
+    "build:se-helper": "bash se-helper/build.sh",
+    "prepublishOnly": "npm run build && npm run build:se-helper"
   },
   "keywords": [
     "aauth",

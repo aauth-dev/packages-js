@@ -1,0 +1,31 @@
+{
+  "name": "@aauth/hardware-keys",
+  "version": "0.1.0",
+  "description": "Hardware key backends for AAuth: YubiKey PIV and macOS Secure Enclave",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "index.*.node"
+  ],
+  "types": "index.d.ts",
+  "napi": {
+    "binaryName": "hardware-keys",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc"
+    ]
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  }
+}
