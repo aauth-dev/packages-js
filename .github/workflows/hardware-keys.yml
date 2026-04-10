@@ -164,6 +164,7 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
 
       - uses: actions/download-artifact@v4
         with:
@@ -184,12 +185,25 @@ jobs:
 
       - name: Publish platform packages
         run: |
+          VERSION=$(node -p "require('./hardware-keys/package.json').version")
           for pkg in darwin-arm64 darwin-x64 linux-x64-gnu win32-x64-msvc; do
-            echo "Publishing @aauth/hardware-keys-$pkg..."
-            (cd hardware-keys/npm/$pkg && npm publish --provenance --access public) || echo "  skipped (may already exist)"
+            published=$(npm view "@aauth/hardware-keys-$pkg" version 2>/dev/null || echo "0.0.0")
+            if [ "$published" = "$VERSION" ]; then
+              echo "Skipping @aauth/hardware-keys-$pkg@$VERSION (already published)"
+            else
+              echo "Publishing @aauth/hardware-keys-$pkg@$VERSION (npm has $published)..."
+              (cd hardware-keys/npm/$pkg && npm publish --provenance --access public)
+            fi
           done
 
       - name: Publish main hardware-keys package
         run: |
-          cd hardware-keys
-          npm publish --provenance --access public || echo "  skipped (may already exist)"
+          VERSION=$(node -p "require('./hardware-keys/package.json').version")
+          published=$(npm view "@aauth/hardware-keys" version 2>/dev/null || echo "0.0.0")
+          if [ "$published" = "$VERSION" ]; then
+            echo "Skipping @aauth/hardware-keys@$VERSION (already published)"
+          else
+            echo "Publishing @aauth/hardware-keys@$VERSION (npm has $published)..."
+            cd hardware-keys
+            npm publish --provenance --access public
+          fi

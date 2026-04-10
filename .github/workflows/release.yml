@@ -41,6 +41,7 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
       - run: npm ci
 
       - name: Verify version from release tag
@@ -82,6 +83,11 @@ jobs:
       - name: Publish packages with provenance (OIDC Trusted Publishing)
         run: |
           for pkg in local-keys mcp-server mcp-agent mcp-openclaw mcp-stdio; do
-            echo "Publishing $pkg..."
-            (cd $pkg && npm publish --provenance --access public) || echo "⚠️  $pkg skipped (may already be at this version)"
+            published=$(npm view "@aauth/$pkg" version 2>/dev/null || echo "0.0.0")
+            if [ "$published" = "$VERSION" ]; then
+              echo "Skipping @aauth/$pkg@$VERSION (already published)"
+            else
+              echo "Publishing @aauth/$pkg@$VERSION (npm has $published)..."
+              (cd $pkg && npm publish --provenance --access public)
+            fi
           done
