@@ -1,6 +1,6 @@
 {
   "name": "@aauth/mcp-stdio",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Stdio-to-HTTP proxy for MCP with AAuth signatures",
   "type": "module",
   "exports": {

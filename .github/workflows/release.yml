@@ -41,7 +41,7 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@latest
+      - run: npm install -g npm@10
       - run: npm ci
 
       - name: Verify version from release tag
