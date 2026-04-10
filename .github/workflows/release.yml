@@ -48,7 +48,7 @@ jobs:
 
       - name: Verify all packages have same version
         run: |
-          for pkg in mcp-server mcp-agent mcp-openclaw mcp-stdio local-keys; do
+          for pkg in mcp-server mcp-agent mcp-openclaw mcp-stdio local-keys hardware-keys; do
             PKG_VERSION=$(node -p "require('./$pkg/package.json').version")
             if [ "$PKG_VERSION" != "$VERSION" ]; then
               echo "❌ $pkg has version $PKG_VERSION, expected $VERSION"

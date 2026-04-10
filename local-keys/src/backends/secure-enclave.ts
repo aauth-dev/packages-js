@@ -15,11 +15,14 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 function getHelperPath(): string | null {
-  // Look for se-helper relative to the package
+  const arch = process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64'
   const candidates = [
-    join(__dirname, '..', '..', 'bin', 'se-helper'),
-    join(__dirname, '..', '..', 'se-helper', 'se-helper'),
+    // Published: inside platform-specific hardware-keys package
+    join(__dirname, '..', '..', 'node_modules', `@aauth/hardware-keys-${arch}`, 'se-helper'),
+    // Workspace: hardware-keys sibling
     join(__dirname, '..', '..', '..', 'hardware-keys', 'se-helper', 'se-helper'),
+    // Local dev: bin directory
+    join(__dirname, '..', '..', 'bin', 'se-helper'),
   ]
   for (const p of candidates) {
     if (existsSync(p)) return p

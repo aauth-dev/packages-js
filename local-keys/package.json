@@ -1,7 +1,7 @@
 {
   "name": "@aauth/local-keys",
   "version": "0.3.0",
-  "description": "Manage Ed25519 key pairs for local AAuth agent development",
+  "description": "Manage AAuth agent signing keys across hardware and software backends",
   "type": "module",
   "exports": {
     ".": {
@@ -15,18 +15,19 @@
   "files": [
     "dist",
     "skills",
-    "bin",
     "se-helper"
   ],
   "scripts": {
     "build": "tsc",
     "build:se-helper": "bash se-helper/build.sh",
-    "prepublishOnly": "npm run build && npm run build:se-helper"
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "aauth",
     "agent-auth",
-    "ed25519",
+    "signing",
+    "yubikey",
+    "secure-enclave",
     "keychain"
   ],
   "author": "Dick Hardt <dick.hardt@hello.coop>",
@@ -42,6 +43,9 @@
   "dependencies": {
     "@napi-rs/keyring": "^1.1.3",
     "jose": "^5.0.0"
+  },
+  "optionalDependencies": {
+    "@aauth/hardware-keys": "^0.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

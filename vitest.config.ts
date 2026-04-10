@@ -11,4 +11,12 @@ export default defineConfig({
       '@aauth/hardware-keys': path.resolve(__dirname, 'hardware-keys/index.js'),
     },
   },
+  test: {
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
+  },
 })
