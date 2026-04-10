@@ -1,6 +1,6 @@
 {
   "name": "@aauth/hardware-keys-win32-x64-msvc",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "os": ["win32"],
   "cpu": ["x64"],
   "main": "index.win32-x64-msvc.node",
@@ -9,6 +9,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/HelloCoop/AAuth"
+    "url": "https://github.com/hellocoop/AAuth"
   }
 }

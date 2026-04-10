@@ -1,6 +1,6 @@
 {
   "name": "@aauth/hardware-keys-darwin-arm64",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "os": ["darwin"],
   "cpu": ["arm64"],
   "main": "index.darwin-arm64.node",
@@ -9,6 +9,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/HelloCoop/AAuth"
+    "url": "https://github.com/hellocoop/AAuth"
   }
 }

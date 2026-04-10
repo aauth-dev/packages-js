@@ -1,6 +1,6 @@
 {
   "name": "@aauth/hardware-keys",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "description": "Hardware key backends for AAuth: YubiKey PIV and macOS Secure Enclave",
   "main": "index.js",
   "files": [
@@ -26,9 +26,9 @@
     "@napi-rs/cli": "^2.18.0"
   },
   "optionalDependencies": {
-    "@aauth/hardware-keys-darwin-arm64": "0.4.9",
-    "@aauth/hardware-keys-darwin-x64": "0.4.9",
-    "@aauth/hardware-keys-linux-x64-gnu": "0.4.9",
-    "@aauth/hardware-keys-win32-x64-msvc": "0.4.9"
+    "@aauth/hardware-keys-darwin-arm64": "0.5.0",
+    "@aauth/hardware-keys-darwin-x64": "0.5.0",
+    "@aauth/hardware-keys-linux-x64-gnu": "0.5.0",
+    "@aauth/hardware-keys-win32-x64-msvc": "0.5.0"
   }
 }
