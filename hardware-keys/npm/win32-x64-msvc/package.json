@@ -1,0 +1,14 @@
+{
+  "name": "@aauth/hardware-keys-win32-x64-msvc",
+  "version": "0.3.0",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "main": "index.win32-x64-msvc.node",
+  "files": ["index.win32-x64-msvc.node"],
+  "description": "Hardware key backends for AAuth — Windows x64 (MSVC) native binary",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HelloCoop/AAuth"
+  }
+}

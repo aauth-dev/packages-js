@@ -5,8 +5,7 @@
   "main": "index.js",
   "files": [
     "index.js",
-    "index.d.ts",
-    "index.*.node"
+    "index.d.ts"
   ],
   "types": "index.d.ts",
   "napi": {
@@ -14,10 +13,8 @@
     "targets": [
       "aarch64-apple-darwin",
       "x86_64-apple-darwin",
-      "aarch64-unknown-linux-gnu",
       "x86_64-unknown-linux-gnu",
-      "x86_64-pc-windows-msvc",
-      "aarch64-pc-windows-msvc"
+      "x86_64-pc-windows-msvc"
     ]
   },
   "license": "MIT",
@@ -27,5 +24,11 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"
+  },
+  "optionalDependencies": {
+    "@aauth/hardware-keys-darwin-arm64": "0.3.0",
+    "@aauth/hardware-keys-darwin-x64": "0.3.0",
+    "@aauth/hardware-keys-linux-x64-gnu": "0.3.0",
+    "@aauth/hardware-keys-win32-x64-msvc": "0.3.0"
   }
 }
