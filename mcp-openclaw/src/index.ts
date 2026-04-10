@@ -2,7 +2,7 @@ import { createAgentToken } from '@aauth/local-keys'
 import { ServerManager } from './server-manager.js'
 
 export interface PluginConfig {
-  agent_url: string
+  agent_url?: string
   delegate?: string
   token_lifetime?: number
   mcp_servers: Record<string, string>

@@ -1,0 +1,6 @@
+target/
+*.node
+node_modules/
+package-lock.json
+Cargo.lock
+se-helper/se-helper

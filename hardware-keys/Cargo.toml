@@ -1,0 +1,30 @@
+[package]
+name = "aauth-hardware-keys"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["napi4"] }
+napi-derive = "2"
+yubikey = { version = "0.8", features = ["untested"] }
+p256 = "0.13"
+der = "0.7"
+serde_json = "1"
+base64 = "0.22"
+sha2 = "0.10"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "2"
+security-framework-sys = "2"
+core-foundation = "0.9"
+core-foundation-sys = "0.8"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true

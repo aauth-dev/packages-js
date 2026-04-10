@@ -1,5 +1,7 @@
+import crypto from 'node:crypto'
+
 export interface Mission {
-  manager: string       // mission manager URL
+  approver: string      // person server URL (approver of the mission)
   s256: string          // SHA-256 hash of approved mission text (base64url)
 }
 
@@ -44,6 +46,7 @@ export async function createResourceToken(
     iss: resource,
     dwk: 'aauth-resource.json',
     aud: authServer,
+    jti: crypto.randomUUID(),
     agent,
     agent_jkt: agentJkt,
     iat: now,

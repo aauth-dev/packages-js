@@ -23,6 +23,7 @@
   },
   "workspaces": [
     "local-keys",
+    "hardware-keys",
     "mcp-agent",
     "mcp-server",
     "mcp-stdio",

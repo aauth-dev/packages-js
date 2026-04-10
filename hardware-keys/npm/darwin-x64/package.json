@@ -1,0 +1,14 @@
+{
+  "name": "@aauth/hardware-keys-darwin-x64",
+  "version": "0.3.0",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "main": "index.darwin-x64.node",
+  "files": ["index.darwin-x64.node", "se-helper"],
+  "description": "Hardware key backends for AAuth — macOS x64 native binary",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HelloCoop/AAuth"
+  }
+}

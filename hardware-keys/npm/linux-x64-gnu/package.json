@@ -1,0 +1,15 @@
+{
+  "name": "@aauth/hardware-keys-linux-x64-gnu",
+  "version": "0.3.0",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "libc": ["glibc"],
+  "main": "index.linux-x64-gnu.node",
+  "files": ["index.linux-x64-gnu.node"],
+  "description": "Hardware key backends for AAuth — Linux x64 (glibc) native binary",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HelloCoop/AAuth"
+  }
+}

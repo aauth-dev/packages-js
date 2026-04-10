@@ -20,8 +20,16 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  hardware-keys:
+    uses: ./.github/workflows/hardware-keys.yml
+    with:
+      publish: true
+    permissions:
+      contents: read
+      id-token: write
+
   publish:
-    needs: test
+    needs: [test, hardware-keys]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,10 +56,17 @@ jobs:
 
       - name: Verify all packages have same version
         run: |
-          for pkg in mcp-server mcp-agent mcp-openclaw mcp-stdio local-keys; do
+          for pkg in mcp-server mcp-agent mcp-openclaw mcp-stdio local-keys hardware-keys; do
             PKG_VERSION=$(node -p "require('./$pkg/package.json').version")
             if [ "$PKG_VERSION" != "$VERSION" ]; then
               echo "❌ $pkg has version $PKG_VERSION, expected $VERSION"
+              exit 1
+            fi
+          done
+          for pkg in darwin-arm64 darwin-x64 linux-x64-gnu win32-x64-msvc; do
+            PKG_VERSION=$(node -p "require('./hardware-keys/npm/$pkg/package.json').version")
+            if [ "$PKG_VERSION" != "$VERSION" ]; then
+              echo "❌ hardware-keys-$pkg has version $PKG_VERSION, expected $VERSION"
               exit 1
             fi
           done

@@ -1,0 +1,195 @@
+name: Hardware Keys CI
+
+on:
+  pull_request:
+    paths:
+      - 'hardware-keys/**'
+      - 'local-keys/se-helper/**'
+      - '.github/workflows/hardware-keys.yml'
+  workflow_call:
+    inputs:
+      publish:
+        description: 'Publish platform packages to npm'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-darwin-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Install napi-rs CLI
+        run: npm install -g @napi-rs/cli
+      - name: Build native module
+        working-directory: hardware-keys
+        run: napi build --platform --release --target aarch64-apple-darwin
+      - name: Build se-helper
+        run: bash local-keys/se-helper/build.sh
+      - name: List build output
+        run: ls -la hardware-keys/*.node
+      - name: Smoke test
+        run: node -e "const m = require('./hardware-keys/hardware-keys.darwin-arm64.node'); console.log('discover:', JSON.stringify(m.discover()))"
+      - name: Stage platform package
+        run: |
+          cp hardware-keys/hardware-keys.darwin-arm64.node hardware-keys/npm/darwin-arm64/index.darwin-arm64.node
+          cp local-keys/bin/se-helper hardware-keys/npm/darwin-arm64/se-helper
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hardware-keys-darwin-arm64
+          path: hardware-keys/npm/darwin-arm64/
+          if-no-files-found: error
+
+  build-darwin-x64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - name: Install napi-rs CLI
+        run: npm install -g @napi-rs/cli
+      - name: Build native module
+        working-directory: hardware-keys
+        run: napi build --platform --release --target x86_64-apple-darwin
+      - name: Build se-helper for x86_64
+        run: |
+          mkdir -p local-keys/bin
+          swiftc -O -target x86_64-apple-macos11 -o local-keys/bin/se-helper local-keys/se-helper/main.swift
+          codesign --force --sign - local-keys/bin/se-helper
+      - name: List build output
+        run: ls -la hardware-keys/*.node
+      - name: Stage platform package
+        run: |
+          cp hardware-keys/hardware-keys.darwin-x64.node hardware-keys/npm/darwin-x64/index.darwin-x64.node
+          cp local-keys/bin/se-helper hardware-keys/npm/darwin-x64/se-helper
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hardware-keys-darwin-x64
+          path: hardware-keys/npm/darwin-x64/
+          if-no-files-found: error
+
+  build-linux-x64-gnu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcsclite-dev
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - name: Install napi-rs CLI
+        run: npm install -g @napi-rs/cli
+      - name: Build native module
+        working-directory: hardware-keys
+        run: napi build --platform --release --target x86_64-unknown-linux-gnu
+      - name: List build output
+        run: ls -la hardware-keys/*.node
+      - name: Smoke test
+        run: node -e "const m = require('./hardware-keys/hardware-keys.linux-x64-gnu.node'); console.log('discover:', JSON.stringify(m.discover()))"
+      - name: Stage platform package
+        run: |
+          cp hardware-keys/hardware-keys.linux-x64-gnu.node hardware-keys/npm/linux-x64-gnu/index.linux-x64-gnu.node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hardware-keys-linux-x64-gnu
+          path: hardware-keys/npm/linux-x64-gnu/
+          if-no-files-found: error
+
+  build-win32-x64-msvc:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install napi-rs CLI
+        run: npm install -g @napi-rs/cli
+      - name: Build native module
+        working-directory: hardware-keys
+        run: napi build --platform --release --target x86_64-pc-windows-msvc
+      - name: List build output
+        shell: bash
+        run: ls -la hardware-keys/*.node
+      - name: Smoke test
+        run: node -e "const m = require('./hardware-keys/hardware-keys.win32-x64-msvc.node'); console.log('discover:', JSON.stringify(m.discover()))"
+      - name: Stage platform package
+        shell: bash
+        run: |
+          cp hardware-keys/hardware-keys.win32-x64-msvc.node hardware-keys/npm/win32-x64-msvc/index.win32-x64-msvc.node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hardware-keys-win32-x64-msvc
+          path: hardware-keys/npm/win32-x64-msvc/
+          if-no-files-found: error
+
+  publish:
+    if: inputs.publish
+    needs:
+      - build-darwin-arm64
+      - build-darwin-x64
+      - build-linux-x64-gnu
+      - build-win32-x64-msvc
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hardware-keys-darwin-arm64
+          path: hardware-keys/npm/darwin-arm64/
+      - uses: actions/download-artifact@v4
+        with:
+          name: hardware-keys-darwin-x64
+          path: hardware-keys/npm/darwin-x64/
+      - uses: actions/download-artifact@v4
+        with:
+          name: hardware-keys-linux-x64-gnu
+          path: hardware-keys/npm/linux-x64-gnu/
+      - uses: actions/download-artifact@v4
+        with:
+          name: hardware-keys-win32-x64-msvc
+          path: hardware-keys/npm/win32-x64-msvc/
+
+      - name: Publish platform packages
+        run: |
+          for pkg in darwin-arm64 darwin-x64 linux-x64-gnu win32-x64-msvc; do
+            echo "Publishing @aauth/hardware-keys-$pkg..."
+            (cd hardware-keys/npm/$pkg && npm publish --provenance --access public) || echo "  skipped (may already exist)"
+          done
+
+      - name: Publish main hardware-keys package
+        run: |
+          cd hardware-keys
+          npm publish --provenance --access public || echo "  skipped (may already exist)"
