@@ -1,6 +1,6 @@
 {
   "name": "@aauth/mcp-stdio",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Stdio-to-HTTP proxy for MCP with AAuth signatures",
   "type": "module",
   "exports": {
@@ -37,8 +37,8 @@
     "directory": "mcp-stdio"
   },
   "dependencies": {
-    "@aauth/local-keys": "^0.1.0",
-    "@aauth/mcp-agent": "^0.1.0",
+    "@aauth/local-keys": "^0.4.0",
+    "@aauth/mcp-agent": "^0.4.0",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "open": "^11.0.0"
   },
