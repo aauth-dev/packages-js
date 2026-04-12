@@ -70,7 +70,7 @@ export async function createAuthJwt(
   const now = Math.floor(Date.now() / 1000)
   const claims: Record<string, unknown> = {
     iss: opts.iss,
-    dwk: 'aauth-issuer.json',
+    dwk: 'aauth-person.json',
     aud: opts.aud,
     agent: opts.agent,
     cnf: { jwk: keys.agentEphemeral.pubJwk },
@@ -200,7 +200,7 @@ export function createMockServer(config: MockServerConfig): MockServer {
     }
 
     // --- Auth server metadata ---
-    if (urlStr === `${authServerUrl}/.well-known/aauth-issuer.json`) {
+    if (urlStr === `${authServerUrl}/.well-known/aauth-person.json`) {
       return new Response(JSON.stringify({
         token_endpoint: `${authServerUrl}/aauth/token`,
         jwks_uri: `${authServerUrl}/jwks`,
@@ -302,7 +302,7 @@ export function createMockServer(config: MockServerConfig): MockServer {
     }
 
     // Auth server metadata
-    if (urlStr === `${authServerUrl}/.well-known/aauth-issuer.json`) {
+    if (urlStr === `${authServerUrl}/.well-known/aauth-person.json`) {
       return new Response(JSON.stringify({
         jwks_uri: `${authServerUrl}/jwks`,
         token_endpoint: `${authServerUrl}/aauth/token`,

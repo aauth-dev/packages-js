@@ -1,6 +1,6 @@
 # AAuth — Agent Auth for MCP
 
-TypeScript packages for adding [AAuth](https://github.com/DickHardt/draft-hardt-aauth) (Agent Auth) to MCP servers and agents.
+TypeScript packages for adding [AAuth](https://github.com/DickHardt/AAuth) (Agent Auth) to MCP servers and agents.
 
 AAuth is an agent-aware authentication protocol that lets AI agents prove their identity and obtain authorization using HTTP Message Signatures and JWTs.
 
@@ -42,7 +42,7 @@ Agent                          Resource Server              Auth Server
 4. Auth server returns an `auth_token` (or 202 for interactive flows)
 5. Agent retries with the `auth_token` — resource verifies signature, token, and key binding
 
-All requests are signed with [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) (RFC 9421) using Ed25519. Tokens are JWTs with `agent+jwt`, `auth+jwt`, and `resource+jwt` types.
+All requests are signed with [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) (RFC 9421) using Ed25519. Tokens are JWTs with `aa-agent+jwt`, `aa-auth+jwt`, and `aa-resource+jwt` types.
 
 ## Quick Start
 
@@ -84,9 +84,16 @@ const token = await createResourceToken({ resource, authServer, agent, agentJkt 
 npx @aauth/local-keys https://yourusername.github.io
 ```
 
+## Protocol Support
+
+This implementation covers the core AAuth protocol flows. The following spec features are **not yet supported**:
+
+- **Call chaining** — multi-hop delegation where a resource acts as an agent to call downstream resources with `upstream_token`
+- **AS federation (four-party mode)** — PS-to-Access-Server federation with `requirement=claims` for identity claim exchange
+
 ## Specification
 
-The AAuth protocol specification: [github.com/DickHardt/draft-hardt-aauth](https://github.com/DickHardt/draft-hardt-aauth)
+The AAuth protocol specification: [github.com/DickHardt/AAuth](https://github.com/DickHardt/AAuth)
 
 ## License
 

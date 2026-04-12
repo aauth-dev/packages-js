@@ -105,18 +105,6 @@ describe('AAuth-Requirement header round-trip (server builds → agent parses)',
     expect(parsed.code).toBe('CODE1234')
   })
 
-  it('round-trips pseudonym level', () => {
-    const header = buildAAuthHeader('pseudonym')
-    const parsed = parseAAuthHeader(header)
-    expect(parsed.requirement).toBe('pseudonym')
-  })
-
-  it('round-trips identity level', () => {
-    const header = buildAAuthHeader('identity')
-    const parsed = parseAAuthHeader(header)
-    expect(parsed.requirement).toBe('identity')
-  })
-
   it('round-trips approval level', () => {
     const header = buildAAuthHeader('approval')
     const parsed = parseAAuthHeader(header)
@@ -194,7 +182,7 @@ describe('verifyToken with real tokens', () => {
     expect(result.type).toBe('auth')
     const auth = result as VerifiedAuthToken
     expect(auth.iss).toBe(AUTH_SERVER_URL)
-    expect(auth.dwk).toBe('aauth-issuer.json')
+    expect(auth.dwk).toBe('aauth-person.json')
     expect(auth.aud).toBe(RESOURCE_URL)
     expect(auth.agent).toBe(AGENT_URL)
     expect(auth.sub).toBe('user-456')

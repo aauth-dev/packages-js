@@ -1,9 +1,10 @@
 import { fetch as httpSigFetch } from '@hellocoop/httpsig'
 import { createSignedFetch } from './signed-fetch.js'
-import { parseAAuthHeader } from './aauth-header.js'
+import { parseAAuthHeader, buildCapabilitiesHeader, buildMissionHeader } from './aauth-header.js'
 import { exchangeToken } from './token-exchange.js'
 import { pollDeferred } from './deferred.js'
 import type { GetKeyMaterial, FetchLike } from './types.js'
+import type { Capability, AAuthMission } from './aauth-header.js'
 
 export interface AAuthFetchOptions {
   getKeyMaterial: GetKeyMaterial
@@ -14,12 +15,18 @@ export interface AAuthFetchOptions {
   loginHint?: string
   tenant?: string
   domainHint?: string
+  capabilities?: Capability[]
+  mission?: AAuthMission
 }
 
 interface CachedToken {
   authToken: string
   expiresAt: number
   authServer: string
+}
+
+interface CachedAccess {
+  token: string
 }
 
 /**
@@ -40,10 +47,13 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     loginHint,
     tenant,
     domainHint,
+    capabilities,
+    mission,
   } = options
 
-  const signedFetch = createSignedFetch(getKeyMaterial)
+  const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, mission })
   const tokenCache = new Map<string, CachedToken>()
+  const accessCache = new Map<string, CachedAccess>()
 
   return async (url: string | URL, init?: RequestInit): Promise<Response> => {
     const urlStr = typeof url === 'string' ? url : url.toString()
@@ -56,17 +66,31 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       const response = await fetchWithAuthToken(url, init, cached.authToken, getKeyMaterial)
       // If the cached token is rejected, fall through to challenge flow
       if (response.status !== 401) {
+        cacheAccessToken(accessCache, resourceOrigin, response)
         return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
       }
       // Cached token rejected — remove and proceed with fresh exchange
       tokenCache.delete(cacheKey(resourceOrigin, cached.authServer))
     }
 
+    // Check cache for an opaque AAuth-Access token (two-party mode)
+    const cachedAccess = accessCache.get(resourceOrigin)
+    if (cachedAccess) {
+      const response = await fetchWithAccessToken(url, init, cachedAccess.token, getKeyMaterial)
+      if (response.status !== 401) {
+        cacheAccessToken(accessCache, resourceOrigin, response)
+        return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
+      }
+      // Access token rejected — remove and proceed
+      accessCache.delete(resourceOrigin)
+    }
+
     // Send signed request (no auth token)
     const response = await signedFetch(url, init)
 
-    // 200: success
+    // 200: success — check for AAuth-Access token
     if (response.status === 200) {
+      cacheAccessToken(accessCache, resourceOrigin, response)
       return response
     }
 
@@ -110,15 +134,18 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         const retryResponse = await fetchWithAuthToken(
           url, init, result.authToken, getKeyMaterial,
         )
+        cacheAccessToken(accessCache, resourceOrigin, retryResponse)
         return handleResourceInteraction(retryResponse, signedFetch, onInteraction, onClarification)
       }
 
-      // pseudonymous/identity challenges don't require token exchange
+      // non-auth-token challenges (approval, clarification, claims) don't require token exchange
       return response
     }
 
-    // 202 with interaction: resource-level interaction
-    return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
+    // 202 with interaction: resource-level interaction (two-party mode)
+    const terminalResponse = await handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
+    cacheAccessToken(accessCache, resourceOrigin, terminalResponse)
+    return terminalResponse
   }
 }
 
@@ -184,6 +211,42 @@ async function fetchWithAuthToken(
     signatureKey: { type: 'jwt', jwt: authToken },
   })
   return response as Response
+}
+
+/**
+ * Send a signed request with an opaque AAuth-Access token in the Authorization header.
+ * The agent signs the request (including the authorization header) with its agent token.
+ */
+async function fetchWithAccessToken(
+  url: string | URL,
+  init: RequestInit | undefined,
+  accessToken: string,
+  getKeyMaterial: GetKeyMaterial,
+): Promise<Response> {
+  const { signingKey, signatureKey } = await getKeyMaterial()
+  const headers = new Headers(init?.headers)
+  headers.set('authorization', `Bearer ${accessToken}`)
+  const httpSigKey = signatureKey.type === 'jkt-jwt'
+    ? { type: 'jwt' as const, jwt: signatureKey.jwt }
+    : signatureKey
+  const response = await httpSigFetch(url, {
+    ...init,
+    headers,
+    signingKey,
+    signatureKey: httpSigKey,
+  })
+  return response as Response
+}
+
+/**
+ * Cache an AAuth-Access token from a response if present.
+ * A new AAuth-Access header replaces any previously cached token.
+ */
+function cacheAccessToken(cache: Map<string, CachedAccess>, resourceOrigin: string, response: Response): void {
+  const accessToken = response.headers.get('aauth-access')
+  if (accessToken) {
+    cache.set(resourceOrigin, { token: accessToken })
+  }
 }
 
 function cacheKey(resourceOrigin: string, authServer: string): string {

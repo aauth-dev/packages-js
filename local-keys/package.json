@@ -1,6 +1,6 @@
 {
   "name": "@aauth/local-keys",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Manage AAuth agent signing keys across hardware and software backends",
   "type": "module",
   "exports": {

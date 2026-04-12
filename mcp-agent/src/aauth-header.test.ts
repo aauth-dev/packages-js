@@ -1,17 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { parseAAuthHeader } from './aauth-header.js'
+import {
+  parseAAuthHeader,
+  buildCapabilitiesHeader,
+  parseCapabilitiesHeader,
+  buildMissionHeader,
+  parseMissionHeader,
+} from './aauth-header.js'
 
 describe('parseAAuthHeader', () => {
-  it('parses requirement=pseudonym', () => {
-    const result = parseAAuthHeader('requirement=pseudonym')
-    expect(result).toEqual({ requirement: 'pseudonym' })
-  })
-
-  it('parses requirement=identity', () => {
-    const result = parseAAuthHeader('requirement=identity')
-    expect(result).toEqual({ requirement: 'identity' })
-  })
-
   it('parses requirement=approval', () => {
     const result = parseAAuthHeader('requirement=approval')
     expect(result).toEqual({ requirement: 'approval' })
@@ -74,8 +70,57 @@ describe('parseAAuthHeader', () => {
   })
 
   it('ignores unknown parameters', () => {
-    const header = 'requirement=pseudonym; unknown="value"'
+    const header = 'requirement=approval; unknown="value"'
     const result = parseAAuthHeader(header)
-    expect(result).toEqual({ requirement: 'pseudonym' })
+    expect(result).toEqual({ requirement: 'approval' })
+  })
+})
+
+describe('buildCapabilitiesHeader / parseCapabilitiesHeader', () => {
+  it('builds a capabilities header', () => {
+    expect(buildCapabilitiesHeader(['interaction', 'clarification']))
+      .toBe('interaction, clarification')
+  })
+
+  it('parses a capabilities header', () => {
+    expect(parseCapabilitiesHeader('interaction, clarification, payment'))
+      .toEqual(['interaction', 'clarification', 'payment'])
+  })
+
+  it('ignores unknown capabilities', () => {
+    expect(parseCapabilitiesHeader('interaction, unknown, payment'))
+      .toEqual(['interaction', 'payment'])
+  })
+
+  it('handles whitespace variations', () => {
+    expect(parseCapabilitiesHeader('interaction,clarification , payment'))
+      .toEqual(['interaction', 'clarification', 'payment'])
+  })
+})
+
+describe('buildMissionHeader / parseMissionHeader', () => {
+  const mission = {
+    approver: 'https://ps.example',
+    s256: 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk',
+  }
+
+  it('builds a mission header', () => {
+    expect(buildMissionHeader(mission))
+      .toBe('approver="https://ps.example"; s256="dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"')
+  })
+
+  it('round-trips mission header', () => {
+    const header = buildMissionHeader(mission)
+    expect(parseMissionHeader(header)).toEqual(mission)
+  })
+
+  it('throws on missing approver', () => {
+    expect(() => parseMissionHeader('s256="abc"'))
+      .toThrow('Invalid AAuth-Mission header')
+  })
+
+  it('throws on missing s256', () => {
+    expect(() => parseMissionHeader('approver="https://ps.example"'))
+      .toThrow('Invalid AAuth-Mission header')
   })
 })

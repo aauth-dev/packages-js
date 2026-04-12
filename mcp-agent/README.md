@@ -14,7 +14,7 @@ npm install @aauth/mcp-agent
 
 ### `createAAuthFetch(options): FetchLike`
 
-Creates a protocol-aware fetch that handles the full AAuth flow automatically: signs requests, parses 401 challenges, exchanges tokens with the auth server, caches auth tokens, and retries.
+Creates a protocol-aware fetch that handles the full AAuth flow automatically: signs requests, parses 401 challenges, exchanges tokens with the auth server, caches auth tokens, handles `AAuth-Access` opaque tokens (two-party mode), and retries.
 
 ```ts
 import { createAAuthFetch } from '@aauth/mcp-agent'
@@ -24,15 +24,19 @@ const fetch = createAAuthFetch({
     signingKey: privateKeyJwk,
     signatureKey: { type: 'jwt', jwt: agentToken }
   }),
+  // Optional: declare protocol capabilities
+  capabilities: ['interaction', 'clarification'],
+  // Optional: mission context (sets AAuth-Mission header)
+  mission: { approver: 'https://ps.example', s256: '...' },
   // Optional callbacks
-  onInteraction: (code, endpoint) => {
-    console.log(`Visit ${endpoint} and enter code: ${code}`)
+  onInteraction: (url, code) => {
+    console.log(`Visit ${url}?code=${code}`)
   },
   onClarification: async (question) => {
     return prompt(question)
   },
   // Optional hints for the auth server
-  purpose: 'Read project files',
+  justification: 'Read project files',
   loginHint: 'user@example.com',
   tenant: 'acme.com',
   domainHint: 'acme.com',
@@ -41,7 +45,11 @@ const fetch = createAAuthFetch({
 const response = await fetch('https://resource.example/api')
 ```
 
-### `createSignedFetch(getKeyMaterial): FetchLike`
+When `capabilities` is set, every signed request includes the `AAuth-Capabilities` header. When `mission` is set, every signed request includes the `AAuth-Mission` header.
+
+The fetch automatically caches and reuses `AAuth-Access` opaque tokens returned by resources in two-party mode, sending them back via `Authorization: Bearer` on subsequent requests.
+
+### `createSignedFetch(getKeyMaterial, options?): FetchLike`
 
 Creates a fetch that signs requests with HTTP Message Signatures but does not handle AAuth challenges. Use this when you only need request signing.
 
@@ -51,43 +59,46 @@ import { createSignedFetch } from '@aauth/mcp-agent'
 const signedFetch = createSignedFetch(async () => ({
   signingKey: privateKeyJwk,
   signatureKey: { type: 'hwk' }
-}))
+}), {
+  capabilities: ['interaction'],
+  mission: { approver: 'https://ps.example', s256: '...' },
+})
 ```
 
 ### `parseAAuthHeader(headerValue): AAuthChallenge`
 
-Parses an `AAuth` response header into a structured challenge.
+Parses an `AAuth-Requirement` response header into a structured challenge.
 
 ```ts
 import { parseAAuthHeader } from '@aauth/mcp-agent'
 
-const challenge = parseAAuthHeader(response.headers.get('AAuth'))
-// { require: 'auth-token', resourceToken: '...', authServer: 'https://...' }
+const challenge = parseAAuthHeader(response.headers.get('aauth-requirement'))
+// { requirement: 'auth-token', resourceToken: '...' }
 ```
 
 Returns:
 
 ```ts
 interface AAuthChallenge {
-  require: 'pseudonym' | 'identity' | 'auth-token' | 'approval' | 'interaction'
+  requirement: 'auth-token' | 'approval' | 'interaction' | 'clarification' | 'claims'
   resourceToken?: string
-  authServer?: string
+  url?: string
   code?: string
 }
 ```
 
 ### `exchangeToken(options): Promise<TokenExchangeResult>`
 
-Exchanges a resource token for an auth token at the auth server. Handles metadata discovery, 202 deferred responses, and interaction polling.
+Exchanges a resource token for an auth token at the person server. Handles metadata discovery (`/.well-known/aauth-person.json`), 202 deferred responses, and interaction polling.
 
 ```ts
 import { exchangeToken } from '@aauth/mcp-agent'
 
 const { authToken, expiresIn } = await exchangeToken({
   signedFetch,
-  authServerUrl: 'https://auth.example',
+  authServerUrl: 'https://ps.example',
   resourceToken: '...',
-  purpose: 'Read project files',
+  justification: 'Read project files',
 })
 ```
 

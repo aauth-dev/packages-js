@@ -52,7 +52,7 @@ describe('exchangeToken', () => {
 
     // Verify metadata was fetched
     expect(mockFetch).toHaveBeenNthCalledWith(1,
-      'https://auth.example/.well-known/aauth-issuer.json',
+      'https://auth.example/.well-known/aauth-person.json',
       { method: 'GET' },
     )
 

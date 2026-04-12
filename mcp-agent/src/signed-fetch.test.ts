@@ -78,4 +78,42 @@ describe('createSignedFetch', () => {
       signatureKey: fakeKeyMaterial.signatureKey,
     })
   })
+
+  it('sets AAuth-Capabilities header when capabilities provided', async () => {
+    mockHttpSigFetch.mockResolvedValue(new Response())
+
+    const signedFetch = createSignedFetch(getKeyMaterial, {
+      capabilities: ['interaction', 'clarification'],
+    })
+    await signedFetch('https://example.com')
+
+    const call = mockHttpSigFetch.mock.calls[0]
+    const headers = new Headers(call[1].headers)
+    expect(headers.get('aauth-capabilities')).toBe('interaction, clarification')
+  })
+
+  it('sets AAuth-Mission header when mission provided', async () => {
+    mockHttpSigFetch.mockResolvedValue(new Response())
+
+    const signedFetch = createSignedFetch(getKeyMaterial, {
+      mission: { approver: 'https://ps.example', s256: 'abc123' },
+    })
+    await signedFetch('https://example.com')
+
+    const call = mockHttpSigFetch.mock.calls[0]
+    const headers = new Headers(call[1].headers)
+    expect(headers.get('aauth-mission')).toBe('approver="https://ps.example"; s256="abc123"')
+  })
+
+  it('does not set AAuth-Capabilities or AAuth-Mission when not provided', async () => {
+    mockHttpSigFetch.mockResolvedValue(new Response())
+
+    const signedFetch = createSignedFetch(getKeyMaterial)
+    await signedFetch('https://example.com')
+
+    const call = mockHttpSigFetch.mock.calls[0]
+    const headers = new Headers(call[1].headers)
+    expect(headers.has('aauth-capabilities')).toBe(false)
+    expect(headers.has('aauth-mission')).toBe(false)
+  })
 })

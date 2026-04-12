@@ -1,15 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { buildAAuthHeader } from './aauth-header.js'
+import {
+  buildAAuthHeader,
+  buildAAuthAccessHeader,
+  parseCapabilitiesHeader,
+  parseMissionHeader,
+} from './aauth-header.js'
 
 describe('buildAAuthHeader', () => {
-  it('builds pseudonym header', () => {
-    expect(buildAAuthHeader('pseudonym')).toBe('requirement=pseudonym')
-  })
-
-  it('builds identity header', () => {
-    expect(buildAAuthHeader('identity')).toBe('requirement=identity')
-  })
-
   it('builds approval header', () => {
     expect(buildAAuthHeader('approval')).toBe('requirement=approval')
   })
@@ -54,5 +51,38 @@ describe('buildAAuthHeader', () => {
       .toThrow('interaction requires url and code')
     expect(() => (buildAAuthHeader as Function)('interaction', { url: 'https://x' }))
       .toThrow('interaction requires url and code')
+  })
+})
+
+describe('buildAAuthAccessHeader', () => {
+  it('returns the opaque token as-is', () => {
+    expect(buildAAuthAccessHeader('wrapped-opaque-token')).toBe('wrapped-opaque-token')
+  })
+})
+
+describe('parseCapabilitiesHeader', () => {
+  it('parses valid capabilities', () => {
+    expect(parseCapabilitiesHeader('interaction, clarification, payment'))
+      .toEqual(['interaction', 'clarification', 'payment'])
+  })
+
+  it('ignores unknown capabilities', () => {
+    expect(parseCapabilitiesHeader('interaction, unknown'))
+      .toEqual(['interaction'])
+  })
+})
+
+describe('parseMissionHeader', () => {
+  it('parses a valid mission header', () => {
+    const header = 'approver="https://ps.example"; s256="abc123"'
+    expect(parseMissionHeader(header)).toEqual({
+      approver: 'https://ps.example',
+      s256: 'abc123',
+    })
+  })
+
+  it('throws on missing fields', () => {
+    expect(() => parseMissionHeader('approver="https://ps.example"'))
+      .toThrow('Invalid AAuth-Mission header')
   })
 })

@@ -166,10 +166,10 @@ describe('createAAuthFetch', () => {
     expect(cachedCall[1].signatureKey).toEqual({ type: 'jwt', jwt: 'eyJ.cached.token' })
   })
 
-  it('returns pseudonym 401 challenge as-is (no exchange needed)', async () => {
+  it('returns approval 401 challenge as-is (no exchange needed)', async () => {
     const response = new Response('', {
       status: 401,
-      headers: { 'aauth-requirement': 'requirement=pseudonym' },
+      headers: { 'aauth-requirement': 'requirement=approval' },
     })
     mockHttpSigFetch.mockResolvedValueOnce(response)
 
@@ -178,6 +178,54 @@ describe('createAAuthFetch', () => {
 
     expect(result).toBe(response)
     expect(mockExchangeToken).not.toHaveBeenCalled()
+  })
+
+  it('caches AAuth-Access token and sends as Authorization on next request', async () => {
+    // First request → 200 with AAuth-Access header
+    const firstResponse = new Response('ok', {
+      status: 200,
+      headers: { 'aauth-access': 'opaque-token-123' },
+    })
+    mockHttpSigFetch.mockResolvedValueOnce(firstResponse)
+
+    const fetch = createAAuthFetch({ getKeyMaterial })
+    await fetch('https://resource.example/api')
+
+    // Second request should use the access token via Authorization header
+    const secondResponse = new Response('ok2', { status: 200 })
+    mockHttpSigFetch.mockResolvedValueOnce(secondResponse)
+    await fetch('https://resource.example/other')
+
+    // Verify the second call included the Authorization header
+    const secondCall = mockHttpSigFetch.mock.calls[1]
+    const headers = new Headers(secondCall[1].headers)
+    expect(headers.get('authorization')).toBe('Bearer opaque-token-123')
+  })
+
+  it('replaces cached access token when response includes new AAuth-Access', async () => {
+    // First request → 200 with AAuth-Access
+    mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', {
+      status: 200,
+      headers: { 'aauth-access': 'token-v1' },
+    }))
+
+    const fetch = createAAuthFetch({ getKeyMaterial })
+    await fetch('https://resource.example/api')
+
+    // Second request uses token-v1, gets back token-v2
+    mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', {
+      status: 200,
+      headers: { 'aauth-access': 'token-v2' },
+    }))
+    await fetch('https://resource.example/api')
+
+    // Third request should use token-v2
+    mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+    await fetch('https://resource.example/api')
+
+    const thirdCall = mockHttpSigFetch.mock.calls[2]
+    const headers = new Headers(thirdCall[1].headers)
+    expect(headers.get('authorization')).toBe('Bearer token-v2')
   })
 
   it('passes enterprise hints to token exchange', async () => {

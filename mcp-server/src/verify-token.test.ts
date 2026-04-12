@@ -104,12 +104,12 @@ describe('verifyToken', () => {
     const iss = 'https://auth.example'
 
     globalThis.fetch = mockFetchForJwks(
-      rootPubJwk, iss, '/.well-known/aauth-issuer.json',
+      rootPubJwk, iss, '/.well-known/aauth-person.json',
     ) as typeof fetch
 
     const jwt = await signToken(root.privateKey, 'aa-auth+jwt', {
       iss,
-      dwk: 'aauth-issuer.json',
+      dwk: 'aauth-person.json',
       aud: 'https://resource.example',
       agent: 'https://agent.example',
       sub: 'user-123',
@@ -121,7 +121,7 @@ describe('verifyToken', () => {
 
     expect(result.type).toBe('auth')
     expect(result.iss).toBe(iss)
-    expect(result.dwk).toBe('aauth-issuer.json')
+    expect(result.dwk).toBe('aauth-person.json')
     if (result.type === 'auth') {
       expect(result.aud).toBe('https://resource.example')
       expect(result.agent).toBe('https://agent.example')
@@ -193,7 +193,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'aa-auth+jwt', {
       iss: 'https://auth.example',
-      dwk: 'aauth-issuer.json',
+      dwk: 'aauth-person.json',
       agent: 'https://agent.example',
       cnf: { jwk: ephPubJwk },
     })
@@ -208,7 +208,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'aa-auth+jwt', {
       iss: 'https://auth.example',
-      dwk: 'aauth-issuer.json',
+      dwk: 'aauth-person.json',
       aud: 'https://resource.example',
       cnf: { jwk: ephPubJwk },
     })

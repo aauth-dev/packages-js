@@ -44,7 +44,7 @@ const PREFER_WAIT = 45
 /**
  * Exchange a resource token for an auth token via the auth server.
  *
- * 1. Fetches auth server metadata (/.well-known/aauth-issuer.json)
+ * 1. Fetches auth server metadata (/.well-known/aauth-person.json)
  * 2. POSTs to token_endpoint with resource_token + hints, Prefer: wait=45
  * 3. If 200: returns tokens directly
  * 4. If 202: polls via pollDeferred until terminal response
@@ -129,7 +129,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
 }
 
 async function fetchMetadata(signedFetch: FetchLike, authServerUrl: string): Promise<AuthServerMetadata> {
-  const metadataUrl = `${authServerUrl.replace(/\/$/, '')}/.well-known/aauth-issuer.json`
+  const metadataUrl = `${authServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
   const response = await signedFetch(metadataUrl, { method: 'GET' })
 
   if (!response.ok) {

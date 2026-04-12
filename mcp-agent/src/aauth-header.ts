@@ -1,7 +1,9 @@
-export type RequirementLevel = 'pseudonym' | 'identity' | 'auth-token' | 'approval' | 'interaction' | 'clarification' | 'claims'
+export type RequirementLevel = 'auth-token' | 'approval' | 'interaction' | 'clarification' | 'claims'
 
 /** @deprecated Use RequirementLevel instead */
 export type RequireLevel = RequirementLevel
+
+export type Capability = 'interaction' | 'clarification' | 'payment'
 
 export interface AAuthChallenge {
   requirement: RequirementLevel
@@ -10,15 +12,61 @@ export interface AAuthChallenge {
   code?: string
 }
 
+export interface AAuthMission {
+  approver: string
+  s256: string
+}
+
+/**
+ * Build an AAuth-Capabilities request header value.
+ * Per the spec, this is an RFC 8941 List of Tokens.
+ *
+ *   AAuth-Capabilities: interaction, clarification, payment
+ */
+export function buildCapabilitiesHeader(capabilities: Capability[]): string {
+  return capabilities.join(', ')
+}
+
+/**
+ * Parse an AAuth-Capabilities request header value into capability tokens.
+ */
+export function parseCapabilitiesHeader(headerValue: string): Capability[] {
+  const valid: Capability[] = ['interaction', 'clarification', 'payment']
+  return headerValue.split(',')
+    .map(s => s.trim())
+    .filter((s): s is Capability => valid.includes(s as Capability))
+}
+
+/**
+ * Build an AAuth-Mission request header value.
+ *
+ *   AAuth-Mission: approver="https://ps.example"; s256="hash..."
+ */
+export function buildMissionHeader(mission: AAuthMission): string {
+  return `approver="${mission.approver}"; s256="${mission.s256}"`
+}
+
+/**
+ * Parse an AAuth-Mission request header value.
+ */
+export function parseMissionHeader(headerValue: string): AAuthMission {
+  const approverMatch = headerValue.match(/approver="([^"]+)"/)
+  const s256Match = headerValue.match(/s256="([^"]+)"/)
+  if (!approverMatch || !s256Match) {
+    throw new Error('Invalid AAuth-Mission header: missing approver or s256')
+  }
+  return { approver: approverMatch[1], s256: s256Match[1] }
+}
+
 /**
  * Parse an AAuth-Requirement response header value into a structured challenge.
  *
  * Formats:
- *   AAuth-Requirement: requirement=pseudonym
- *   AAuth-Requirement: requirement=identity
  *   AAuth-Requirement: requirement=auth-token; resource-token="..."
  *   AAuth-Requirement: requirement=approval
  *   AAuth-Requirement: requirement=interaction; url="https://..."; code="ABCD1234"
+ *   AAuth-Requirement: requirement=clarification
+ *   AAuth-Requirement: requirement=claims
  */
 export function parseAAuthHeader(headerValue: string): AAuthChallenge {
   const trimmed = headerValue.trim()
@@ -32,7 +80,7 @@ export function parseAAuthHeader(headerValue: string): AAuthChallenge {
     throw new Error('Missing requirement= in AAuth-Requirement header')
   }
 
-  const validLevels: RequirementLevel[] = ['pseudonym', 'identity', 'auth-token', 'approval', 'interaction']
+  const validLevels: RequirementLevel[] = ['auth-token', 'approval', 'interaction', 'clarification', 'claims']
   const requirementStr = requirementMatch[1]
   if (!validLevels.includes(requirementStr as RequirementLevel)) {
     throw new Error(`Unknown requirement level: ${requirementStr}`)
