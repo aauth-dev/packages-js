@@ -18,12 +18,6 @@ export function createSignedFetch(getKeyMaterial: GetKeyMaterial, options?: Sign
       ? { type: 'jwt' as const, jwt: signatureKey.jwt }
       : signatureKey
 
-    let fetchInit: Record<string, unknown> = {
-      ...init,
-      signingKey,
-      signatureKey: httpSigKey,
-    }
-
     if (hasExtraHeaders) {
       const headers = new Headers(init?.headers)
       if (options?.capabilities?.length) {
@@ -32,10 +26,20 @@ export function createSignedFetch(getKeyMaterial: GetKeyMaterial, options?: Sign
       if (options?.mission) {
         headers.set('aauth-mission', buildMissionHeader(options.mission))
       }
-      fetchInit.headers = headers
+      const response = await httpSigFetch(url, {
+        ...init,
+        headers,
+        signingKey,
+        signatureKey: httpSigKey,
+      })
+      return response as Response
     }
 
-    const response = await httpSigFetch(url, fetchInit)
+    const response = await httpSigFetch(url, {
+      ...init,
+      signingKey,
+      signatureKey: httpSigKey,
+    })
     return response as Response
   }
 }
