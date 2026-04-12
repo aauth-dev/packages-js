@@ -1,6 +1,6 @@
 {
   "name": "@aauth/hardware-keys-win32-x64-msvc",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "os": ["win32"],
   "cpu": ["x64"],
   "main": "index.win32-x64-msvc.node",
