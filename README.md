@@ -17,23 +17,23 @@ AAuth is an agent-aware authentication protocol that lets AI agents prove their 
 ## How It Works
 
 ```
-Agent                          Resource Server              Auth Server
-  │                                  │                          │
-  ├─── signed request ──────────────►│                          │
-  │                                  │                          │
-  │◄── 401 + resource_token ────────┤                          │
-  │         + auth-server URL        │                          │
-  │                                  │                          │
-  ├─── signed POST (resource_token) ────────────────────────────►│
-  │                                                             │
-  │◄── auth_token ─────────────────────────────────────────────┤
-  │                                  │                          │
-  ├─── signed request ──────────────►│                          │
-  │    + auth_token                  │                          │
-  │                                  ├── verify signature       │
-  │                                  ├── verify auth_token      │
-  │                                  ├── check key binding      │
-  │◄── 200 OK ──────────────────────┤                          │
+Agent                        Resource Server              Auth Server
+  |                                |                          |
+  |--- signed request ------------>|                          |
+  |                                |                          |
+  |<-- 401 + resource_token -------|                          |
+  |        + auth-server URL       |                          |
+  |                                |                          |
+  |--- signed POST (resource_token) ------------------------->|
+  |                                                           |
+  |<-- auth_token --------------------------------------------|
+  |                                |                          |
+  |--- signed request ------------>|                          |
+  |    + auth_token                |                          |
+  |                                |-- verify signature       |
+  |                                |-- verify auth_token      |
+  |                                |-- check key binding      |
+  |<-- 200 OK ---------------------|                          |
 ```
 
 1. Agent sends a signed HTTP request to the resource server
