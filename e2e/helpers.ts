@@ -49,12 +49,12 @@ export async function createTestKeys(): Promise<TestKeys> {
 
 // --- Token Factories ---
 
-export async function createAgentJwt(keys: TestKeys, agentUrl: string, delegateUrl: string): Promise<string> {
+export async function createAgentJwt(keys: TestKeys, agentUrl: string, sub: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
   return new SignJWT({
     iss: agentUrl,
     dwk: 'aauth-agent.json',
-    sub: delegateUrl,
+    sub,
     cnf: { jwk: keys.agentEphemeral.pubJwk },
     iat: now,
     exp: now + 3600,
@@ -101,7 +101,7 @@ export interface MockServerConfig {
   resourceUrl: string
   authServerUrl: string
   agentUrl: string
-  delegateUrl: string
+  sub: string
   requireAuthToken?: boolean
   deferredMode?: boolean
   interactionManager?: InteractionManager
@@ -119,7 +119,7 @@ export function createMockServer(config: MockServerConfig): MockServer {
     resourceUrl,
     authServerUrl,
     agentUrl,
-    delegateUrl,
+    sub,
     requireAuthToken = true,
     deferredMode = false,
     onTokenRequest,

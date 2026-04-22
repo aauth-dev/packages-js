@@ -8,7 +8,7 @@ export interface JsonRequest {
   authToken?: string
   signingKey?: JsonWebKey
   agentUrl?: string
-  delegate?: string
+  local?: string
   operations?: string
   scope?: string
   personServer?: string
@@ -45,7 +45,7 @@ export function mergeJsonInput(args: FetchArgs, json: JsonRequest): FetchArgs {
     authToken: json.authToken ?? args.authToken,
     signingKey: json.signingKey ? JSON.stringify(json.signingKey) : args.signingKey,
     agentUrl: json.agentUrl ?? args.agentUrl,
-    delegate: json.delegate ?? args.delegate,
+    local: json.local ?? args.local,
     operations: json.operations ?? args.operations,
     scope: json.scope ?? args.scope,
     personServer: json.personServer ?? args.personServer,

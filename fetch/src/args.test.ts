@@ -10,7 +10,7 @@ describe('parseArgs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.AAUTH_AGENT_URL
-    delete process.env.AAUTH_DELEGATE
+    delete process.env.AAUTH_LOCAL
     delete process.env.AAUTH_AUTH_TOKEN
     delete process.env.AAUTH_SIGNING_KEY
     delete process.env.AAUTH_PERSON_SERVER
@@ -28,7 +28,7 @@ describe('parseArgs', () => {
   it('has correct defaults', () => {
     const result = parseArgs(['node', 'cli.js', 'https://example.com'])
     expect(result.method).toBe('GET')
-    expect(result.delegate).toBe('fetch')
+    expect(result.local).toBeUndefined()
     expect(result.skill).toBe(false)
     expect(result.authorize).toBe(false)
     expect(result.agentOnly).toBe(false)
@@ -86,9 +86,9 @@ describe('parseArgs', () => {
     expect(result.agentUrl).toBe('https://me.github.io')
   })
 
-  it('parses --delegate', () => {
-    const result = parseArgs(['node', 'cli.js', '--delegate', 'claude', 'https://x.com'])
-    expect(result.delegate).toBe('claude')
+  it('parses --local', () => {
+    const result = parseArgs(['node', 'cli.js', '--local', 'claude', 'https://x.com'])
+    expect(result.local).toBe('claude')
   })
 
   it('parses --auth-token and --signing-key', () => {
@@ -148,9 +148,9 @@ describe('parseArgs', () => {
     expect(parseArgs(['node', 'cli.js', 'https://x.com']).agentUrl).toBe('https://env-agent.example.com')
   })
 
-  it('falls back to AAUTH_DELEGATE', () => {
-    process.env.AAUTH_DELEGATE = 'env-delegate'
-    expect(parseArgs(['node', 'cli.js', 'https://x.com']).delegate).toBe('env-delegate')
+  it('falls back to AAUTH_LOCAL', () => {
+    process.env.AAUTH_LOCAL = 'env-local'
+    expect(parseArgs(['node', 'cli.js', 'https://x.com']).local).toBe('env-local')
   })
 
   it('falls back to AAUTH_AUTH_TOKEN', () => {
@@ -170,15 +170,15 @@ describe('parseArgs', () => {
 
   it('CLI args override env vars', () => {
     process.env.AAUTH_AGENT_URL = 'https://env.example.com'
-    process.env.AAUTH_DELEGATE = 'env-delegate'
+    process.env.AAUTH_LOCAL = 'env-local'
     const result = parseArgs([
       'node', 'cli.js',
       '--agent-url', 'https://cli.example.com',
-      '--delegate', 'cli-delegate',
+      '--local', 'cli-local',
       'https://x.com',
     ])
     expect(result.agentUrl).toBe('https://cli.example.com')
-    expect(result.delegate).toBe('cli-delegate')
+    expect(result.local).toBe('cli-local')
   })
 
   it('parses all options together', () => {
@@ -189,7 +189,7 @@ describe('parseArgs', () => {
       '-d', '{"body":true}',
       '-H', 'X-Test: yes',
       '--agent-url', 'https://me.github.io',
-      '--delegate', 'claude',
+      '--local', 'claude',
       '--scope', 'email',
       '--operations', 'listNotes',
       '--person-server', 'https://hello.coop',
@@ -203,7 +203,7 @@ describe('parseArgs', () => {
       data: '{"body":true}',
       headers: ['X-Test: yes'],
       agentUrl: 'https://me.github.io',
-      delegate: 'claude',
+      local: 'claude',
       scope: 'email',
       operations: 'listNotes',
       personServer: 'https://hello.coop',

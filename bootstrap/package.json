@@ -1,6 +1,6 @@
 {
   "name": "@aauth/bootstrap",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "CLI for bootstrapping AAuth agent keys and configuration",
   "type": "module",
   "bin": {
@@ -30,6 +30,9 @@
     "directory": "bootstrap"
   },
   "dependencies": {
-    "@aauth/local-keys": "^0.7.0"
+    "@aauth/local-keys": "^0.7.0",
+    "@aauth/mcp-agent": "^0.7.0",
+    "@hellocoop/httpsig": "^1.1.3",
+    "open": "^11.0.0"
   }
 }

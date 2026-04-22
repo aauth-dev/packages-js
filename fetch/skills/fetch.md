@@ -6,7 +6,17 @@ when: Agent needs to call an AAuth-protected API
 
 # @aauth/fetch
 
-Make HTTP requests to AAuth-protected APIs. Handles HTTP message signatures, agent tokens, and the full AAuth authorization flow.
+Make HTTP requests to AAuth-protected APIs. Handles HTTP message signatures, agent tokens, and the full AAuth authorization flow including R3 (Rich Resource Requests).
+
+## Prerequisites
+
+The agent must be bootstrapped with a person server before making authorized requests:
+
+```bash
+npx @aauth/bootstrap --ps https://person.hello-beta.net
+```
+
+This registers the agent with the person server and stores the agent identifier (e.g., `aauth:local@yourdomain.com`) in `~/.aauth/config.json`.
 
 ## Discovery
 
@@ -19,12 +29,12 @@ curl https://example.aauth.dev/.well-known/aauth-resource.json
 
 The metadata tells you:
 - What scopes are available (`scope_descriptions`)
-- Whether it uses R3 vocabularies (`r3_vocabularies`)
+- Whether it uses R3 vocabularies (`r3_vocabularies`) and which authorization endpoint to use
 - The resource's signing keys (`jwks_uri`)
 
 For R3 resources with OpenAPI vocabularies:
 ```bash
-# Fetch the OpenAPI spec to see available operations
+# Fetch the OpenAPI spec to see available operationIds
 curl https://notes.aauth.dev/openapi.json
 ```
 
@@ -36,11 +46,11 @@ For resources that work with just an agent token (no authorization needed):
 npx @aauth/fetch https://whoami.aauth.dev
 ```
 
-If the resource returns a 401 challenge, fetch automatically handles the authorization flow — exchanging tokens with your person server, opening a browser for consent if needed, and retrying.
+If the resource returns a 401 challenge, fetch automatically handles the authorization flow — exchanging tokens with the person server, opening a browser for consent if needed, and retrying.
 
 ## One-shot with scopes
 
-To request specific identity scopes:
+To request specific identity scopes (triggers 401 challenge → auth flow):
 
 ```bash
 npx @aauth/fetch "https://whoami.aauth.dev?scope=email+profile"
@@ -52,16 +62,23 @@ When making multiple calls to the same resource, use the authorize-then-call pat
 
 ### Step 1: Authorize and capture tokens
 
+For resources with standard 401 challenge (e.g., whoami with scopes):
 ```bash
-npx @aauth/fetch --authorize https://notes.aauth.dev
+npx @aauth/fetch --authorize "https://whoami.aauth.dev?scope=email"
 ```
 
-If the resource requires authorization (401 challenge), returns:
+For R3 resources (e.g., notes), POST to the authorize endpoint with operations:
+```bash
+npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+  --operations listNotes,createNote
+```
+
+Both return JSON with the auth token and ephemeral signing key:
 ```json
 {
   "authToken": "eyJ...",
   "expiresIn": 3600,
-  "signingKey": { "kty": "OKP", "crv": "Ed25519", "d": "...", "x": "..." },
+  "signingKey": { "kty": "EC", "crv": "P-256", "d": "...", "x": "...", "y": "..." },
   "response": { "status": 200 }
 }
 ```
@@ -69,7 +86,7 @@ If the resource requires authorization (401 challenge), returns:
 If the resource accepts an agent token directly (no auth needed), returns:
 ```json
 {
-  "signingKey": { "kty": "OKP", "crv": "Ed25519", "d": "...", "x": "..." },
+  "signingKey": { "kty": "EC", "crv": "P-256", "d": "...", "x": "...", "y": "..." },
   "signatureKey": { "type": "jwt", "jwt": "eyJ..." },
   "response": { "status": 200, "body": { ... } }
 }
@@ -86,7 +103,7 @@ echo '{
   "url": "https://notes.aauth.dev/notes",
   "method": "GET",
   "authToken": "eyJ...",
-  "signingKey": {"kty":"OKP","crv":"Ed25519","d":"...","x":"..."}
+  "signingKey": {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}
 }' | npx @aauth/fetch --json
 ```
 
@@ -97,13 +114,13 @@ echo '{
   "method": "POST",
   "body": {"title": "My Note", "body": "Content here"},
   "authToken": "eyJ...",
-  "signingKey": {"kty":"OKP","crv":"Ed25519","d":"...","x":"..."}
+  "signingKey": {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}
 }' | npx @aauth/fetch --json
 ```
 
 ### Token expiration
 
-Auth tokens have a limited lifetime. If a call returns a 401 after previously working, the token has expired. Re-run the `--authorize` step to get fresh tokens.
+Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `--authorize` step to get fresh tokens.
 
 ## Agent-only mode
 
@@ -115,13 +132,40 @@ npx @aauth/fetch --agent-only https://whoami.aauth.dev
 
 Useful when the resource accepts agent identity without requiring an auth token.
 
+## R3 (Rich Resource Requests)
+
+For resources that use R3 vocabularies (like OpenAPI-based APIs), you must specify which operations to authorize:
+
+```bash
+# Authorize specific operations
+npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+  --operations listNotes,createNote,deleteNote
+
+# Then make calls with the returned tokens
+echo '{"url":"https://notes.aauth.dev/notes","method":"GET","authToken":"...","signingKey":{...}}' \
+  | npx @aauth/fetch --json
+```
+
+The `--operations` flag takes comma-separated operationIds from the resource's OpenAPI spec. The person server presents these to the user for consent, showing what data access and actions are being requested.
+
+## Agent identifier
+
+The `--local` flag overrides the local part of the agent identifier (`aauth:<local>@<domain>`). By default, fetch reads the agent identifier from config (set during bootstrap).
+
+```bash
+# Use a specific agent identifier
+npx @aauth/fetch --local claude https://whoami.aauth.dev
+```
+
+This produces `aauth:claude@yourdomain.com` as the agent identifier in the agent token.
+
 ## Hint parameters
 
 Hints help the person server route authorization requests. They are optional and passed during token exchange.
 
 | Flag | JSON field | Purpose |
 |------|-----------|---------|
-| `--login-hint <hint>` | `loginHint` | Hint about who to authorize — a user identifier, email, or account name. Follows OpenID Connect conventions. Helps the person server pre-fill login or identify the correct user. |
+| `--login-hint <hint>` | `loginHint` | Hint about who to authorize — a user identifier, email, or account name. Helps the person server identify the correct user. |
 | `--domain-hint <domain>` | `domainHint` | Hints at which domain or organization the user belongs to. Used in enterprise/multi-tenant systems to route to the correct identity provider. |
 | `--tenant <id>` | `tenant` | Tenant identifier for multi-tenant systems. Specifies which organization context should be used for authorization. |
 
@@ -147,15 +191,17 @@ Or via JSON stdin:
 The `--justification` flag provides a Markdown string explaining **why** the agent is requesting access. The person server presents this to the user during consent review.
 
 ```bash
-npx @aauth/fetch --authorize https://notes.aauth.dev \
+npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+  --operations listNotes \
   --justification "Read the user's notes to summarize action items from today's meeting"
 ```
 
 Via JSON stdin:
 ```json
 {
-  "url": "https://notes.aauth.dev",
+  "url": "https://notes.aauth.dev/authorize",
   "authorize": true,
+  "operations": "listNotes",
   "justification": "Read the user's notes to summarize action items from today's meeting"
 }
 ```
@@ -164,7 +210,7 @@ Justification is especially important for autonomous agents — it enables human
 
 ## Capabilities
 
-Capabilities declare which protocol features the agent supports. Resources and person servers use this to tailor their responses.
+Capabilities declare which protocol features the agent supports. By default, fetch declares `interaction` capability (unless `--non-interactive` is set).
 
 ```bash
 npx @aauth/fetch --capabilities interaction,clarification https://resource.example
@@ -172,11 +218,9 @@ npx @aauth/fetch --capabilities interaction,clarification https://resource.examp
 
 | Capability | Meaning |
 |-----------|---------|
-| `interaction` | Agent can direct a user to a URL for authentication, consent, payment, or other actions. Declare this when a human is present or the agent's person server can handle redirects. |
-| `clarification` | Agent can engage in back-and-forth clarification chat with the user through the person server. The user can ask questions about the request and the agent can respond. |
-| `payment` | Agent can handle payment flows — either directly or via its person server. Required for resources that may issue `402 Payment Required` challenges. |
-
-When capabilities are not declared, servers must not assume the agent supports any of these features. Declare the capabilities your agent actually supports to get the best experience.
+| `interaction` | Agent can direct a user to a URL for authentication, consent, payment, or other actions. Declared by default. |
+| `clarification` | Agent can engage in back-and-forth clarification chat with the user through the person server. |
+| `payment` | Agent can handle payment flows — either directly or via its person server. |
 
 Via JSON stdin:
 ```json
@@ -186,7 +230,7 @@ Via JSON stdin:
 }
 ```
 
-## Common flags
+## All flags
 
 | Flag | Description |
 |------|-------------|
@@ -197,18 +241,19 @@ Via JSON stdin:
 | `-d, --data` | Request body |
 | `-H, --header` | Additional header (repeatable) |
 | `--agent-url` | Override agent URL |
-| `--delegate` | Delegate name (default: "fetch") |
+| `--local` | Local part of agent identifier (default: from config) |
 | `--scope` | Requested scopes |
-| `--operations` | R3 operationIds (comma-separated) |
+| `--operations` | R3 operationIds (comma-separated, with --authorize) |
 | `--person-server` | Override person server URL |
 | `--login-hint` | Hint about who to authorize |
 | `--domain-hint` | Domain/org routing hint |
 | `--tenant` | Tenant identifier |
 | `--justification` | Markdown explaining why access is needed |
 | `--capabilities` | Agent capabilities (comma-separated) |
-| `--no-browser` | Don't auto-open browser for consent |
+| `--no-browser` | Don't open browser for consent |
 | `--non-interactive` | Fail if consent is needed |
 | `-v, --verbose` | Show status + headers on stderr |
+| `--debug` | Show all requests/responses with headers on stderr |
 
 ## Error handling
 
@@ -217,7 +262,7 @@ Errors are output as JSON to stderr:
 {"error": "description of what went wrong"}
 ```
 
-When consent is needed and `--non-interactive` is not set, interaction info is output to stderr:
+When consent is needed, interaction info is output to stderr:
 ```json
 {"interaction": {"url": "https://...", "code": "ABCD-1234"}}
 ```
@@ -227,7 +272,7 @@ When consent is needed and `--non-interactive` is not set, interaction info is o
 | Variable | Equivalent flag |
 |----------|----------------|
 | `AAUTH_AGENT_URL` | `--agent-url` |
-| `AAUTH_DELEGATE` | `--delegate` |
+| `AAUTH_LOCAL` | `--local` |
 | `AAUTH_AUTH_TOKEN` | `--auth-token` |
 | `AAUTH_SIGNING_KEY` | `--signing-key` |
 | `AAUTH_PERSON_SERVER` | `--person-server` |

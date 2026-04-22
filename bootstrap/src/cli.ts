@@ -23,16 +23,22 @@ import {
 } from '@aauth/local-keys'
 import type { KeyAlgorithm, KeyBackend, AAuthPublicJwk } from '@aauth/local-keys'
 import { listSkills, getSkill } from './skills.js'
+import { bootstrapWithPS } from './bootstrap-ps.js'
+import open from 'open'
 
 function parseArgs(args: string[]) {
   const flags: Record<string, string> = {}
   const positional: string[] = []
+  // Alias map: short flag → canonical flag
+  const aliases: Record<string, string> = { ps: 'person-server' }
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith('--') && i + 1 < args.length && !args[i + 1].startsWith('--')) {
-      flags[args[i].slice(2)] = args[i + 1]
+      const key = aliases[args[i].slice(2)] ?? args[i].slice(2)
+      flags[key] = args[i + 1]
       i++
     } else if (args[i].startsWith('--')) {
-      flags[args[i].slice(2)] = 'true'
+      const key = aliases[args[i].slice(2)] ?? args[i].slice(2)
+      flags[key] = 'true'
     } else {
       positional.push(args[i])
     }
@@ -105,7 +111,6 @@ async function cmdGenerate(flags: Record<string, string>) {
 
 async function cmdSignToken(flags: Record<string, string>) {
   const agentUrl = flags.agent
-  const delegate = flags.delegate
   const lifetime = parseInt(flags.lifetime || '3600', 10)
 
   if (!agentUrl) {
@@ -113,15 +118,16 @@ async function cmdSignToken(flags: Record<string, string>) {
     process.exitCode = 1
     return
   }
-  if (!delegate) {
-    console.error(JSON.stringify({ error: '--delegate <name> required' }))
+
+  // Resolve agent identifier from --agent-id flag or config
+  const agentId = flags['agent-id'] ?? getAgentConfig(agentUrl)?.agentId
+  if (!agentId) {
+    console.error(JSON.stringify({ error: 'No agent identifier. Run bootstrap with --ps first, or pass --agent-id.' }))
     process.exitCode = 1
     return
   }
 
-  const delegateUrl = `${agentUrl.replace(/\/$/, '')}/${delegate}`
-
-  const result = await signAgentToken({ agentUrl, delegateUrl, lifetime })
+  const result = await signAgentToken({ agentUrl, sub: agentId, lifetime })
   console.log(JSON.stringify(result, null, 2))
 }
 
@@ -169,10 +175,6 @@ function cmdAddAgent(flags: Record<string, string>, positional: string[]) {
     console.error(JSON.stringify({ error: `${agentUrl} — ${urlError}` }))
     process.exitCode = 1
     return
-  }
-
-  if (flags['person-server']) {
-    setPersonServer(agentUrl, flags['person-server'])
   }
 
   ensureAgentUrls(agentUrl)
@@ -280,23 +282,78 @@ Generate options:
 
 Sign-token options:
   --agent <url>            Agent URL (required)
-  --delegate <name>        Delegate name (required)
+  --agent-id <id>          Agent identifier (default: from config)
   --lifetime <seconds>     Token lifetime (default: 3600)
 
 Add-agent options:
-  --person-server <url>    Person server URL
   --kid <kid>              Key ID to associate
   --backend <name>         Key backend
   --key-id <id>            Backend-specific key ID (slot, label, etc.)
   --algorithm <alg>        Key algorithm
 
+Person server bootstrap (can be combined with any command):
+  --person-server <url>    Bootstrap with person server (alias: --ps)
+  --local <name>           Local part of agent identifier (default: "local")
+  --login-hint <hint>      Hint about who to authorize
+  --domain-hint <domain>   Domain/org routing hint
+  --tenant <id>            Tenant identifier
+
 Examples:
   npx @aauth/bootstrap discover
   npx @aauth/bootstrap generate --backend yubikey-piv
   npx @aauth/bootstrap generate --backend secure-enclave --agent https://me.github.io
-  npx @aauth/bootstrap sign-token --agent https://me.github.io --delegate claude
-  npx @aauth/bootstrap add-agent https://me.github.io --person-server https://hello.coop
+  npx @aauth/bootstrap sign-token --agent https://me.github.io
+  npx @aauth/bootstrap add-agent https://me.github.io
+  npx @aauth/bootstrap --ps https://hello.coop
+  npx @aauth/bootstrap generate --agent https://me.github.io --ps https://hello.coop
   npx @aauth/bootstrap public-key --agent https://me.github.io`)
+}
+
+async function runBootstrapPS(flags: Record<string, string>) {
+  const personServerUrl = flags['person-server']
+  if (!personServerUrl) return
+
+  const urlError = validateUrl(personServerUrl)
+  if (urlError) {
+    console.error(JSON.stringify({ error: `person-server: ${personServerUrl} — ${urlError}` }))
+    process.exitCode = 1
+    return
+  }
+
+  // Resolve agent URL from --agent flag or sole configured agent
+  let agentUrl = flags.agent
+  if (!agentUrl) {
+    const configured = listConfiguredAgents()
+    if (configured.length === 1) {
+      agentUrl = configured[0]
+    } else if (configured.length === 0) {
+      console.error(JSON.stringify({ error: 'No agent configured. Use --agent <url> or run add-agent first.' }))
+      process.exitCode = 1
+      return
+    } else {
+      console.error(JSON.stringify({ error: 'Multiple agents configured. Use --agent <url> to specify.' }))
+      process.exitCode = 1
+      return
+    }
+  }
+
+  console.error(`Bootstrapping ${agentUrl} with person server ${personServerUrl}...`)
+
+  await bootstrapWithPS({
+    agentUrl,
+    personServerUrl,
+    local: flags.local,
+    loginHint: flags['login-hint'],
+    domainHint: flags['domain-hint'],
+    tenant: flags.tenant,
+    onInteraction: (interactionEndpoint, code) => {
+      const url = `${interactionEndpoint}?code=${code}`
+      console.error(`Opening browser for consent: ${url}`)
+      open(url)
+    },
+  })
+
+  console.error('Bootstrap complete. Person server registered.')
 }
 
 async function run() {
@@ -304,6 +361,11 @@ async function run() {
   const command = positional[0]
 
   if (!command) {
+    // No command: if --person-server is present, bootstrap; otherwise show status
+    if (flags['person-server']) {
+      await runBootstrapPS(flags)
+      return
+    }
     cmdShow()
     return
   }
@@ -322,6 +384,11 @@ async function run() {
       console.error(`Unknown command: ${command}`)
       cmdHelp()
       process.exitCode = 1
+  }
+
+  // After any command, run PS bootstrap if --person-server is present
+  if (flags['person-server'] && process.exitCode !== 1) {
+    await runBootstrapPS(flags)
   }
 }
 

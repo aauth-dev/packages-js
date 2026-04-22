@@ -25,6 +25,8 @@ export interface TokenExchangeOptions {
   loginHint?: string
   tenant?: string
   domainHint?: string
+  capabilities?: string[]
+  prompt?: string
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
 }
@@ -66,8 +68,10 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   // 1. Fetch auth server metadata
   const metadata = await fetchMetadata(signedFetch, authServerUrl)
 
+  const { capabilities, prompt } = options
+
   // 2. Build token request body
-  const body: Record<string, string> = {
+  const body: Record<string, unknown> = {
     resource_token: resourceToken,
   }
   if (justification) body.justification = justification
@@ -75,6 +79,8 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   if (loginHint) body.login_hint = loginHint
   if (tenant) body.tenant = tenant
   if (domainHint) body.domain_hint = domainHint
+  if (capabilities?.length) body.capabilities = capabilities
+  if (prompt) body.prompt = prompt
 
   // 3. POST to token endpoint
   const response = await signedFetch(metadata.token_endpoint, {

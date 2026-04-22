@@ -82,7 +82,7 @@ describe('verifyToken', () => {
     const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss,
       dwk: 'aauth-agent.json',
-      sub: 'https://delegate.example',
+      sub: 'aauth:test@example.com',
       cnf: { jwk: ephPubJwk },
     })
 
@@ -92,7 +92,7 @@ describe('verifyToken', () => {
     expect(result.iss).toBe(iss)
     expect(result.dwk).toBe('aauth-agent.json')
     if (result.type === 'agent') {
-      expect(result.sub).toBe('https://delegate.example')
+      expect(result.sub).toBe('aauth:test@example.com')
     }
     expect(result.cnf.jwk).toEqual(ephPubJwk)
     expect(result.iat).toBeTypeOf('number')
@@ -151,7 +151,7 @@ describe('verifyToken', () => {
     // Sign without iss
     const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       dwk: 'aauth-agent.json',
-      sub: 'https://delegate.example',
+      sub: 'aauth:test@example.com',
       cnf: { jwk: ephPubJwk },
     })
 
@@ -165,7 +165,7 @@ describe('verifyToken', () => {
 
     const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss: 'https://agent.example',
-      sub: 'https://delegate.example',
+      sub: 'aauth:test@example.com',
       cnf: { jwk: ephPubJwk },
     })
 
@@ -224,7 +224,7 @@ describe('verifyToken', () => {
     const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss: 'https://agent.example',
       dwk: 'aauth-agent.json',
-      sub: 'https://delegate.example',
+      sub: 'aauth:test@example.com',
     })
 
     await expect(
@@ -239,7 +239,7 @@ describe('verifyToken', () => {
     const jwt = await new SignJWT({
       iss: 'https://agent.example',
       dwk: 'aauth-agent.json',
-      sub: 'https://delegate.example',
+      sub: 'aauth:test@example.com',
       cnf: { jwk: ephPubJwk },
       iat: past - 3600,
       exp: past, // expired 1 hour ago
@@ -262,7 +262,7 @@ describe('verifyToken', () => {
     const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss: 'https://agent.example',
       dwk: 'aauth-agent.json',
-      sub: 'https://delegate.example',
+      sub: 'aauth:test@example.com',
       cnf: { jwk: ephPubJwk },
     })
 
@@ -286,7 +286,7 @@ describe('verifyToken', () => {
     const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss,
       dwk: 'aauth-agent.json',
-      sub: 'https://delegate.example',
+      sub: 'aauth:test@example.com',
       cnf: { jwk: ephPubJwk },
     })
 
@@ -310,7 +310,7 @@ describe('verifyToken', () => {
     const jwt = await signToken(root.privateKey, 'aa-agent+jwt', {
       iss,
       dwk: 'aauth-agent.json',
-      sub: 'https://delegate.example',
+      sub: 'aauth:test@example.com',
       cnf: { jwk: ephPubJwk },
     })
 

@@ -10,9 +10,9 @@ function baseArgs(overrides?: Partial<FetchArgs>): FetchArgs {
     method: 'GET',
     headers: [],
     jsonInput: true,
-    delegate: 'fetch',
     nonInteractive: false,
     verbose: false,
+    debug: false,
     url: 'https://default.example.com',
     ...overrides,
   }
@@ -94,17 +94,17 @@ describe('mergeJsonInput', () => {
     expect(result.signingKey).toBe('{"existing":true}')
   })
 
-  it('overrides agentUrl, delegate, operations, scope, personServer', () => {
+  it('overrides agentUrl, local, operations, scope, personServer', () => {
     const result = mergeJsonInput(baseArgs(), {
       url: 'https://x.com',
       agentUrl: 'https://json-agent.com',
-      delegate: 'json-delegate',
+      local: 'json-local',
       operations: 'listNotes',
       scope: 'email',
       personServer: 'https://json-ps.com',
     })
     expect(result.agentUrl).toBe('https://json-agent.com')
-    expect(result.delegate).toBe('json-delegate')
+    expect(result.local).toBe('json-local')
     expect(result.operations).toBe('listNotes')
     expect(result.scope).toBe('email')
     expect(result.personServer).toBe('https://json-ps.com')

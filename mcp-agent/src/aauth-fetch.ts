@@ -118,6 +118,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           loginHint,
           tenant,
           domainHint,
+          capabilities,
           onInteraction,
           onClarification,
         })

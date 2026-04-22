@@ -1,6 +1,6 @@
 {
   "name": "@aauth/mcp-openclaw",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "OpenClaw plugin for AAuth-authenticated MCP server connections",
   "type": "module",
   "exports": {
@@ -34,8 +34,8 @@
     "directory": "mcp-openclaw"
   },
   "dependencies": {
-    "@aauth/mcp-agent": "^0.4.0",
-    "@aauth/local-keys": "^0.4.0",
+    "@aauth/mcp-agent": "^0.7.0",
+    "@aauth/local-keys": "^0.7.0",
     "@modelcontextprotocol/sdk": "^1.15.1"
   },
   "devDependencies": {

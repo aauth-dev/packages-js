@@ -10,7 +10,7 @@ describe('parseArgs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.AAUTH_AGENT_URL
-    delete process.env.AAUTH_DELEGATE
+    delete process.env.AAUTH_LOCAL
     delete process.env.AAUTH_TOKEN_LIFETIME
   })
 
@@ -28,7 +28,7 @@ describe('parseArgs', () => {
     expect(result).toEqual({
       serverUrl: 'https://example.com/mcp',
       agentUrl: 'https://agent.example.com',
-      delegate: undefined,
+      local: undefined,
       tokenLifetime: undefined,
     })
   })
@@ -38,14 +38,14 @@ describe('parseArgs', () => {
       'node', 'cli.js',
       'https://example.com/mcp',
       '--agent-url', 'https://agent.example.com',
-      '--delegate', 'claude',
+      '--local', 'claude',
       '--token-lifetime', '7200',
     ])
 
     expect(result).toEqual({
       serverUrl: 'https://example.com/mcp',
       agentUrl: 'https://agent.example.com',
-      delegate: 'claude',
+      local: 'claude',
       tokenLifetime: 7200,
     })
   })
@@ -61,16 +61,16 @@ describe('parseArgs', () => {
     expect(result.agentUrl).toBe('https://env-agent.example.com')
   })
 
-  it('falls back to AAUTH_DELEGATE env var', () => {
+  it('falls back to AAUTH_LOCAL env var', () => {
     process.env.AAUTH_AGENT_URL = 'https://agent.example.com'
-    process.env.AAUTH_DELEGATE = 'env-delegate'
+    process.env.AAUTH_LOCAL = 'env-local'
 
     const result = parseArgs([
       'node', 'cli.js',
       'https://example.com/mcp',
     ])
 
-    expect(result.delegate).toBe('env-delegate')
+    expect(result.local).toBe('env-local')
   })
 
   it('falls back to AAUTH_TOKEN_LIFETIME env var', () => {

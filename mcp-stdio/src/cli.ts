@@ -8,13 +8,13 @@ import open from 'open'
 import { parseArgs } from './args.js'
 import { bridgeTransports } from './proxy.js'
 
-const { serverUrl, agentUrl, delegate, tokenLifetime } = parseArgs(process.argv)
+const { serverUrl, agentUrl, local, tokenLifetime } = parseArgs(process.argv)
 
 const innerFetch = createAAuthFetch({
   getKeyMaterial: () =>
     createAgentToken({
       agentUrl,
-      delegate: delegate ?? 'claude',
+      local,
       tokenLifetime,
     }),
   onInteraction: (code, interactionEndpoint) => {
@@ -54,9 +54,9 @@ const remote = new StreamableHTTPClientTransport(new URL(serverUrl), {
   fetch: aAuthFetch,
 })
 
-const local = new StdioServerTransport()
+const localTransport = new StdioServerTransport()
 
-bridgeTransports(local, remote).catch((err) => {
+bridgeTransports(localTransport, remote).catch((err) => {
   console.error('Fatal error:', err)
   process.exit(1)
 })

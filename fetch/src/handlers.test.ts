@@ -291,9 +291,12 @@ describe('handleFullFlow', () => {
     }
 
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
-      getKeyMaterial: fakeGetKeyMaterial,
       authServerUrl: 'https://ps.example.com',
     }))
+    // getKeyMaterial is pinned, so it's a wrapper — not the original
+    const passedGetKM = mockCreateAAuthFetch.mock.calls[0][0].getKeyMaterial
+    expect(passedGetKM).not.toBe(fakeGetKeyMaterial)
+    expect(await passedGetKM()).toBe(fakeKeyMaterial)
     expect(stdout.output[0]).toContain('"data": "full"')
   })
 
@@ -327,7 +330,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://whoami.aauth.dev', delegate: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://whoami.aauth.dev', nonInteractive: false, verbose: false },
         fakeGetKeyMaterial,
         undefined,
       )
@@ -359,7 +362,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', delegate: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -385,7 +388,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', delegate: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -412,7 +415,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', delegate: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
         fakeGetKeyMaterial,
         undefined,
       )
@@ -438,7 +441,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', delegate: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -458,7 +461,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', delegate: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -477,7 +480,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://whoami.aauth.dev', delegate: 'fetch', scope: 'email profile', nonInteractive: false, verbose: false },
+        { url: 'https://whoami.aauth.dev', local: 'fetch', scope: 'email profile', nonInteractive: false, verbose: false },
         fakeGetKeyMaterial,
         undefined,
       )
@@ -495,7 +498,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', delegate: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
         fakeGetKeyMaterial,
         undefined,
       )

@@ -73,7 +73,7 @@ import type { TestKeys } from './helpers.js'
 // --- Constants ---
 
 const AGENT_URL = 'https://agent.example'
-const DELEGATE_URL = 'https://delegate.example'
+const AGENT_ID = 'aauth:test@example.com'
 const AUTH_SERVER_URL = 'https://auth.example'
 const RESOURCE_URL = 'https://resource.example'
 const INTERACTION_URL = 'https://auth.example/interact'
@@ -130,14 +130,14 @@ describe('verifyToken with real tokens', () => {
   })
 
   it('verifies a real agent+jwt → VerifiedAgentToken', async () => {
-    const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
+    const agentJwt = await createAgentJwt(keys, AGENT_URL, AGENT_ID)
 
     const server = createMockServer({
       keys,
       resourceUrl: RESOURCE_URL,
       authServerUrl: AUTH_SERVER_URL,
       agentUrl: AGENT_URL,
-      delegateUrl: DELEGATE_URL,
+      sub: AGENT_ID,
     })
     globalThis.fetch = server.globalFetch as typeof fetch
 
@@ -150,7 +150,7 @@ describe('verifyToken with real tokens', () => {
     const agent = result as VerifiedAgentToken
     expect(agent.iss).toBe(AGENT_URL)
     expect(agent.dwk).toBe('aauth-agent.json')
-    expect(agent.sub).toBe(DELEGATE_URL)
+    expect(agent.sub).toBe(AGENT_ID)
     expect(agent.cnf.jwk).toEqual(keys.agentEphemeral.pubJwk)
     expect(agent.iat).toBeTypeOf('number')
     expect(agent.exp).toBeTypeOf('number')
@@ -170,7 +170,7 @@ describe('verifyToken with real tokens', () => {
       resourceUrl: RESOURCE_URL,
       authServerUrl: AUTH_SERVER_URL,
       agentUrl: AGENT_URL,
-      delegateUrl: DELEGATE_URL,
+      sub: AGENT_ID,
     })
     globalThis.fetch = server.globalFetch as typeof fetch
 
@@ -190,7 +190,7 @@ describe('verifyToken with real tokens', () => {
   })
 
   it('throws key_binding_failed on thumbprint mismatch', async () => {
-    const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
+    const agentJwt = await createAgentJwt(keys, AGENT_URL, AGENT_ID)
 
     const wrongKey = await generateKeyPair('EdDSA', { crv: 'Ed25519' })
     const wrongPubJwk = await exportJWK(wrongKey.publicKey)
@@ -201,7 +201,7 @@ describe('verifyToken with real tokens', () => {
       resourceUrl: RESOURCE_URL,
       authServerUrl: AUTH_SERVER_URL,
       agentUrl: AGENT_URL,
-      delegateUrl: DELEGATE_URL,
+      sub: AGENT_ID,
     })
     globalThis.fetch = server.globalFetch as typeof fetch
 
@@ -230,7 +230,7 @@ describe('Full 401 challenge-response (direct grant)', () => {
   })
 
   it('agent request → 401 → exchangeToken → auth server creates auth+jwt → retry → 200', async () => {
-    const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
+    const agentJwt = await createAgentJwt(keys, AGENT_URL, AGENT_ID)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
     const server = createMockServer({
@@ -238,7 +238,7 @@ describe('Full 401 challenge-response (direct grant)', () => {
       resourceUrl: RESOURCE_URL,
       authServerUrl: AUTH_SERVER_URL,
       agentUrl: AGENT_URL,
-      delegateUrl: DELEGATE_URL,
+      sub: AGENT_ID,
       requireAuthToken: true,
     })
 
@@ -266,7 +266,7 @@ describe('Full 401 challenge-response (direct grant)', () => {
   })
 
   it('second request reuses cached token, no re-exchange', async () => {
-    const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
+    const agentJwt = await createAgentJwt(keys, AGENT_URL, AGENT_ID)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
     const server = createMockServer({
@@ -274,7 +274,7 @@ describe('Full 401 challenge-response (direct grant)', () => {
       resourceUrl: RESOURCE_URL,
       authServerUrl: AUTH_SERVER_URL,
       agentUrl: AGENT_URL,
-      delegateUrl: DELEGATE_URL,
+      sub: AGENT_ID,
       requireAuthToken: true,
     })
 
@@ -302,7 +302,7 @@ describe('Full 401 challenge-response (direct grant)', () => {
   })
 
   it('justification and hints pass through to token endpoint body', async () => {
-    const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
+    const agentJwt = await createAgentJwt(keys, AGENT_URL, AGENT_ID)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
     let capturedBody: Record<string, string> | undefined
@@ -311,7 +311,7 @@ describe('Full 401 challenge-response (direct grant)', () => {
       resourceUrl: RESOURCE_URL,
       authServerUrl: AUTH_SERVER_URL,
       agentUrl: AGENT_URL,
-      delegateUrl: DELEGATE_URL,
+      sub: AGENT_ID,
       requireAuthToken: true,
       onTokenRequest: (body) => { capturedBody = body },
     })
@@ -357,7 +357,7 @@ describe('Deferred/interaction grant', () => {
   })
 
   it('token endpoint returns 202 → onInteraction receives url and code → resolve → poll gets 200 → retry succeeds', async () => {
-    const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
+    const agentJwt = await createAgentJwt(keys, AGENT_URL, AGENT_ID)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
     const interactionManager = new InteractionManager({
@@ -369,7 +369,7 @@ describe('Deferred/interaction grant', () => {
       resourceUrl: RESOURCE_URL,
       authServerUrl: AUTH_SERVER_URL,
       agentUrl: AGENT_URL,
-      delegateUrl: DELEGATE_URL,
+      sub: AGENT_ID,
       requireAuthToken: true,
       deferredMode: true,
       interactionManager,
@@ -457,7 +457,7 @@ describe('ServerManager with AAuth signing (mocked MCP SDK)', () => {
 
   it('createSignedFetch called with getKeyMaterial → connectAll succeeds', async () => {
     const keys = await createTestKeys()
-    const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
+    const agentJwt = await createAgentJwt(keys, AGENT_URL, AGENT_ID)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
     const manager = new ServerManager({
@@ -485,7 +485,7 @@ describe('ServerManager with AAuth signing (mocked MCP SDK)', () => {
 
   it('callTool routes to correct server with original tool name', async () => {
     const keys = await createTestKeys()
-    const agentJwt = await createAgentJwt(keys, AGENT_URL, DELEGATE_URL)
+    const agentJwt = await createAgentJwt(keys, AGENT_URL, AGENT_ID)
     const getKeyMaterial = createGetKeyMaterial(keys, agentJwt)
 
     mockCallTool.mockResolvedValue({ content: [{ type: 'text', text: 'file data' }] })

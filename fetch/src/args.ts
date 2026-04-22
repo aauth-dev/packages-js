@@ -15,7 +15,7 @@ export interface FetchArgs {
 
   // AAuth
   agentUrl?: string
-  delegate: string  // always set after parseArgs returns
+  local?: string
   operations?: string
   scope?: string
   personServer?: string
@@ -37,6 +37,7 @@ export interface FetchArgs {
 
   // Output
   verbose: boolean
+  debug: boolean
 }
 
 function usage(): never {
@@ -59,7 +60,7 @@ Request:
 
 AAuth:
   --agent-url <url>           Agent URL (default: from config)
-  --delegate <name>           Delegate name (default: "fetch")
+  --local <name>           Local part of agent identifier (default: from config)
   --auth-token <jwt>          Pre-existing auth token
   --signing-key <jwk>         Ephemeral private key (with --auth-token)
   --person-server <url>       Override person server URL
@@ -81,6 +82,7 @@ Interaction:
 
 Output:
   -v, --verbose               Show headers + status on stderr
+  --debug                     Show all requests/responses with headers on stderr
 `)
   process.exit(1)
 }
@@ -95,9 +97,10 @@ export function parseArgs(argv: string[]): FetchArgs {
     method: 'GET',
     headers: [],
     jsonInput: false,
-    delegate: '',
+    local: undefined,
     nonInteractive: false,
     verbose: false,
+    debug: false,
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -146,8 +149,8 @@ export function parseArgs(argv: string[]): FetchArgs {
       case '--agent-url':
         result.agentUrl = args[++i]
         break
-      case '--delegate':
-        result.delegate = args[++i]
+      case '--local':
+        result.local = args[++i]
         break
       case '--auth-token':
         result.authToken = args[++i]
@@ -194,6 +197,10 @@ export function parseArgs(argv: string[]): FetchArgs {
       case '--verbose':
         result.verbose = true
         break
+      case '--debug':
+        result.debug = true
+        result.verbose = true
+        break
 
       default:
         if (args[i].startsWith('-')) {
@@ -208,7 +215,7 @@ export function parseArgs(argv: string[]): FetchArgs {
 
   // Env var fallbacks
   result.agentUrl = result.agentUrl ?? process.env.AAUTH_AGENT_URL
-  result.delegate = result.delegate || process.env.AAUTH_DELEGATE || 'fetch'
+  result.local = result.local || process.env.AAUTH_LOCAL
   result.authToken = result.authToken ?? process.env.AAUTH_AUTH_TOKEN
   result.signingKey = result.signingKey ?? process.env.AAUTH_SIGNING_KEY
   result.personServer = result.personServer ?? process.env.AAUTH_PERSON_SERVER

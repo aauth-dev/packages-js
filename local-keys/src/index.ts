@@ -1,7 +1,7 @@
 export { readKeychain, writeKeychain, listAgentUrls } from './keychain.js'
 export { generateKey, generateKid, toPublicJwk } from './keygen.js'
 export { signAgentToken } from './agent-token.js'
-export { createAgentToken } from './delegate-key.js'
+export { createAgentToken } from './create-agent-token.js'
 export { discoverBackends, getBackend } from './backends/index.js'
 export {
   readConfig,

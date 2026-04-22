@@ -70,6 +70,8 @@ export interface AgentHosting {
 }
 
 export interface AgentConfig {
+  /** Agent identifier, e.g. aauth:local@dickhardt.github.io */
+  agentId?: string
   personServerUrl?: string
   /** The agent server metadata URL, e.g. https://me.github.io/.well-known/aauth-agent.json */
   agentServerUrl?: string
@@ -99,8 +101,11 @@ export interface GeneratedKeyPair {
 
 export interface SignAgentTokenOptions {
   agentUrl: string
-  delegateUrl: string
+  /** Agent identifier for the sub claim, e.g. aauth:local@domain */
+  sub: string
   lifetime?: number
+  /** Override ps claim without writing to config (used by bootstrap before config is finalized) */
+  personServerUrl?: string
 }
 
 export interface SignatureKeyJwt {
@@ -116,6 +121,9 @@ export interface AgentTokenResult {
 export interface CreateAgentTokenOptions {
   /** Agent URL. If omitted, uses first configured agent from ~/.aauth/config.json or keychain. */
   agentUrl?: string
-  delegate: string
+  /** Full agent identifier (sub claim), e.g. aauth:claude@domain. Overrides local + config. */
+  agentId?: string
+  /** Local part of agent identifier, e.g. "claude" → aauth:claude@domain. Overrides config. */
+  local?: string
   tokenLifetime?: number
 }

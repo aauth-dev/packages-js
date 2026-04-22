@@ -3,7 +3,7 @@ import { ServerManager } from './server-manager.js'
 
 export interface PluginConfig {
   agent_url?: string
-  delegate?: string
+  local?: string
   token_lifetime?: number
   mcp_servers: Record<string, string>
 }
@@ -18,12 +18,12 @@ export const id = 'aauth-mcp'
 
 export function register(api: OpenClawPluginApi): void {
   const config = api.getConfig()
-  const { agent_url, delegate = 'openclaw', token_lifetime, mcp_servers } = config
+  const { agent_url, local, token_lifetime, mcp_servers } = config
 
   const getKeyMaterial = () =>
     createAgentToken({
       agentUrl: agent_url,
-      delegate,
+      local: local ?? 'openclaw',
       tokenLifetime: token_lifetime,
     })
 

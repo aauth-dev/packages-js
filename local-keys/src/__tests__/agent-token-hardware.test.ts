@@ -30,7 +30,7 @@ describe('Agent Token with YubiKey PIV', () => {
 
       const result = await signAgentToken({
         agentUrl: AGENT_URL,
-        delegateUrl: DELEGATE_URL,
+        sub: DELEGATE_URL,
         lifetime: 3600,
       })
 
@@ -71,7 +71,7 @@ describe('Agent Token with YubiKey PIV', () => {
 
       const result = await signAgentToken({
         agentUrl: AGENT_URL,
-        delegateUrl: DELEGATE_URL,
+        sub: DELEGATE_URL,
       })
 
       const backend = getBackend('yubikey-piv')
@@ -122,7 +122,7 @@ describe('Agent Token with Secure Enclave', () => {
 
       const result = await signAgentToken({
         agentUrl: AGENT_URL,
-        delegateUrl: DELEGATE_URL,
+        sub: DELEGATE_URL,
         lifetime: 7200,
       })
 
@@ -160,7 +160,7 @@ describe('Agent Token fallback', () => {
       // Should succeed — resolveKey finds the hardware key
       const result = await signAgentToken({
         agentUrl: 'https://nonexistent.example',
-        delegateUrl: 'https://nonexistent.example/agent',
+        sub: 'aauth:test@nonexistent.example',
       })
       expect(result.signatureKey.type).toBe('jwt')
     } else {
@@ -168,7 +168,7 @@ describe('Agent Token fallback', () => {
       await expect(
         signAgentToken({
           agentUrl: 'https://nonexistent.example',
-          delegateUrl: 'https://nonexistent.example/agent',
+          sub: 'aauth:test@nonexistent.example',
         }),
       ).rejects.toThrow()
     }
