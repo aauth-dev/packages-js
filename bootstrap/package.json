@@ -30,6 +30,6 @@
     "directory": "bootstrap"
   },
   "dependencies": {
-    "@aauth/local-keys": "^0.6.0"
+    "@aauth/local-keys": "^0.7.0"
   }
 }
