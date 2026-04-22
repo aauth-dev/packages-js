@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,9 +17,17 @@ const __dirname = dirname(__filename)
 
 function getHelperPath(): string | null {
   const arch = process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64'
+  const pkgName = `@aauth/hardware-keys-${arch}`
+
+  // Try to resolve via require (handles hoisting, workspaces, etc.)
+  try {
+    const require = createRequire(import.meta.url)
+    const pkgDir = dirname(require.resolve(`${pkgName}/package.json`))
+    const helper = join(pkgDir, 'se-helper')
+    if (existsSync(helper)) return helper
+  } catch { /* not installed */ }
+
   const candidates = [
-    // Published: inside platform-specific hardware-keys package
-    join(__dirname, '..', '..', 'node_modules', `@aauth/hardware-keys-${arch}`, 'se-helper'),
     // Workspace: hardware-keys sibling
     join(__dirname, '..', '..', '..', 'hardware-keys', 'se-helper', 'se-helper'),
     // Local dev: bin directory
