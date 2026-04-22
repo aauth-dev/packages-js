@@ -15,8 +15,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@aauth/local-keys": "^0.7.0",
-    "@aauth/mcp-agent": "^0.7.0",
+    "@aauth/local-keys": "^0.8.0",
+    "@aauth/mcp-agent": "^0.8.0",
     "open": "^11.0.0"
   },
   "devDependencies": {

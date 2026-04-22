@@ -40,7 +40,7 @@
     "jose": "^5.0.0"
   },
   "optionalDependencies": {
-    "@aauth/hardware-keys": "^0.7.0"
+    "@aauth/hardware-keys": "^0.8.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

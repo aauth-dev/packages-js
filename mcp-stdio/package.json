@@ -36,8 +36,8 @@
     "directory": "mcp-stdio"
   },
   "dependencies": {
-    "@aauth/local-keys": "^0.7.0",
-    "@aauth/mcp-agent": "^0.7.0",
+    "@aauth/local-keys": "^0.8.0",
+    "@aauth/mcp-agent": "^0.8.0",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "open": "^11.0.0"
   },
