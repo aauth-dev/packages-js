@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync } from 'node:fs'
+import { existsSync, accessSync, constants, chmodSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { JWK } from 'jose'
@@ -39,12 +39,21 @@ function getHelperPath(): string | null {
   return null
 }
 
+function ensureExecutable(path: string): void {
+  try {
+    accessSync(path, constants.X_OK)
+  } catch {
+    chmodSync(path, 0o755)
+  }
+}
+
 function callHelper(
   ...args: string[]
 ): Record<string, unknown> | Array<Record<string, unknown>> {
   const helper = getHelperPath()
   if (!helper) throw new Error('se-helper binary not found')
 
+  ensureExecutable(helper)
   const result = execFileSync(helper, args, {
     encoding: 'utf-8',
     timeout: 10000,
