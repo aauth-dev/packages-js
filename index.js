@@ -1,2 +1,2 @@
 // AAuth - Agent Auth utilities
-// https://github.com/AAuth-dev/packages-js
+// https://github.com/aauth-dev/packages-js

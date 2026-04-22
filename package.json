@@ -5,7 +5,7 @@
   "description": "AAuth (Agent Auth) utilities and packages",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AAuth-dev/packages-js"
+    "url": "https://github.com/aauth-dev/packages-js"
   },
   "keywords": [
     "aauth",
@@ -27,6 +27,7 @@
     "mcp-agent",
     "mcp-server",
     "mcp-stdio",
-    "mcp-openclaw"
+    "mcp-openclaw",
+    "fetch"
   ]
 }
