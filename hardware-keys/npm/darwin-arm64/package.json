@@ -1,6 +1,6 @@
 {
   "name": "@aauth/hardware-keys-darwin-arm64",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "os": ["darwin"],
   "cpu": ["arm64"],
   "main": "index.darwin-arm64.node",
