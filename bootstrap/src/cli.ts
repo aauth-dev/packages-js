@@ -296,6 +296,7 @@ Person server bootstrap (can be combined with any command):
   --local <name>           Local part of agent identifier (default: "local")
   --login-hint <hint>      Hint about who to authorize
   --domain-hint <domain>   Domain/org routing hint
+  --provider-hint <name>   Upstream identity provider hint
   --tenant <id>            Tenant identifier
 
 Examples:
@@ -345,6 +346,7 @@ async function runBootstrapPS(flags: Record<string, string>) {
     local: flags.local,
     loginHint: flags['login-hint'],
     domainHint: flags['domain-hint'],
+    providerHint: flags['provider-hint'],
     tenant: flags.tenant,
     onInteraction: (interactionEndpoint, code) => {
       const url = `${interactionEndpoint}?code=${code}`

@@ -11,6 +11,7 @@ export interface BootstrapPSOptions {
   local?: string  // Local part of agent identifier (default: "local")
   loginHint?: string
   domainHint?: string
+  providerHint?: string
   tenant?: string
   onInteraction: (url: string, code: string) => void
 }
@@ -26,16 +27,15 @@ interface PSMetadata {
  * Bootstrap an agent with a person server.
  *
  * 1. Fetch PS metadata → bootstrap_endpoint
- * 2. Generate ephemeral keypair
- * 3. POST to PS /bootstrap with hwk signature
- * 4. Handle 202 interaction (user consent in browser)
- * 5. Get bootstrap_token from PS
- * 6. Sign agent token locally (with PS override)
- * 7. Announce to PS with agent token
- * 8. Store PS URL in config
+ * 2. Generate ephemeral keypair (bound into agent token via cnf.jwk)
+ * 3. Mint agent token locally, signed by root key
+ * 4. POST to PS /bootstrap, signed with ephemeral, carrying agent token
+ *    - 200/204 → done
+ *    - 202 → poll until complete (user interaction case)
+ * 5. Store PS URL in config
  */
 export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void> {
-  const { agentUrl, personServerUrl, local = 'local', loginHint, domainHint, tenant, onInteraction } = options
+  const { agentUrl, personServerUrl, local = 'local', loginHint, domainHint, providerHint, tenant, onInteraction } = options
 
   // 1. Fetch PS metadata
   const metadata = await fetchPSMetadata(personServerUrl)
@@ -43,105 +43,87 @@ export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void
     throw new Error('Person server metadata missing bootstrap_endpoint')
   }
 
-  // 2. Generate ephemeral keypair for hwk signing
+  // 2. Generate ephemeral keypair — bound into the agent token via cnf.jwk and
+  //    used to sign polling requests if the PS returns 202.
   const { publicKey: ephPub, privateKey: ephPriv } = await generateKeyPair('ES256', { crv: 'P-256' })
   const ephPrivJwk = await exportJWK(ephPriv)
   const ephPubJwk = await exportJWK(ephPub)
 
-  // Build signed fetch for hwk scheme
-  const hwkFetch: FetchLike = async (url, init) => {
-    const response = await httpSigFetch(url, {
-      ...init,
-      signingKey: ephPrivJwk,
-      signatureKey: { type: 'hwk' },
-    })
-    return response as Response
-  }
+  // 3. Mint agent token with ephemeral key as cnf, signed by the agent's root key
+  const domain = new URL(agentUrl).hostname
+  const agentId = `aauth:${local}@${domain}`
+  const agentTokenJwt = await buildAgentToken({
+    agentUrl,
+    sub: agentId,
+    personServerUrl,
+    ephPubJwk,
+  })
 
-  // 3. POST to PS /bootstrap
+  // 4. POST to PS /bootstrap — single round-trip, carrying agent token in Signature-Key
   const body: Record<string, string> = {
     agent_server: agentUrl,
   }
   if (loginHint) body.login_hint = loginHint
   if (domainHint) body.domain_hint = domainHint
+  if (providerHint) body.provider_hint = providerHint
   if (tenant) body.tenant = tenant
 
-  const bootstrapResponse = await hwkFetch(metadata.bootstrap_endpoint, {
+  const bootstrapResponse = await httpSigFetch(metadata.bootstrap_endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'AAuth-Capabilities': 'interaction',
     },
     body: JSON.stringify(body),
-  })
-
-  if (bootstrapResponse.status !== 202) {
-    const text = await bootstrapResponse.text()
-    throw new Error(`PS bootstrap request failed with status ${bootstrapResponse.status}: ${text}`)
-  }
-
-  // 4. Extract location and interaction info
-  const locationUrl = bootstrapResponse.headers.get('location')
-  if (!locationUrl) {
-    throw new Error('PS bootstrap 202 response missing Location header')
-  }
-
-  const resolvedLocation = resolveUrl(personServerUrl, locationUrl)
-
-  let interactionUrl: string | undefined
-  let interactionCode: string | undefined
-  const aauthHeader = bootstrapResponse.headers.get('aauth-requirement')
-  if (aauthHeader) {
-    const match = aauthHeader.match(/url="([^"]+)"/)
-    const codeMatch = aauthHeader.match(/code="([^"]+)"/)
-    if (match) interactionUrl = match[1]
-    if (codeMatch) interactionCode = codeMatch[1]
-  }
-
-  // 5. Poll for bootstrap_token
-  const result = await pollDeferred({
-    signedFetch: hwkFetch,
-    locationUrl: resolvedLocation,
-    interactionUrl,
-    interactionCode,
-    onInteraction,
-  })
-
-  if (result.response.status !== 200) {
-    const errorMsg = result.error?.error_description || result.error?.error || `status ${result.response.status}`
-    throw new Error(`PS bootstrap polling failed: ${errorMsg}`)
-  }
-
-  const responseBody = await result.response.json() as Record<string, unknown>
-  const bootstrapToken = responseBody.bootstrap_token
-  if (!bootstrapToken || typeof bootstrapToken !== 'string') {
-    throw new Error('PS bootstrap response missing bootstrap_token')
-  }
-
-  // 6. Sign agent token using the SAME ephemeral key from the bootstrap request.
-  //    The PS matches the announcement to the bootstrap record via this key.
-  const domain = new URL(agentUrl).hostname
-  const agentTokenJwt = await buildAgentToken({
-    agentUrl,
-    sub: `aauth:${local}@${domain}`,
-    personServerUrl,
-    ephPubJwk,
-  })
-
-  // 7. Announce to PS — POST with agent token, signed with bootstrap ephemeral key
-  const announceResponse = await httpSigFetch(metadata.bootstrap_endpoint, {
-    method: 'POST',
     signingKey: ephPrivJwk,
     signatureKey: { type: 'jwt', jwt: agentTokenJwt },
   }) as Response
 
-  if (announceResponse.status !== 204 && announceResponse.status !== 200) {
-    const text = await announceResponse.text()
-    throw new Error(`PS bootstrap announcement failed with status ${announceResponse.status}: ${text}`)
+  if (bootstrapResponse.status === 202) {
+    // User interaction required — poll until PS completes the binding
+    const locationUrl = bootstrapResponse.headers.get('location')
+    if (!locationUrl) {
+      throw new Error('PS bootstrap 202 response missing Location header')
+    }
+    const resolvedLocation = resolveUrl(personServerUrl, locationUrl)
+
+    let interactionUrl: string | undefined
+    let interactionCode: string | undefined
+    const aauthHeader = bootstrapResponse.headers.get('aauth-requirement')
+    if (aauthHeader) {
+      const match = aauthHeader.match(/url="([^"]+)"/)
+      const codeMatch = aauthHeader.match(/code="([^"]+)"/)
+      if (match) interactionUrl = match[1]
+      if (codeMatch) interactionCode = codeMatch[1]
+    }
+
+    const signedFetch: FetchLike = async (url, init) => {
+      const response = await httpSigFetch(url, {
+        ...init,
+        signingKey: ephPrivJwk,
+        signatureKey: { type: 'jwt', jwt: agentTokenJwt },
+      })
+      return response as Response
+    }
+
+    const result = await pollDeferred({
+      signedFetch,
+      locationUrl: resolvedLocation,
+      interactionUrl,
+      interactionCode,
+      onInteraction,
+    })
+
+    if (result.response.status !== 200) {
+      const errorMsg = result.error?.error_description || result.error?.error || `status ${result.response.status}`
+      throw new Error(`PS bootstrap polling failed: ${errorMsg}`)
+    }
+  } else if (bootstrapResponse.status !== 200 && bootstrapResponse.status !== 204) {
+    const text = await bootstrapResponse.text()
+    throw new Error(`PS bootstrap failed with status ${bootstrapResponse.status}: ${text}`)
   }
 
-  // 8. Store agent identifier and PS URL in config
-  const agentId = `aauth:${local}@${domain}`
+  // 5. Store agent identifier and PS URL in config
   const existing = getAgentConfig(agentUrl)
   setAgentConfig(agentUrl, { ...existing || { keys: {} }, agentId, personServerUrl })
 }
