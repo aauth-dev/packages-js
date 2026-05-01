@@ -4,11 +4,17 @@ import { createSignedFetch } from '@aauth/mcp-agent'
 import type { GetKeyMaterial } from '@aauth/mcp-agent'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
+interface ManagedTool {
+  originalName: string
+  description?: string
+  inputSchema?: Record<string, unknown>
+}
+
 interface ManagedServer {
   name: string
   client: Client
   transport: Transport
-  tools: Map<string, string> // prefixed name → original name
+  tools: Map<string, ManagedTool> // prefixed name → tool metadata
 }
 
 export interface ServerManagerOptions {
@@ -36,22 +42,40 @@ export class ServerManager {
     await client.connect(transport)
 
     const { tools } = await client.listTools()
-    const toolMap = new Map<string, string>()
+    const toolMap = new Map<string, ManagedTool>()
     for (const tool of tools) {
-      toolMap.set(`${name}_${tool.name}`, tool.name)
+      toolMap.set(`${name}_${tool.name}`, {
+        originalName: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
+      })
     }
 
     this.servers.set(name, { name, client, transport, tools: toolMap })
   }
 
-  getTools(): Array<{ prefixedName: string; serverName: string; originalName: string; description?: string }> {
-    const result: Array<{ prefixedName: string; serverName: string; originalName: string; description?: string }> = []
+  getTools(): Array<{
+    prefixedName: string
+    serverName: string
+    originalName: string
+    description?: string
+    inputSchema?: Record<string, unknown>
+  }> {
+    const result: Array<{
+      prefixedName: string
+      serverName: string
+      originalName: string
+      description?: string
+      inputSchema?: Record<string, unknown>
+    }> = []
     for (const [, server] of this.servers) {
-      for (const [prefixedName, originalName] of server.tools) {
+      for (const [prefixedName, meta] of server.tools) {
         result.push({
           prefixedName,
           serverName: server.name,
-          originalName,
+          originalName: meta.originalName,
+          description: meta.description,
+          inputSchema: meta.inputSchema,
         })
       }
     }
@@ -63,9 +87,9 @@ export class ServerManager {
     args: Record<string, unknown>,
   ): Promise<unknown> {
     for (const [, server] of this.servers) {
-      const originalName = server.tools.get(prefixedName)
-      if (originalName) {
-        return server.client.callTool({ name: originalName, arguments: args })
+      const meta = server.tools.get(prefixedName)
+      if (meta) {
+        return server.client.callTool({ name: meta.originalName, arguments: args })
       }
     }
     throw new Error(`Unknown tool: ${prefixedName}`)

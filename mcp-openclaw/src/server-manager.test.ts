@@ -40,7 +40,14 @@ describe('ServerManager', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockListTools.mockResolvedValue({
-      tools: [{ name: 'read_file' }, { name: 'write_file' }],
+      tools: [
+        {
+          name: 'read_file',
+          description: 'Read a file',
+          inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+        },
+        { name: 'write_file' },
+      ],
     })
   })
 
@@ -90,8 +97,20 @@ describe('ServerManager', () => {
     const tools = manager.getTools()
 
     expect(tools).toEqual([
-      { prefixedName: 'myfiles_read_file', serverName: 'myfiles', originalName: 'read_file' },
-      { prefixedName: 'myfiles_write_file', serverName: 'myfiles', originalName: 'write_file' },
+      {
+        prefixedName: 'myfiles_read_file',
+        serverName: 'myfiles',
+        originalName: 'read_file',
+        description: 'Read a file',
+        inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      },
+      {
+        prefixedName: 'myfiles_write_file',
+        serverName: 'myfiles',
+        originalName: 'write_file',
+        description: undefined,
+        inputSchema: undefined,
+      },
     ])
   })
 

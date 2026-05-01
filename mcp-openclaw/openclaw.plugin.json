@@ -3,7 +3,6 @@
   "name": "AAuth MCP",
   "description": "Connect to remote MCP servers with AAuth agent authentication",
   "version": "0.0.1",
-  "entry": "./dist/index.js",
   "configSchema": {
     "type": "object",
     "properties": {
