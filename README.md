@@ -1,6 +1,6 @@
 # AAuth — Agent Auth for MCP
 
-TypeScript packages for adding [AAuth](https://github.com/DickHardt/AAuth) (Agent Auth) to MCP servers and agents.
+TypeScript packages for adding [AAuth](https://github.com/dickhardt/AAuth) (Agent Auth) to MCP servers and agents.
 
 AAuth is an agent-aware authentication protocol that lets AI agents prove their identity and obtain authorization using HTTP Message Signatures and JWTs.
 
@@ -8,9 +8,12 @@ AAuth is an agent-aware authentication protocol that lets AI agents prove their 
 
 | Package | Description |
 |---------|-------------|
+| [`@aauth/bootstrap`](./bootstrap) | CLI for setting up AAuth agent keys, person server registration, and hosting |
+| [`@aauth/fetch`](./fetch) | CLI for making AAuth-authenticated HTTP requests |
 | [`@aauth/mcp-agent`](./mcp-agent) | Agent-side AAuth: signed fetch, challenge-response, token exchange |
 | [`@aauth/mcp-server`](./mcp-server) | Server-side AAuth: token verification, challenge building, resource tokens |
-| [`@aauth/local-keys`](./local-keys) | Local dev key management via OS keychain |
+| [`@aauth/local-keys`](./local-keys) | Library for managing AAuth agent signing keys across hardware and software backends |
+| [`@aauth/hardware-keys`](./hardware-keys) | Native bindings for YubiKey PIV and macOS Secure Enclave |
 | [`@aauth/mcp-stdio`](./mcp-stdio) | stdio-to-HTTP proxy with AAuth signatures |
 | [`@aauth/mcp-openclaw`](./mcp-openclaw) | OpenClaw plugin for AAuth-authenticated MCP connections |
 
@@ -80,9 +83,11 @@ const token = await createResourceToken({ resource, authServer, agent, agentJkt 
 ### Local development
 
 ```bash
-# Generate a key pair and store in OS keychain
-npx @aauth/local-keys https://yourusername.github.io
+# Generate keys, register with a person server, and publish them
+npx @aauth/bootstrap --ps https://hello.coop
 ```
+
+See [`@aauth/bootstrap`](./bootstrap) for the full setup flow.
 
 ## Protocol Support
 
@@ -93,7 +98,7 @@ This implementation covers the core AAuth protocol flows. The following spec fea
 
 ## Specification
 
-The AAuth protocol specification: [github.com/DickHardt/AAuth](https://github.com/DickHardt/AAuth)
+The AAuth protocol specification: [github.com/dickhardt/AAuth](https://github.com/dickhardt/AAuth)
 
 ## License
 

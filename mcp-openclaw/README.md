@@ -2,7 +2,7 @@
 
 OpenClaw plugin for connecting to AAuth-authenticated MCP servers. Discovers remote tools via MCP and registers them as OpenClaw tools with AAuth signing.
 
-See the [AAuth repo](https://github.com/AAuth-dev/packages-js) for protocol overview.
+Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Protocol spec: [dickhardt/AAuth](https://github.com/dickhardt/AAuth).
 
 ## Install
 

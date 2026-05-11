@@ -2,7 +2,7 @@
 
 Stdio-to-HTTP proxy for MCP with AAuth signatures. Bridges a local stdio MCP client (like Claude Code) to a remote HTTP MCP server, signing all requests with AAuth.
 
-See the [AAuth repo](https://github.com/AAuth-dev/packages-js) for protocol overview.
+Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Protocol spec: [dickhardt/AAuth](https://github.com/dickhardt/AAuth).
 
 ## Install
 

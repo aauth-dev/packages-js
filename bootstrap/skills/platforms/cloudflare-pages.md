@@ -19,7 +19,7 @@ The user wants to publish their AAuth agent metadata and public keys via Cloudfl
 ## Prerequisites
 
 - `@aauth/local-keys` is installed
-- Keys have been generated (run `npx @aauth/local-keys show` to check)
+- Keys have been generated (run `npx @aauth/bootstrap show` to check)
 - Cloudflare account
 - `wrangler` CLI installed (`npm install -g wrangler`) and authenticated (`wrangler login`), OR a git repo connected to Cloudflare Pages
 
@@ -37,7 +37,7 @@ Ask the user which they plan to use.
 
 Run:
 ```
-npx @aauth/local-keys public-key
+npx @aauth/bootstrap public-key
 ```
 
 ### 2. Create or locate the project

@@ -20,7 +20,7 @@ The user wants to publish their AAuth agent metadata and public keys via GitHub 
 ## Prerequisites
 
 - `@aauth/local-keys` is installed
-- Keys have been generated (run `npx @aauth/local-keys show` to check)
+- Keys have been generated (run `npx @aauth/bootstrap show` to check)
 - `gh` CLI is authenticated
 
 ## Steps
@@ -33,7 +33,7 @@ Ask the user for their GitHub Pages URL if not obvious. It will be `https://user
 
 Run:
 ```
-npx @aauth/local-keys public-key
+npx @aauth/bootstrap public-key
 ```
 
 This outputs all local public keys as JSON. Each key includes an `aauth` metadata object with `device` and `created` fields.

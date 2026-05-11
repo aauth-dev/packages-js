@@ -7,8 +7,8 @@ This repo will evolve as we learn things. Expect experimentation.
 ## AAuth Specification
 
 The evolving AAuth specification lives in a separate repo:
-- Local path: `../../DickHardt/AAuth`
-- GitHub: https://github.com/DickHardt/AAuth
+- Local path: `../AAuth-spec`
+- GitHub: https://github.com/dickhardt/AAuth
 
 Key spec documents:
 - `README.md` — full specification overview
