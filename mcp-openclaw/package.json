@@ -38,6 +38,14 @@
     "@aauth/local-keys": "^0.8.0",
     "@modelcontextprotocol/sdk": "^1.15.1"
   },
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ]
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"

@@ -18,11 +18,10 @@ Add to `~/.openclaw/openclaw.json`:
 {
   "plugins": {
     "entries": {
-      "aauth": {
+      "aauth-mcp": {
         "enabled": true,
         "config": {
           "agent_url": "https://user.github.io",
-          "delegate": "openclaw",
           "mcp_servers": {
             "my-files": "https://files-api.example.com/mcp",
             "my-db": "https://db-api.example.com/mcp"
@@ -34,16 +33,20 @@ Add to `~/.openclaw/openclaw.json`:
 }
 ```
 
+The plugin id is `aauth-mcp` and must match the manifest id.
+
 Tools from remote servers are registered with a prefix: `my-files_read_file`, `my-db_query`, etc.
 
 ## API
 
-### `register(api, config)`
+### `register(api)`
 
-Plugin entry point called by OpenClaw. Connects to configured MCP servers and registers their tools.
+Plugin entry point called by OpenClaw. Connects to configured MCP servers via
+a `registerService` lifecycle and registers each remote tool as an OpenClaw
+tool. The plugin reads its config from `api.pluginConfig`.
 
 ```ts
-import { register } from '@aauth/mcp-openclaw'
+import register from '@aauth/mcp-openclaw'
 ```
 
 ### `ServerManager`
