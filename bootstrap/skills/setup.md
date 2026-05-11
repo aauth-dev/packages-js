@@ -11,8 +11,8 @@ when: User wants to create an AAuth agent identity, generate keys, add a key fro
 Before giving the user ANY guidance, you MUST run these commands and use the output to determine what is available:
 
 ```
-npx @aauth/local-keys discover
-npx @aauth/local-keys show
+npx @aauth/bootstrap discover
+npx @aauth/bootstrap show
 ```
 
 Do NOT assume which backends are available. Do NOT suggest EdDSA or OS keychain keys unless `discover` shows no hardware backends. The discovery output is the source of truth for what this machine supports.
@@ -51,9 +51,9 @@ Do NOT pick a hosting platform or agent URL without asking the user.
 
 If the user already has an agent identity set up and wants to add a key from a new device (e.g. they got a new YubiKey, or they're on a new Mac with a Secure Enclave):
 
-1. Check existing setup: `npx @aauth/local-keys show`
-2. Discover backends: `npx @aauth/local-keys discover`
-3. Generate a key on the new hardware: `npx @aauth/local-keys generate --backend <backend> --agent <agent-url>`
+1. Check existing setup: `npx @aauth/bootstrap show`
+2. Discover backends: `npx @aauth/bootstrap discover`
+3. Generate a key on the new hardware: `npx @aauth/bootstrap generate --backend <backend> --agent <agent-url>`
 4. Add the new public key to the existing JWKS on the hosting platform (load the appropriate platform skill)
 5. The new key will be used automatically — key resolution matches any published key that has a local private key
 
@@ -63,7 +63,7 @@ If the user already has an agent identity set up and wants to add a key from a n
 
 Run:
 ```
-npx @aauth/local-keys discover
+npx @aauth/bootstrap discover
 ```
 
 This returns a JSON array of available backends with their supported algorithms. You MUST run this and use the output — do not skip this step.
@@ -73,8 +73,8 @@ This returns a JSON array of available backends with their supported algorithms.
 For each hardware backend in the discovery output, generate a key and associate it with the agent URL:
 
 ```
-npx @aauth/local-keys generate --backend yubikey-piv --agent <agent-url>
-npx @aauth/local-keys generate --backend secure-enclave --agent <agent-url>
+npx @aauth/bootstrap generate --backend yubikey-piv --agent <agent-url>
+npx @aauth/bootstrap generate --backend secure-enclave --agent <agent-url>
 ```
 
 Each command outputs JSON with:
@@ -83,19 +83,19 @@ Each command outputs JSON with:
 
 **Only generate a software key if no hardware backends are available:**
 ```
-npx @aauth/local-keys generate --agent <agent-url>
+npx @aauth/bootstrap generate --agent <agent-url>
 ```
 
 ### 3. Set the person server
 
 The person server URL is included as the `ps` claim in agent tokens. Set it during setup:
 ```
-npx @aauth/local-keys add-agent <agent-url> --person-server <person-server-url>
+npx @aauth/bootstrap add-agent <agent-url> --person-server <person-server-url>
 ```
 
 The default person server is `https://issuer.hello.coop`. If the user doesn't specify one, use the default:
 ```
-npx @aauth/local-keys add-agent <agent-url> --person-server https://issuer.hello.coop
+npx @aauth/bootstrap add-agent <agent-url> --person-server https://issuer.hello.coop
 ```
 
 ### 4. Choose a hosting platform
@@ -111,7 +111,7 @@ const platforms = listPlatforms()
 
 Or via CLI:
 ```
-npx @aauth/local-keys skill
+npx @aauth/bootstrap skill
 ```
 
 Platform skills are in `skills/platforms/`. Each platform's front matter includes discovery metadata:
@@ -148,14 +148,14 @@ Also mention that any static HTTPS hosting works — the platforms with skills j
 
 After the user chooses, register the hosting platform:
 ```
-npx @aauth/local-keys add-agent <agent-url> --hosting <platform> --repo <repo-identifier>
+npx @aauth/bootstrap add-agent <agent-url> --hosting <platform> --repo <repo-identifier>
 ```
 
 ### 5. Publish keys using the platform skill
 
 Load the full instructions for the chosen platform:
 ```
-npx @aauth/local-keys skill <platform-name>
+npx @aauth/bootstrap skill <platform-name>
 ```
 
 Follow the skill instructions to publish the keys.
@@ -163,7 +163,7 @@ Follow the skill instructions to publish the keys.
 ### 6. Verify setup
 
 ```
-npx @aauth/local-keys show
+npx @aauth/bootstrap show
 ```
 
 This shows all configured agents, their keys, and which backends are available.

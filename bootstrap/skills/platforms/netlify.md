@@ -19,7 +19,7 @@ The user wants to publish their AAuth agent metadata and public keys via Netlify
 ## Prerequisites
 
 - `@aauth/local-keys` is installed
-- Keys have been generated (run `npx @aauth/local-keys show` to check)
+- Keys have been generated (run `npx @aauth/bootstrap show` to check)
 - Netlify account
 
 ## Agent URL
@@ -36,7 +36,7 @@ Ask the user which they plan to use.
 
 Run:
 ```
-npx @aauth/local-keys public-key
+npx @aauth/bootstrap public-key
 ```
 
 ### 2. Create or locate the project

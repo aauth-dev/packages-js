@@ -20,7 +20,7 @@ The user wants to publish their AAuth agent metadata and public keys via GitLab 
 ## Prerequisites
 
 - `@aauth/local-keys` is installed
-- Keys have been generated (run `npx @aauth/local-keys show` to check)
+- Keys have been generated (run `npx @aauth/bootstrap show` to check)
 - GitLab account
 - `glab` CLI installed and authenticated (`glab auth login`), OR `git` configured for GitLab
 
@@ -36,7 +36,7 @@ For the simplest setup, use the user Pages site: create a repo named `username.g
 
 Run:
 ```
-npx @aauth/local-keys public-key
+npx @aauth/bootstrap public-key
 ```
 
 ### 2. Locate or create the GitLab Pages repo

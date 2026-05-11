@@ -2,7 +2,7 @@
 
 Agent-side AAuth for MCP. Handles signed HTTP requests, AAuth challenge-response flows, token exchange with auth servers, and 202 deferred/interaction polling.
 
-See the [AAuth repo](https://github.com/AAuth-dev/packages-js) for protocol overview.
+Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Protocol spec: [dickhardt/AAuth](https://github.com/dickhardt/AAuth).
 
 ## Install
 

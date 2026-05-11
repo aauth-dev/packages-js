@@ -2,7 +2,7 @@
 
 Server-side AAuth for MCP. Verifies signed requests, validates agent and auth tokens, builds AAuth challenge headers, creates resource tokens, and manages 202 interaction flows.
 
-See the [AAuth repo](https://github.com/AAuth-dev/packages-js) for protocol overview.
+Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Protocol spec: [dickhardt/AAuth](https://github.com/dickhardt/AAuth).
 
 ## Install
 
