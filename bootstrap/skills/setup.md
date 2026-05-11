@@ -93,10 +93,12 @@ The person server URL is included as the `ps` claim in agent tokens. Set it duri
 npx @aauth/bootstrap add-agent <agent-url> --person-server <person-server-url>
 ```
 
-The default person server is `https://issuer.hello.coop`. If the user doesn't specify one, use the default:
+The default person server is `https://person.hello-beta.net` — the Hellō Beta Person Server. If the user doesn't specify one, use the default:
 ```
-npx @aauth/bootstrap add-agent <agent-url> --person-server https://issuer.hello.coop
+npx @aauth/bootstrap add-agent <agent-url> --person-server https://person.hello-beta.net
 ```
+
+**Note:** The Hellō Beta Person Server resets its data regularly, so don't store anything that needs to persist. To run against a different PS (including your own), pass its URL via `--person-server` (alias `--ps`).
 
 ### 4. Choose a hosting platform
 

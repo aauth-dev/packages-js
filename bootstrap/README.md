@@ -8,8 +8,10 @@ Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Proto
 
 ```bash
 # Generate keys, register with a person server, and walk through hosting setup
-npx @aauth/bootstrap --ps https://hello.coop
+npx @aauth/bootstrap --ps https://person.hello-beta.net
 ```
+
+> **Note:** `https://person.hello-beta.net` is the Hellō Beta Person Server. Data is reset regularly, so don't store anything you need to keep. To run against a different PS (including your own), pass its URL via `--ps`.
 
 The bootstrap flow detects available key backends (YubiKey PIV, macOS Secure Enclave, software), generates keys on the strongest available backend, registers your agent with a person server, and bundles agent skills that walk you through publishing keys on platforms like GitHub Pages, GitLab Pages, Cloudflare Pages, and Netlify.
 

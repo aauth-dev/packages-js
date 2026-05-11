@@ -9,7 +9,7 @@ Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Proto
 The agent must be bootstrapped with a person server before making authorized requests. Use [`@aauth/bootstrap`](../bootstrap):
 
 ```bash
-npx @aauth/bootstrap --ps https://hello.coop
+npx @aauth/bootstrap --ps https://person.hello-beta.net
 ```
 
 ## Quick Start
