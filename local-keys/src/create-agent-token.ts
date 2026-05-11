@@ -53,7 +53,7 @@ export async function createAgentToken(
       if (!agentId) {
         throw new Error(
           `No agent identifier configured for ${agentUrl}. ` +
-          "Run 'npx @aauth/bootstrap --ps <person-server>' to register.",
+          "Run 'npx @aauth/bootstrap --ps <person-server>' to configure one.",
         )
       }
     }

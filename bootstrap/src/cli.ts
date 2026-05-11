@@ -24,7 +24,6 @@ import {
 import type { KeyAlgorithm, KeyBackend, AAuthPublicJwk } from '@aauth/local-keys'
 import { listSkills, getSkill } from './skills.js'
 import { bootstrapWithPS } from './bootstrap-ps.js'
-import open from 'open'
 
 function parseArgs(args: string[]) {
   const flags: Record<string, string> = {}
@@ -291,13 +290,9 @@ Add-agent options:
   --key-id <id>            Backend-specific key ID (slot, label, etc.)
   --algorithm <alg>        Key algorithm
 
-Person server bootstrap (can be combined with any command):
-  --person-server <url>    Bootstrap with person server (alias: --ps)
+Person server configuration (can be combined with any command):
+  --person-server <url>    Person server URL (alias: --ps)
   --local <name>           Local part of agent identifier (default: "local")
-  --login-hint <hint>      Hint about who to authorize
-  --domain-hint <domain>   Domain/org routing hint
-  --provider-hint <name>   Upstream identity provider hint
-  --tenant <id>            Tenant identifier
 
 Examples:
   npx @aauth/bootstrap discover
@@ -305,8 +300,8 @@ Examples:
   npx @aauth/bootstrap generate --backend secure-enclave --agent https://me.github.io
   npx @aauth/bootstrap sign-token --agent https://me.github.io
   npx @aauth/bootstrap add-agent https://me.github.io
-  npx @aauth/bootstrap --ps https://hello.coop
-  npx @aauth/bootstrap generate --agent https://me.github.io --ps https://hello.coop
+  npx @aauth/bootstrap --ps <your-ps-url>
+  npx @aauth/bootstrap generate --agent https://me.github.io --ps <your-ps-url>
   npx @aauth/bootstrap public-key --agent https://me.github.io`)
 }
 
@@ -338,24 +333,15 @@ async function runBootstrapPS(flags: Record<string, string>) {
     }
   }
 
-  console.error(`Bootstrapping ${agentUrl} with person server ${personServerUrl}...`)
+  console.error(`Configuring ${agentUrl} with person server ${personServerUrl}...`)
 
   await bootstrapWithPS({
     agentUrl,
     personServerUrl,
     local: flags.local,
-    loginHint: flags['login-hint'],
-    domainHint: flags['domain-hint'],
-    providerHint: flags['provider-hint'],
-    tenant: flags.tenant,
-    onInteraction: (interactionEndpoint, code) => {
-      const url = `${interactionEndpoint}?code=${code}`
-      console.error(`Opening browser for consent: ${url}`)
-      open(url)
-    },
   })
 
-  console.error('Bootstrap complete. Person server registered.')
+  console.error('Person server configured. Person binding will happen on the agent\'s first authorized request.')
 }
 
 async function run() {

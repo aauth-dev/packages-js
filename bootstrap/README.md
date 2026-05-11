@@ -7,13 +7,13 @@ Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Proto
 ## Quick Start
 
 ```bash
-# Generate keys, register with a person server, and walk through hosting setup
-npx @aauth/bootstrap --ps https://person.hello-beta.net
+# Generate keys, configure a person server, and walk through hosting setup
+npx @aauth/bootstrap --ps <your-ps-url>
 ```
 
-> **Note:** `https://person.hello-beta.net` is the Hellō Beta Person Server. Data is reset regularly, so don't store anything you need to keep. To run against a different PS (including your own), pass its URL via `--ps`.
+The bootstrap flow detects available key backends (YubiKey PIV, macOS Secure Enclave, software), generates keys on the strongest available backend, configures a person server for your agent, and bundles agent skills that walk you through publishing keys on platforms like GitHub Pages, GitLab Pages, Cloudflare Pages, and Netlify.
 
-The bootstrap flow detects available key backends (YubiKey PIV, macOS Secure Enclave, software), generates keys on the strongest available backend, registers your agent with a person server, and bundles agent skills that walk you through publishing keys on platforms like GitHub Pages, GitLab Pages, Cloudflare Pages, and Netlify.
+Per [draft-hardt-aauth-bootstrap §Self-Hosted Enrollment](https://github.com/dickhardt/AAuth), publication of the JWKS is the enrollment — there is no separate enrollment step. Person binding to a user happens lazily on the agent's first authorized request, per [§Agent-Person Binding](https://github.com/dickhardt/AAuth) in the protocol spec.
 
 ## Commands
 

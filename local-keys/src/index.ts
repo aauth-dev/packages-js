@@ -5,6 +5,7 @@ export { createAgentToken } from './create-agent-token.js'
 export { discoverBackends, getBackend } from './backends/index.js'
 export {
   readConfig,
+  writeConfig,
   getAgentConfig,
   setAgentConfig,
   addKeyToAgent,
