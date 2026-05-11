@@ -9,7 +9,7 @@ Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Proto
 The agent must be bootstrapped with a person server before making authorized requests. Use [`@aauth/bootstrap`](../bootstrap):
 
 ```bash
-npx @aauth/bootstrap --ps https://person.hello-beta.net
+npx @aauth/bootstrap --ps <your-ps-url>
 ```
 
 ## Quick Start
@@ -84,7 +84,7 @@ Run `npx @aauth/fetch --skill` to print a structured LLM-readable usage guide co
 
 ## Related Packages
 
-- [`@aauth/bootstrap`](../bootstrap) — set up agent keys and register with a person server (run this first)
+- [`@aauth/bootstrap`](../bootstrap) — set up agent keys and configure a person server (run this first)
 - [`@aauth/mcp-agent`](../mcp-agent) — programmatic agent-side AAuth for use inside applications
 
 ## License

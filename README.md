@@ -83,11 +83,9 @@ const token = await createResourceToken({ resource, authServer, agent, agentJkt 
 ### Local development
 
 ```bash
-# Generate keys, register with a person server, and publish them
-npx @aauth/bootstrap --ps https://person.hello-beta.net
+# Generate keys, configure a person server, and publish them
+npx @aauth/bootstrap --ps <your-ps-url>
 ```
-
-> **Note:** `https://person.hello-beta.net` is the Hellō Beta Person Server. Data is reset regularly, so don't store anything you need to keep. To run against a different PS (including your own), pass its URL via `--ps`.
 
 See [`@aauth/bootstrap`](./bootstrap) for the full setup flow.
 

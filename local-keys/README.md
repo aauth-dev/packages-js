@@ -4,7 +4,7 @@ Library for managing AAuth agent signing keys across hardware and software backe
 
 Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Protocol spec: [dickhardt/AAuth](https://github.com/dickhardt/AAuth).
 
-> **Looking for a CLI?** This package is a library. The CLI for setting up agent keys, registering with a person server, and publishing keys is [`@aauth/bootstrap`](../bootstrap). Run `npx @aauth/bootstrap --ps https://person.hello-beta.net` to get started.
+> **Looking for a CLI?** This package is a library. The CLI for setting up agent keys, configuring a person server, and publishing keys is [`@aauth/bootstrap`](../bootstrap). Run `npx @aauth/bootstrap --ps <your-ps-url>` to get started.
 
 ## Install
 
@@ -82,7 +82,7 @@ addKeyToAgent('https://you.github.io', 'kid-123', {
   deviceLabel: 'yubikey-5c-0775',
 })
 
-setPersonServer('https://you.github.io', 'https://person.hello-beta.net')
+setPersonServer('https://you.github.io', 'https://your-ps.example')
 
 setHosting('https://you.github.io', {
   platform: 'github-pages',
@@ -98,7 +98,7 @@ setHosting('https://you.github.io', {
 {
   "agents": {
     "https://you.github.io": {
-      "personServerUrl": "https://person.hello-beta.net",
+      "personServerUrl": "https://your-ps.example",
       "hosting": {
         "platform": "github-pages",
         "repo": "you/you.github.io"
