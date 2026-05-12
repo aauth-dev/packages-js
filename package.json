@@ -1,8 +1,8 @@
 {
   "name": "@aauth/aauth",
   "private": true,
-  "version": "0.10.0",
-  "description": "AAuth (Agent Auth) utilities and packages",
+  "version": "0.10.1",
+  "description": "AAuth utilities and packages",
   "repository": {
     "type": "git",
     "url": "https://github.com/aauth-dev/packages-js"

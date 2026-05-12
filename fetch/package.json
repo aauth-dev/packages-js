@@ -1,6 +1,6 @@
 {
   "name": "@aauth/fetch",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "CLI for making AAuth-authenticated HTTP requests",
   "type": "module",
   "bin": {
@@ -15,8 +15,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@aauth/local-keys": "^0.10.0",
-    "@aauth/mcp-agent": "^0.10.0",
+    "@aauth/local-keys": "^0.10.1",
+    "@aauth/mcp-agent": "^0.10.1",
     "open": "^11.0.0"
   },
   "devDependencies": {
