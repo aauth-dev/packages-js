@@ -1,6 +1,6 @@
-# AAuth — Agent Auth for MCP
+# AAuth for MCP
 
-TypeScript packages for adding [AAuth](https://github.com/dickhardt/AAuth) (Agent Auth) to MCP servers and agents.
+TypeScript packages for adding [AAuth](https://github.com/dickhardt/AAuth) to MCP servers and agents.
 
 AAuth is an agent-aware authentication protocol that lets AI agents prove their identity and obtain authorization using HTTP Message Signatures and JWTs.
 

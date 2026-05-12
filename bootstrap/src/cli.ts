@@ -304,7 +304,7 @@ Person server configuration (can be combined with any command):
   --local <name>           Local part of agent identifier (default: "local")
 
 Output:
-  --log                    Narrate each step on stderr (NDJSON)
+  --log                    Narrate each step on stderr (JSONL)
 
 Examples:
   npx @aauth/bootstrap discover

@@ -86,7 +86,7 @@ Interaction:
 Output:
   -v, --verbose               Show headers + status on stderr
   --debug                     Show all requests/responses with headers on stderr
-  --log                       Narrate each AAuth protocol step on stderr (NDJSON)
+  --log                       Narrate each AAuth protocol step on stderr (JSONL)
 `)
   process.exit(1)
 }
