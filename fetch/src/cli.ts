@@ -3,6 +3,7 @@
 import { parseArgs } from './args.js'
 import { readJsonInput, mergeJsonInput } from './json-input.js'
 import { printSkill } from './skill.js'
+import { printGettingStarted } from './getting-started.js'
 import {
   resolvePersonServer,
   buildGetKeyMaterial,
@@ -29,8 +30,7 @@ async function run() {
   }
 
   if (!args.url) {
-    console.error(JSON.stringify({ error: 'URL is required. Use --help for usage.' }))
-    process.exitCode = 1
+    printGettingStarted()
     return
   }
 

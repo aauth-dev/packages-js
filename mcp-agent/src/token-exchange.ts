@@ -1,8 +1,9 @@
-import type { FetchLike, OnEvent } from './types.js'
+import type { FetchLike, GetKeyMaterial, OnEvent } from './types.js'
 import { pollDeferred } from './deferred.js'
 import type { AAuthError } from './deferred.js'
 import { parseAAuthHeader } from './aauth-header.js'
 import { decodeJwtPayload } from './decode-jwt.js'
+import { summarizeResponseHeaders, decodeSignatureKey } from './log-helpers.js'
 
 export class TokenExchangeError extends Error {
   constructor(
@@ -31,6 +32,12 @@ export interface TokenExchangeOptions {
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
+  /**
+   * Optional: when provided, agent_token is decoded and included in
+   * ps_token_request:start and ps_metadata_request:start events for full
+   * outgoing-token visibility under --log.
+   */
+  getKeyMaterial?: GetKeyMaterial
 }
 
 export interface TokenExchangeResult {
@@ -66,10 +73,11 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     onInteraction,
     onClarification,
     onEvent,
+    getKeyMaterial,
   } = options
 
   // 1. Fetch auth server metadata
-  const metadata = await fetchMetadata(signedFetch, authServerUrl, onEvent)
+  const metadata = await fetchMetadata(signedFetch, authServerUrl, onEvent, getKeyMaterial)
 
   const { capabilities, prompt } = options
 
@@ -86,7 +94,17 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   if (prompt) body.prompt = prompt
 
   // 3. POST to token endpoint
-  onEvent?.({ step: 'ps_token_request', phase: 'start', url: metadata.token_endpoint })
+  if (onEvent) {
+    const agentToken = getKeyMaterial
+      ? decodeSignatureKey((await getKeyMaterial()).signatureKey)
+      : undefined
+    onEvent({
+      step: 'ps_token_request',
+      phase: 'start',
+      url: metadata.token_endpoint,
+      agent_token: agentToken,
+    })
+  }
   const response = await signedFetch(metadata.token_endpoint, {
     method: 'POST',
     headers: {
@@ -95,7 +113,12 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     },
     body: JSON.stringify(body),
   })
-  onEvent?.({ step: 'ps_token_request', phase: 'done', status: response.status })
+  onEvent?.({
+    step: 'ps_token_request',
+    phase: 'done',
+    status: response.status,
+    response: { headers: summarizeResponseHeaders(response.headers) },
+  })
 
   // 4. Handle response
   if (response.status === 200) {
@@ -140,7 +163,12 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
 
     if (result.response.status === 200) {
       const parsed = parseTokenResponse(await result.response.json() as Record<string, unknown>)
-      onEvent?.({ step: 'auth_token_received', phase: 'info', expiresIn: parsed.expiresIn })
+      onEvent?.({
+        step: 'auth_token_received',
+        phase: 'info',
+        expiresIn: parsed.expiresIn,
+        authToken: decodeJwtPayload(parsed.authToken),
+      })
       return parsed
     }
 
@@ -150,11 +178,26 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   throw new TokenExchangeError(response.status)
 }
 
-async function fetchMetadata(signedFetch: FetchLike, authServerUrl: string, onEvent?: OnEvent): Promise<AuthServerMetadata> {
+async function fetchMetadata(
+  signedFetch: FetchLike,
+  authServerUrl: string,
+  onEvent?: OnEvent,
+  getKeyMaterial?: GetKeyMaterial,
+): Promise<AuthServerMetadata> {
   const metadataUrl = `${authServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
-  onEvent?.({ step: 'ps_metadata_request', phase: 'start', url: metadataUrl })
+  if (onEvent) {
+    const agentToken = getKeyMaterial
+      ? decodeSignatureKey((await getKeyMaterial()).signatureKey)
+      : undefined
+    onEvent({ step: 'ps_metadata_request', phase: 'start', url: metadataUrl, agent_token: agentToken })
+  }
   const response = await signedFetch(metadataUrl, { method: 'GET' })
-  onEvent?.({ step: 'ps_metadata_request', phase: 'done', status: response.status })
+  onEvent?.({
+    step: 'ps_metadata_request',
+    phase: 'done',
+    status: response.status,
+    response: { headers: summarizeResponseHeaders(response.headers) },
+  })
 
   if (!response.ok) {
     throw new Error(`Failed to fetch auth server metadata: ${response.status}`)

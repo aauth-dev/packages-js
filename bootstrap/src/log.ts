@@ -26,6 +26,27 @@ const narrations: Record<string, Narration> = {
 
   agent_config_persisted: (e) =>
     `Agent configured: agentId=${e.agentId}, personServer=${e.personServerUrl}`,
+
+  bootstrap_started: (e) =>
+    `Configuring ${e.agentUrl} with person server ${e.personServerUrl}`,
+
+  bootstrap_complete: () =>
+    'Person server configured. Person binding will happen on the agent\'s first authorized request.',
+
+  sign_token: (e) => e.phase === 'start'
+    ? `Signing agent_token for ${e.agentId} (lifetime ${e.lifetime}s)`
+    : 'Agent token signed (decoded payload included)',
+
+  backends_discovered: (e) => {
+    const list = (e.backends as Array<{ backend: string }> | undefined)?.map(b => b.backend).join(', ') || '(none)'
+    return `Discovered key backends on this machine: ${list}`
+  },
+
+  agents_listed: (e) =>
+    `Read ~/.aauth/config.json — ${(e.agents as string[] | undefined)?.length ?? 0} configured agent(s)`,
+
+  keychain_scanned: (e) =>
+    `Scanned OS keychain — ${(e.urls as string[] | undefined)?.length ?? 0} agent URL(s) with software keys`,
 }
 
 export function buildLogEmitter(enabled: boolean): OnBootstrapEvent | undefined {

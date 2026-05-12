@@ -1,4 +1,5 @@
 import { parseAAuthHeader } from './aauth-header.js'
+import { summarizeResponseHeaders } from './log-helpers.js'
 import type { FetchLike, OnEvent } from './types.js'
 
 export interface DeferredOptions {
@@ -68,7 +69,13 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
         Prefer: `wait=${DEFAULT_PREFER_WAIT}`,
       },
     })
-    onEvent?.({ step: 'consent_poll', phase: 'done', status: response.status, iteration: pollIteration })
+    onEvent?.({
+      step: 'consent_poll',
+      phase: 'done',
+      status: response.status,
+      iteration: pollIteration,
+      response: { headers: summarizeResponseHeaders(response.headers) },
+    })
 
     const status = response.status
 

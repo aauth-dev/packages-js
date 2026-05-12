@@ -4,6 +4,7 @@ import { parseAAuthHeader, buildCapabilitiesHeader, buildMissionHeader } from '.
 import { exchangeToken } from './token-exchange.js'
 import { pollDeferred } from './deferred.js'
 import { decodeJwtPayload } from './decode-jwt.js'
+import { summarizeResponseHeaders, decodeSignatureKey } from './log-helpers.js'
 import type { GetKeyMaterial, FetchLike, OnEvent } from './types.js'
 import type { Capability, AAuthMission } from './aauth-header.js'
 
@@ -91,9 +92,23 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     }
 
     // Send signed request (no auth token)
-    onEvent?.({ step: 'signed_request', phase: 'start', url: urlStr, method: (init?.method as string) ?? 'GET' })
+    if (onEvent) {
+      const km = await getKeyMaterial()
+      onEvent({
+        step: 'signed_request',
+        phase: 'start',
+        url: urlStr,
+        method: (init?.method as string) ?? 'GET',
+        agent_token: decodeSignatureKey(km.signatureKey),
+      })
+    }
     const response = await signedFetch(url, init)
-    onEvent?.({ step: 'signed_request', phase: 'done', status: response.status })
+    onEvent?.({
+      step: 'signed_request',
+      phase: 'done',
+      status: response.status,
+      response: { headers: summarizeResponseHeaders(response.headers) },
+    })
 
     // 200: success — check for AAuth-Access token
     if (response.status === 200) {
@@ -136,6 +151,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           onInteraction,
           onClarification,
           onEvent,
+          getKeyMaterial,
         })
 
         // Cache the auth token
@@ -147,11 +163,21 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         })
 
         // Retry with auth token
-        onEvent?.({ step: 'retry_with_auth_token', phase: 'start', url: urlStr })
+        onEvent?.({
+          step: 'retry_with_auth_token',
+          phase: 'start',
+          url: urlStr,
+          auth_token: decodeJwtPayload(result.authToken),
+        })
         const retryResponse = await fetchWithAuthToken(
           url, init, result.authToken, getKeyMaterial,
         )
-        onEvent?.({ step: 'retry_with_auth_token', phase: 'done', status: retryResponse.status })
+        onEvent?.({
+          step: 'retry_with_auth_token',
+          phase: 'done',
+          status: retryResponse.status,
+          response: { headers: summarizeResponseHeaders(retryResponse.headers) },
+        })
         cacheAccessToken(accessCache, resourceOrigin, retryResponse)
         return handleResourceInteraction(retryResponse, signedFetch, onInteraction, onClarification)
       }

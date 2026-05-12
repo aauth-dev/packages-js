@@ -5,10 +5,36 @@ import {
   createSignedFetch,
   parseAAuthHeader,
   exchangeToken,
+  decodeJwtPayload,
 } from '@aauth/mcp-agent'
 import type { GetKeyMaterial, KeyMaterial, FetchLike, Capability, OnEvent } from '@aauth/mcp-agent'
 import open from 'open'
 import { buildLogEmitter } from './log.js'
+
+/**
+ * Filter response headers to AAuth-relevant set for --log events. Mirrors the
+ * helper in @aauth/mcp-agent so fetch CLI events have consistent shape.
+ */
+const AAUTH_RELEVANT_RESPONSE_HEADERS = [
+  'www-authenticate',
+  'aauth-requirement',
+  'aauth-access',
+  'content-type',
+  'location',
+]
+function summarizeResponseHeaders(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const k of AAUTH_RELEVANT_RESPONSE_HEADERS) {
+    const v = headers.get(k)
+    if (v) out[k] = v
+  }
+  return out
+}
+
+function decodeSignatureJwt(km: KeyMaterial): Record<string, unknown> | undefined {
+  if (km.signatureKey.type === 'hwk') return undefined
+  return decodeJwtPayload(km.signatureKey.jwt)
+}
 
 /**
  * Wrap a fetch function to log all requests and responses to stderr.
@@ -112,13 +138,24 @@ export async function handleAuthorize(
       },
     }
 
-    onEvent?.({ step: 'r3_authorize_request', phase: 'start', url: args.url, operations: operationIds })
+    onEvent?.({
+      step: 'r3_authorize_request',
+      phase: 'start',
+      url: args.url,
+      operations: operationIds,
+      agent_token: decodeSignatureJwt(keyMaterial),
+    })
     const response = await signedFetch(args.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(r3Body),
     })
-    onEvent?.({ step: 'r3_authorize_request', phase: 'done', status: response.status })
+    onEvent?.({
+      step: 'r3_authorize_request',
+      phase: 'done',
+      status: response.status,
+      response: { headers: summarizeResponseHeaders(response.headers) },
+    })
 
     if (args.verbose) {
       console.error(JSON.stringify({ status: response.status, headers: headersToObject(response.headers) }))
@@ -145,9 +182,20 @@ export async function handleAuthorize(
       url.searchParams.set('scope', args.scope)
     }
 
-    onEvent?.({ step: 'signed_request', phase: 'start', url: url.toString(), method: 'GET' })
+    onEvent?.({
+      step: 'signed_request',
+      phase: 'start',
+      url: url.toString(),
+      method: 'GET',
+      agent_token: decodeSignatureJwt(keyMaterial),
+    })
     const response = await signedFetch(url.toString(), { method: 'GET' })
-    onEvent?.({ step: 'signed_request', phase: 'done', status: response.status })
+    onEvent?.({
+      step: 'signed_request',
+      phase: 'done',
+      status: response.status,
+      response: { headers: summarizeResponseHeaders(response.headers) },
+    })
 
     if (args.verbose) {
       console.error(JSON.stringify({ status: response.status, headers: headersToObject(response.headers) }))
@@ -184,7 +232,12 @@ export async function handleAuthorize(
       return
     }
 
-    onEvent?.({ step: 'challenge_received', phase: 'info', requirement: challenge.requirement })
+    onEvent?.({
+      step: 'challenge_received',
+      phase: 'info',
+      requirement: challenge.requirement,
+      resourceToken: decodeJwtPayload(challenge.resourceToken),
+    })
     resourceToken = challenge.resourceToken
   }
 
@@ -206,12 +259,16 @@ export async function handleAuthorize(
     capabilities: (capabilities as string[]) ?? ['interaction'],
     prompt: args.forceConsent ? 'consent' : undefined,
     onEvent,
+    getKeyMaterial: pinnedGetKeyMaterial,
     onInteraction: (interactionEndpoint, code) => {
       if (args.nonInteractive) {
         throw new Error(`Consent required but --non-interactive set. URL: ${interactionEndpoint}?code=${code}`)
       }
       const interactionUrl = `${interactionEndpoint}?code=${code}`
-      console.error(JSON.stringify({ interaction: { url: interactionUrl, code } }))
+      if (!onEvent) {
+        console.error(`Open ${interactionUrl} in your browser to approve (code: ${code}).`)
+      }
+      // With --log: consent_prompt event already carries this info
       if (shouldOpenBrowser) {
         open(interactionUrl)
       }
@@ -230,7 +287,7 @@ export async function handleAuthorize(
  * Pre-authed mode: use provided auth token + signing key.
  */
 export async function handlePreAuthed(
-  args: { url: string; method: string; authToken: string; signingKey: string; verbose: boolean; data?: string; headers: string[] },
+  args: { url: string; method: string; authToken: string; signingKey: string; verbose: boolean; log?: boolean; data?: string; headers: string[] },
   init: RequestInit,
 ): Promise<void> {
   let signingKey: JsonWebKey
@@ -242,13 +299,28 @@ export async function handlePreAuthed(
     return
   }
 
+  const onEvent: OnEvent | undefined = buildLogEmitter(args.log ?? false)
   const getKeyMaterial: GetKeyMaterial = async () => ({
     signingKey,
     signatureKey: { type: 'jwt' as const, jwt: args.authToken! },
   })
 
   const signedFetch = createSignedFetch(getKeyMaterial)
+
+  onEvent?.({
+    step: 'signed_request',
+    phase: 'start',
+    url: args.url,
+    method: (init.method as string) ?? 'GET',
+    auth_token: decodeJwtPayload(args.authToken),
+  })
   const response = await signedFetch(args.url!, init)
+  onEvent?.({
+    step: 'signed_request',
+    phase: 'done',
+    status: response.status,
+    response: { headers: summarizeResponseHeaders(response.headers) },
+  })
 
   await outputResponse(response, args.verbose)
 }
@@ -257,12 +329,31 @@ export async function handlePreAuthed(
  * --agent-only mode: sign with agent token, don't handle 401.
  */
 export async function handleAgentOnly(
-  args: { url: string; verbose: boolean },
+  args: { url: string; verbose: boolean; log?: boolean },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
 ): Promise<void> {
+  const onEvent: OnEvent | undefined = buildLogEmitter(args.log ?? false)
   const signedFetch = createSignedFetch(getKeyMaterial)
+
+  if (onEvent) {
+    const km = await getKeyMaterial()
+    onEvent({
+      step: 'signed_request',
+      phase: 'start',
+      url: args.url,
+      method: (init.method as string) ?? 'GET',
+      agent_token: decodeSignatureJwt(km),
+    })
+  }
   const response = await signedFetch(args.url!, init)
+  onEvent?.({
+    step: 'signed_request',
+    phase: 'done',
+    status: response.status,
+    response: { headers: summarizeResponseHeaders(response.headers) },
+  })
+
   await outputResponse(response, args.verbose)
 }
 
@@ -305,7 +396,10 @@ export async function handleFullFlow(
         throw new Error(`Consent required but --non-interactive set. URL: ${interactionEndpoint}?code=${code}`)
       }
       const url = `${interactionEndpoint}?code=${code}`
-      console.error(JSON.stringify({ interaction: { url, code } }))
+      if (!onEvent) {
+        console.error(`Open ${url} in your browser to approve (code: ${code}).`)
+      }
+      // With --log: consent_prompt event already carries this info
       if (shouldOpenBrowser) {
         open(url)
       }

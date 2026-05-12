@@ -120,6 +120,7 @@ async function cmdGenerate(flags: Record<string, string>) {
 async function cmdSignToken(flags: Record<string, string>) {
   const agentUrl = flags.agent
   const lifetime = parseInt(flags.lifetime || '3600', 10)
+  const onEvent = buildLogEmitter(flags.log === 'true')
 
   if (!agentUrl) {
     console.error(JSON.stringify({ error: '--agent <url> required' }))
@@ -135,7 +136,15 @@ async function cmdSignToken(flags: Record<string, string>) {
     return
   }
 
+  onEvent?.({ step: 'sign_token', phase: 'start', agentUrl, agentId, lifetime })
   const result = await signAgentToken({ agentUrl, sub: agentId, lifetime })
+  // Decode the signed agent token to surface its claims under --log.
+  const parts = result.signatureKey.jwt.split('.')
+  let decoded: unknown
+  if (parts.length >= 2) {
+    try { decoded = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) } catch { /* ignore */ }
+  }
+  onEvent?.({ step: 'sign_token', phase: 'done', agent_token: decoded })
   console.log(JSON.stringify(result, null, 2))
 }
 
@@ -216,14 +225,21 @@ function cmdConfig() {
   console.log(JSON.stringify(readConfig(), null, 2))
 }
 
-function cmdShow() {
+function cmdShow(flags: Record<string, string> = {}) {
+  const onEvent = buildLogEmitter(flags.log === 'true')
+
+  console.log('@aauth/bootstrap — set up an agent identity for AAuth')
+  console.log('')
+
   const backends = discoverBackends()
+  onEvent?.({ step: 'backends_discovered', phase: 'info', backends })
   console.log('Available backends:')
   for (const b of backends) {
     console.log(`  ${b.backend} — ${b.description} [${b.algorithms.join(', ')}]`)
   }
 
   const agents = listConfiguredAgents()
+  onEvent?.({ step: 'agents_listed', phase: 'info', agents })
   if (agents.length > 0) {
     console.log('\nConfigured agents:')
     for (const url of agents) {
@@ -238,6 +254,7 @@ function cmdShow() {
   }
 
   const urls = listAgentUrls()
+  onEvent?.({ step: 'keychain_scanned', phase: 'info', urls })
   if (urls.length > 0) {
     console.log('\nSoftware keys in keychain:')
     for (const url of urls) {
@@ -250,6 +267,23 @@ function cmdShow() {
       }
     }
   }
+
+  // Getting-started footer: shown for both `bootstrap` (no command) and `bootstrap show`.
+  console.log('')
+  if (agents.length === 0) {
+    console.log('No agents configured yet. Quick start:')
+    console.log('  npx @aauth/bootstrap --ps https://person.hello-beta.net')
+  } else {
+    console.log('Try calling an AAuth-protected resource:')
+    console.log('  npx @aauth/fetch https://whoami.aauth.dev --log')
+  }
+  console.log('')
+  console.log('Common commands:')
+  console.log('  npx @aauth/bootstrap discover         List available key backends')
+  console.log('  npx @aauth/bootstrap generate [opts]  Generate a signing key')
+  console.log('  npx @aauth/bootstrap --ps <url>       Configure a person server')
+  console.log('  npx @aauth/bootstrap sign-token       Sign a one-off agent_token')
+  console.log('  npx @aauth/bootstrap help             Full help')
 }
 
 function cmdSkill(name?: string) {
@@ -345,9 +379,15 @@ async function runBootstrapPS(flags: Record<string, string>) {
     }
   }
 
-  console.error(`Configuring ${agentUrl} with person server ${personServerUrl}...`)
+  const logEnabled = flags.log === 'true'
+  const onEvent = buildLogEmitter(logEnabled)
 
-  const onEvent = buildLogEmitter(flags.log === 'true')
+  if (logEnabled) {
+    onEvent?.({ step: 'bootstrap_started', phase: 'info', agentUrl, personServerUrl })
+  } else {
+    console.error(`Configuring ${agentUrl} with person server ${personServerUrl}...`)
+  }
+
   await bootstrapWithPS({
     agentUrl,
     personServerUrl,
@@ -355,7 +395,15 @@ async function runBootstrapPS(flags: Record<string, string>) {
     onEvent,
   })
 
-  console.error('Person server configured. Person binding will happen on the agent\'s first authorized request.')
+  if (logEnabled) {
+    onEvent?.({
+      step: 'bootstrap_complete',
+      phase: 'info',
+      note: 'Person binding happens on the agent\'s first authorized request',
+    })
+  } else {
+    console.error('Person server configured. Person binding will happen on the agent\'s first authorized request.')
+  }
 }
 
 async function run() {
@@ -363,12 +411,12 @@ async function run() {
   const command = positional[0]
 
   if (!command) {
-    // No command: if --person-server is present, bootstrap; otherwise show status
+    // No command: if --person-server is present, bootstrap; otherwise show status + getting-started
     if (flags['person-server']) {
       await runBootstrapPS(flags)
       return
     }
-    cmdShow()
+    cmdShow(flags)
     return
   }
 
@@ -379,7 +427,7 @@ async function run() {
     case 'public-key': await cmdPublicKey(flags); break
     case 'add-agent': cmdAddAgent(flags, positional); break
     case 'config': cmdConfig(); break
-    case 'show': cmdShow(); break
+    case 'show': cmdShow(flags); break
     case 'skill': cmdSkill(positional[1]); break
     case 'help': cmdHelp(); break
     default:

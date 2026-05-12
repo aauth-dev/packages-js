@@ -29,7 +29,7 @@ const narrations: Record<string, Narration> = {
     `Open ${e.url} in your browser to approve (code: ${e.code}).`,
 
   consent_poll: (e) => e.phase === 'start'
-    ? undefined
+    ? `Polling Person Server for consent (iteration ${e.iteration})`
     : `Long-poll result: ${e.status}`,
 
   consent_resolved: (e) =>
