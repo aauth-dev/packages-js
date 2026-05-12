@@ -1,9 +1,11 @@
 import { setAgentConfig, getAgentConfig } from '@aauth/local-keys'
+import type { OnBootstrapEvent } from './log.js'
 
 export interface BootstrapPSOptions {
   agentUrl: string
   personServerUrl: string
   local?: string
+  onEvent?: OnBootstrapEvent
 }
 
 interface PSMetadata {
@@ -29,9 +31,9 @@ interface PSMetadata {
  * from config and includes it in the `ps` claim of every minted agent_token.
  */
 export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void> {
-  const { agentUrl, personServerUrl, local = 'local' } = options
+  const { agentUrl, personServerUrl, local = 'local', onEvent } = options
 
-  const metadata = await fetchPSMetadata(personServerUrl)
+  const metadata = await fetchPSMetadata(personServerUrl, onEvent)
 
   if (!metadata.issuer) {
     throw new Error('PS metadata missing required field: issuer')
@@ -50,6 +52,7 @@ export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void
       `PS issuer (${metadata.issuer}) does not match URL (${personServerUrl})`,
     )
   }
+  onEvent?.({ step: 'ps_metadata_validated', phase: 'info' })
 
   const agentId = `aauth:${local}@${new URL(agentUrl).hostname}`
   const existing = getAgentConfig(agentUrl)
@@ -58,11 +61,14 @@ export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void
     agentId,
     personServerUrl,
   })
+  onEvent?.({ step: 'agent_config_persisted', phase: 'info', agentId, personServerUrl })
 }
 
-async function fetchPSMetadata(personServerUrl: string): Promise<PSMetadata> {
+async function fetchPSMetadata(personServerUrl: string, onEvent?: OnBootstrapEvent): Promise<PSMetadata> {
   const url = `${personServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
+  onEvent?.({ step: 'ps_metadata_request', phase: 'start', url })
   const response = await fetch(url)
+  onEvent?.({ step: 'ps_metadata_request', phase: 'done', status: response.status })
   if (!response.ok) {
     throw new Error(`Failed to fetch PS metadata at ${url}: ${response.status}`)
   }

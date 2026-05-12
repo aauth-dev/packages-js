@@ -1,5 +1,5 @@
 import { parseAAuthHeader } from './aauth-header.js'
-import type { FetchLike } from './types.js'
+import type { FetchLike, OnEvent } from './types.js'
 
 export interface DeferredOptions {
   signedFetch: FetchLike
@@ -8,6 +8,7 @@ export interface DeferredOptions {
   interactionCode?: string
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
+  onEvent?: OnEvent
   maxPollDuration?: number // total timeout in seconds, default 300
 }
 
@@ -42,31 +43,38 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
     interactionCode,
     onInteraction,
     onClarification,
+    onEvent,
     maxPollDuration = DEFAULT_MAX_POLL_DURATION,
   } = options
 
   const deadline = Date.now() + maxPollDuration * 1000
 
   // Notify about initial interaction url and code if present
-  if (interactionUrl && interactionCode && onInteraction) {
-    onInteraction(interactionUrl, interactionCode)
+  if (interactionUrl && interactionCode) {
+    onEvent?.({ step: 'consent_prompt', phase: 'info', url: interactionUrl, code: interactionCode })
+    if (onInteraction) onInteraction(interactionUrl, interactionCode)
   }
 
   let backoffMs = 1000
   let pollUrl = locationUrl
+  let pollIteration = 0
 
   while (Date.now() < deadline) {
+    pollIteration++
+    onEvent?.({ step: 'consent_poll', phase: 'start', url: pollUrl, iteration: pollIteration })
     const response = await signedFetch(pollUrl, {
       method: 'GET',
       headers: {
         Prefer: `wait=${DEFAULT_PREFER_WAIT}`,
       },
     })
+    onEvent?.({ step: 'consent_poll', phase: 'done', status: response.status, iteration: pollIteration })
 
     const status = response.status
 
     // Terminal responses
     if (status === 200 || status === 400 || status === 401 || status === 403 || status === 408 || status === 410 || status === 500) {
+      onEvent?.({ step: 'consent_resolved', phase: 'info', status })
       return { response, error: await parseErrorBody(response) }
     }
 
@@ -92,11 +100,12 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
 
       // Check for interaction in AAuth-Requirement header
       const aauthHeader = response.headers.get('aauth-requirement')
-      if (aauthHeader && onInteraction) {
+      if (aauthHeader) {
         try {
           const challenge = parseAAuthHeader(aauthHeader)
           if (challenge.requirement === 'interaction' && challenge.url && challenge.code) {
-            onInteraction(challenge.url, challenge.code)
+            onEvent?.({ step: 'consent_prompt', phase: 'info', url: challenge.url, code: challenge.code })
+            if (onInteraction) onInteraction(challenge.url, challenge.code)
           }
         } catch {
           // Not a valid AAuth-Requirement header — ignore
@@ -117,6 +126,7 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
     }
 
     // Unexpected status — treat as terminal error
+    onEvent?.({ step: 'consent_resolved', phase: 'info', status })
     return { response, error: await parseErrorBody(response) }
   }
 

@@ -6,8 +6,9 @@ import {
   parseAAuthHeader,
   exchangeToken,
 } from '@aauth/mcp-agent'
-import type { GetKeyMaterial, KeyMaterial, FetchLike, Capability } from '@aauth/mcp-agent'
+import type { GetKeyMaterial, KeyMaterial, FetchLike, Capability, OnEvent } from '@aauth/mcp-agent'
 import open from 'open'
+import { buildLogEmitter } from './log.js'
 
 /**
  * Wrap a fetch function to log all requests and responses to stderr.
@@ -78,15 +79,16 @@ export function buildRequestInit(args: { method: string; data?: string; headers:
 export async function handleAuthorize(
   args: {
     url: string; agentUrl?: string; operations?: string; scope?: string;
-    browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean;
+    browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean; log?: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
-    capabilities?: string[];
+    capabilities?: string[]; forceConsent?: boolean;
   },
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
 ): Promise<void> {
   const shouldOpenBrowser = args.browser ?? true
   const capabilities = args.capabilities as Capability[] | undefined
+  const onEvent: OnEvent | undefined = buildLogEmitter(args.log ?? false)
 
   const keyMaterial = await getKeyMaterial()
   if (args.debug) {
@@ -110,11 +112,13 @@ export async function handleAuthorize(
       },
     }
 
+    onEvent?.({ step: 'r3_authorize_request', phase: 'start', url: args.url, operations: operationIds })
     const response = await signedFetch(args.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(r3Body),
     })
+    onEvent?.({ step: 'r3_authorize_request', phase: 'done', status: response.status })
 
     if (args.verbose) {
       console.error(JSON.stringify({ status: response.status, headers: headersToObject(response.headers) }))
@@ -141,7 +145,9 @@ export async function handleAuthorize(
       url.searchParams.set('scope', args.scope)
     }
 
+    onEvent?.({ step: 'signed_request', phase: 'start', url: url.toString(), method: 'GET' })
     const response = await signedFetch(url.toString(), { method: 'GET' })
+    onEvent?.({ step: 'signed_request', phase: 'done', status: response.status })
 
     if (args.verbose) {
       console.error(JSON.stringify({ status: response.status, headers: headersToObject(response.headers) }))
@@ -178,6 +184,7 @@ export async function handleAuthorize(
       return
     }
 
+    onEvent?.({ step: 'challenge_received', phase: 'info', requirement: challenge.requirement })
     resourceToken = challenge.resourceToken
   }
 
@@ -197,6 +204,8 @@ export async function handleAuthorize(
     tenant: args.tenant,
     domainHint: args.domainHint,
     capabilities: (capabilities as string[]) ?? ['interaction'],
+    prompt: args.forceConsent ? 'consent' : undefined,
+    onEvent,
     onInteraction: (interactionEndpoint, code) => {
       if (args.nonInteractive) {
         throw new Error(`Consent required but --non-interactive set. URL: ${interactionEndpoint}?code=${code}`)
@@ -262,15 +271,16 @@ export async function handleAgentOnly(
  */
 export async function handleFullFlow(
   args: {
-    url: string; browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean;
+    url: string; browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean; log?: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
-    capabilities?: string[];
+    capabilities?: string[]; forceConsent?: boolean;
   },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
 ): Promise<void> {
   const shouldOpenBrowser = args.browser ?? true
+  const onEvent: OnEvent | undefined = buildLogEmitter(args.log ?? false)
 
   // Pin key material so the same ephemeral key is used for the initial request,
   // token exchange, and retry. The resource token's agent_jkt must match.
@@ -288,6 +298,8 @@ export async function handleFullFlow(
     tenant: args.tenant,
     domainHint: args.domainHint,
     capabilities: (args.capabilities as Capability[]) ?? (args.nonInteractive ? [] : ['interaction']),
+    prompt: args.forceConsent ? 'consent' : undefined,
+    onEvent,
     onInteraction: (interactionEndpoint, code) => {
       if (args.nonInteractive) {
         throw new Error(`Consent required but --non-interactive set. URL: ${interactionEndpoint}?code=${code}`)
@@ -366,3 +378,4 @@ export function tryParseJson(text: string): unknown {
     return undefined
   }
 }
+

@@ -20,3 +20,11 @@ export interface KeyMaterial {
 export type GetKeyMaterial = () => Promise<KeyMaterial>
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>
+
+export interface AAuthEvent {
+  step: string
+  phase: 'start' | 'done' | 'info'
+  [key: string]: unknown
+}
+
+export type OnEvent = (event: AAuthEvent) => void

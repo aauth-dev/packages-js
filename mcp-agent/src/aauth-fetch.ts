@@ -3,7 +3,8 @@ import { createSignedFetch } from './signed-fetch.js'
 import { parseAAuthHeader, buildCapabilitiesHeader, buildMissionHeader } from './aauth-header.js'
 import { exchangeToken } from './token-exchange.js'
 import { pollDeferred } from './deferred.js'
-import type { GetKeyMaterial, FetchLike } from './types.js'
+import { decodeJwtPayload } from './decode-jwt.js'
+import type { GetKeyMaterial, FetchLike, OnEvent } from './types.js'
 import type { Capability, AAuthMission } from './aauth-header.js'
 
 export interface AAuthFetchOptions {
@@ -11,12 +12,14 @@ export interface AAuthFetchOptions {
   authServerUrl?: string
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
+  onEvent?: OnEvent
   justification?: string
   loginHint?: string
   tenant?: string
   domainHint?: string
   capabilities?: Capability[]
   mission?: AAuthMission
+  prompt?: string
 }
 
 interface CachedToken {
@@ -43,12 +46,14 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     authServerUrl: configuredAuthServer,
     onInteraction,
     onClarification,
+    onEvent,
     justification,
     loginHint,
     tenant,
     domainHint,
     capabilities,
     mission,
+    prompt,
   } = options
 
   const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, mission })
@@ -86,7 +91,9 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     }
 
     // Send signed request (no auth token)
+    onEvent?.({ step: 'signed_request', phase: 'start', url: urlStr, method: (init?.method as string) ?? 'GET' })
     const response = await signedFetch(url, init)
+    onEvent?.({ step: 'signed_request', phase: 'done', status: response.status })
 
     // 200: success — check for AAuth-Access token
     if (response.status === 200) {
@@ -104,6 +111,12 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       const challenge = parseAAuthHeader(aauthHeader)
 
       if (challenge.requirement === 'auth-token' && challenge.resourceToken) {
+        onEvent?.({
+          step: 'challenge_received',
+          phase: 'info',
+          requirement: 'auth-token',
+          resourceToken: decodeJwtPayload(challenge.resourceToken),
+        })
         // The agent sends the resource token to its own auth server
         const authServerUrl = configuredAuthServer
         if (!authServerUrl) {
@@ -119,8 +132,10 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           tenant,
           domainHint,
           capabilities,
+          prompt,
           onInteraction,
           onClarification,
+          onEvent,
         })
 
         // Cache the auth token
@@ -132,9 +147,11 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         })
 
         // Retry with auth token
+        onEvent?.({ step: 'retry_with_auth_token', phase: 'start', url: urlStr })
         const retryResponse = await fetchWithAuthToken(
           url, init, result.authToken, getKeyMaterial,
         )
+        onEvent?.({ step: 'retry_with_auth_token', phase: 'done', status: retryResponse.status })
         cacheAccessToken(accessCache, resourceOrigin, retryResponse)
         return handleResourceInteraction(retryResponse, signedFetch, onInteraction, onClarification)
       }

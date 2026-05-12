@@ -24,6 +24,7 @@ import {
 import type { KeyAlgorithm, KeyBackend, AAuthPublicJwk } from '@aauth/local-keys'
 import { listSkills, getSkill } from './skills.js'
 import { bootstrapWithPS } from './bootstrap-ps.js'
+import { buildLogEmitter } from './log.js'
 
 function parseArgs(args: string[]) {
   const flags: Record<string, string> = {}
@@ -47,8 +48,12 @@ function parseArgs(args: string[]) {
 
 // === Commands ===
 
-function cmdDiscover() {
-  console.log(JSON.stringify(discoverBackends(), null, 2))
+function cmdDiscover(flags: Record<string, string>) {
+  const onEvent = buildLogEmitter(flags.log === 'true')
+  onEvent?.({ step: 'backend_discovery', phase: 'start' })
+  const backends = discoverBackends()
+  onEvent?.({ step: 'backend_discovery', phase: 'done', backends: backends.map(b => b.backend) })
+  console.log(JSON.stringify(backends, null, 2))
 }
 
 async function cmdGenerate(flags: Record<string, string>) {
@@ -56,9 +61,12 @@ async function cmdGenerate(flags: Record<string, string>) {
   const algorithm = (flags.algorithm || (backend === 'software' ? 'EdDSA' : 'ES256')) as KeyAlgorithm
   const agentUrl = flags.agent
   const kid = generateKid()
+  const onEvent = buildLogEmitter(flags.log === 'true')
 
   const driver = getBackend(backend)
   const deviceLabel = driver.getDeviceLabel()
+
+  onEvent?.({ step: 'key_generation', phase: 'start', backend, algorithm })
 
   let publicJwk: AAuthPublicJwk
 
@@ -105,6 +113,7 @@ async function cmdGenerate(flags: Record<string, string>) {
     }
   }
 
+  onEvent?.({ step: 'key_generation', phase: 'done', kid: publicJwk.kid, backend, algorithm })
   console.log(JSON.stringify({ kid: publicJwk.kid, publicJwk }, null, 2))
 }
 
@@ -294,6 +303,9 @@ Person server configuration (can be combined with any command):
   --person-server <url>    Person server URL (alias: --ps)
   --local <name>           Local part of agent identifier (default: "local")
 
+Output:
+  --log                    Narrate each step on stderr (NDJSON)
+
 Examples:
   npx @aauth/bootstrap discover
   npx @aauth/bootstrap generate --backend yubikey-piv
@@ -335,10 +347,12 @@ async function runBootstrapPS(flags: Record<string, string>) {
 
   console.error(`Configuring ${agentUrl} with person server ${personServerUrl}...`)
 
+  const onEvent = buildLogEmitter(flags.log === 'true')
   await bootstrapWithPS({
     agentUrl,
     personServerUrl,
     local: flags.local,
+    onEvent,
   })
 
   console.error('Person server configured. Person binding will happen on the agent\'s first authorized request.')
@@ -359,7 +373,7 @@ async function run() {
   }
 
   switch (command) {
-    case 'discover': cmdDiscover(); break
+    case 'discover': cmdDiscover(flags); break
     case 'generate': await cmdGenerate(flags); break
     case 'sign-token': await cmdSignToken(flags); break
     case 'public-key': await cmdPublicKey(flags); break

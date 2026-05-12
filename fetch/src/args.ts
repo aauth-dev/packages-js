@@ -5,6 +5,7 @@ export interface FetchArgs {
   // Mode
   authorize: boolean
   agentOnly: boolean
+  forceConsent: boolean
 
   // Request
   url?: string
@@ -38,6 +39,7 @@ export interface FetchArgs {
   // Output
   verbose: boolean
   debug: boolean
+  log: boolean
 }
 
 function usage(): never {
@@ -51,6 +53,7 @@ Modes:
   --agent-only                Sign with agent token only, don't handle 401
   --operations <ops>          R3 operationIds (comma-separated, with --authorize)
   --scope <scope>             Requested scopes
+  --force-consent             Force a fresh consent prompt at the PS (demo-only)
 
 Request:
   -X, --method <method>       HTTP method (default: GET)
@@ -83,6 +86,7 @@ Interaction:
 Output:
   -v, --verbose               Show headers + status on stderr
   --debug                     Show all requests/responses with headers on stderr
+  --log                       Narrate each AAuth protocol step on stderr (NDJSON)
 `)
   process.exit(1)
 }
@@ -94,6 +98,7 @@ export function parseArgs(argv: string[]): FetchArgs {
     skill: false,
     authorize: false,
     agentOnly: false,
+    forceConsent: false,
     method: 'GET',
     headers: [],
     jsonInput: false,
@@ -101,6 +106,7 @@ export function parseArgs(argv: string[]): FetchArgs {
     nonInteractive: false,
     verbose: false,
     debug: false,
+    log: false,
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -120,6 +126,9 @@ export function parseArgs(argv: string[]): FetchArgs {
         break
       case '--agent-only':
         result.agentOnly = true
+        break
+      case '--force-consent':
+        result.forceConsent = true
         break
       case '--operations':
         result.operations = args[++i]
@@ -200,6 +209,9 @@ export function parseArgs(argv: string[]): FetchArgs {
       case '--debug':
         result.debug = true
         result.verbose = true
+        break
+      case '--log':
+        result.log = true
         break
 
       default:

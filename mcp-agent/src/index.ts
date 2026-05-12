@@ -9,6 +9,7 @@ export {
 } from './aauth-header.js'
 export { exchangeToken, TokenExchangeError } from './token-exchange.js'
 export { pollDeferred } from './deferred.js'
+export { decodeJwtPayload } from './decode-jwt.js'
 export type {
   GetKeyMaterial,
   KeyMaterial,
@@ -16,6 +17,8 @@ export type {
   SignatureKeyJktJwt,
   SignatureKeyHwk,
   FetchLike,
+  AAuthEvent,
+  OnEvent,
 } from './types.js'
 export type { AAuthChallenge, RequirementLevel, RequireLevel, Capability, AAuthMission } from './aauth-header.js'
 export type { SignedFetchOptions } from './signed-fetch.js'
