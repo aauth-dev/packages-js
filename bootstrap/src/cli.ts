@@ -25,6 +25,18 @@ import type { KeyAlgorithm, KeyBackend, AAuthPublicJwk } from '@aauth/local-keys
 import { listSkills, getSkill } from './skills.js'
 import { bootstrapWithPS } from './bootstrap-ps.js'
 import { buildLogEmitter } from './log.js'
+import { createHash } from 'node:crypto'
+
+function computeJkt(jwk: Record<string, unknown>): string {
+  const kty = jwk.kty as string
+  const crv = jwk.crv as string
+  const x = jwk.x as string
+  const y = jwk.y as string | undefined
+  const canonical = kty === 'EC'
+    ? JSON.stringify({ crv, kty, x, y })
+    : JSON.stringify({ crv, kty, x })
+  return createHash('sha256').update(canonical).digest('base64url')
+}
 
 function parseArgs(args: string[]) {
   const flags: Record<string, string> = {}
@@ -384,6 +396,22 @@ async function runBootstrapPS(flags: Record<string, string>) {
 
   if (logEnabled) {
     onEvent?.({ step: 'bootstrap_started', phase: 'info', agentUrl, personServerUrl })
+
+    // Surface the existing keypair (if any) so Step 0 can show agent identity.
+    const keychain = readKeychain(agentUrl)
+    if (keychain) {
+      const currentKid = keychain.current
+      const jwk = keychain.keys[currentKid] as unknown as Record<string, unknown>
+      if (jwk) {
+        onEvent?.({
+          step: 'key_info',
+          phase: 'info',
+          kid: currentKid,
+          publicJwk: { kty: jwk.kty, crv: jwk.crv, x: jwk.x },
+          jkt: computeJkt(jwk),
+        })
+      }
+    }
   } else {
     console.error(`Configuring ${agentUrl} with person server ${personServerUrl}...`)
   }

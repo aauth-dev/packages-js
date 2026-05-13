@@ -114,7 +114,8 @@ export async function handleAuthorize(
 ): Promise<void> {
   const shouldOpenBrowser = args.browser ?? true
   const capabilities = args.capabilities as Capability[] | undefined
-  const onEvent: OnEvent | undefined = buildLogEmitter(args.log ?? false)
+  const log = buildLogEmitter(args.log ?? false, { url: args.url, agentUrl: args.agentUrl, personServer })
+  const onEvent: OnEvent | undefined = log?.onEvent
 
   const keyMaterial = await getKeyMaterial()
   if (args.debug) {
@@ -275,6 +276,7 @@ export async function handleAuthorize(
     },
   })
 
+  log?.finish()
   console.log(JSON.stringify({
     authToken: result.authToken,
     expiresIn: result.expiresIn,
@@ -299,7 +301,8 @@ export async function handlePreAuthed(
     return
   }
 
-  const onEvent: OnEvent | undefined = buildLogEmitter(args.log ?? false)
+  const log = buildLogEmitter(args.log ?? false, { url: args.url })
+  const onEvent: OnEvent | undefined = log?.onEvent
   const getKeyMaterial: GetKeyMaterial = async () => ({
     signingKey,
     signatureKey: { type: 'jwt' as const, jwt: args.authToken! },
@@ -322,6 +325,7 @@ export async function handlePreAuthed(
     response: { headers: summarizeResponseHeaders(response.headers) },
   })
 
+  log?.finish()
   await outputResponse(response, args.verbose)
 }
 
@@ -333,7 +337,8 @@ export async function handleAgentOnly(
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
 ): Promise<void> {
-  const onEvent: OnEvent | undefined = buildLogEmitter(args.log ?? false)
+  const log = buildLogEmitter(args.log ?? false, { url: args.url })
+  const onEvent: OnEvent | undefined = log?.onEvent
   const signedFetch = createSignedFetch(getKeyMaterial)
 
   if (onEvent) {
@@ -354,6 +359,7 @@ export async function handleAgentOnly(
     response: { headers: summarizeResponseHeaders(response.headers) },
   })
 
+  log?.finish()
   await outputResponse(response, args.verbose)
 }
 
@@ -362,7 +368,7 @@ export async function handleAgentOnly(
  */
 export async function handleFullFlow(
   args: {
-    url: string; browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean; log?: boolean;
+    url: string; agentUrl?: string; browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean; log?: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
     capabilities?: string[]; forceConsent?: boolean;
   },
@@ -371,7 +377,8 @@ export async function handleFullFlow(
   personServer: string | undefined,
 ): Promise<void> {
   const shouldOpenBrowser = args.browser ?? true
-  const onEvent: OnEvent | undefined = buildLogEmitter(args.log ?? false)
+  const log = buildLogEmitter(args.log ?? false, { url: args.url, agentUrl: args.agentUrl, personServer })
+  const onEvent: OnEvent | undefined = log?.onEvent
 
   // Pin key material so the same ephemeral key is used for the initial request,
   // token exchange, and retry. The resource token's agent_jkt must match.
@@ -407,6 +414,7 @@ export async function handleFullFlow(
   })
 
   const response = await aAuthFetch(args.url!, init)
+  log?.finish()
   await outputResponse(response, args.verbose)
 }
 

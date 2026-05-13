@@ -71,14 +71,22 @@ async function fetchPSMetadata(personServerUrl: string, onEvent?: OnBootstrapEve
   const headers: Record<string, string> = {}
   const ct = response.headers.get('content-type')
   if (ct) headers['content-type'] = ct
+  if (!response.ok) {
+    onEvent?.({
+      step: 'ps_metadata_request',
+      phase: 'done',
+      status: response.status,
+      response: { headers },
+    })
+    throw new Error(`Failed to fetch PS metadata at ${url}: ${response.status}`)
+  }
+  const body = await response.json() as PSMetadata
   onEvent?.({
     step: 'ps_metadata_request',
     phase: 'done',
     status: response.status,
     response: { headers },
   })
-  if (!response.ok) {
-    throw new Error(`Failed to fetch PS metadata at ${url}: ${response.status}`)
-  }
-  return await response.json() as PSMetadata
+  onEvent?.({ step: 'ps_metadata_body', phase: 'info', body: body as unknown as Record<string, unknown> })
+  return body
 }
