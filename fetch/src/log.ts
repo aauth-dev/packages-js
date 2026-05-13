@@ -43,15 +43,24 @@ function renderTldr(): string {
   return [
     section('What is AAuth?'),
     '',
-    "AAuth lets an agent call an API on a user's behalf without ever sharing",
-    "the user's credentials. Four parties are involved:",
+    'AAuth gives every agent its own cryptographic identity. The agent signs every',
+    'HTTP request with a private key only it holds; resources verify the signature',
+    'and decide whether to authorize. A Person Server represents the user and',
+    'grants the agent permission to act on their behalf — no pre-registration, no',
+    'shared secrets.',
+    '',
+    'Protocol parties:',
     '',
     `   ${c.cyan('AGENT')}          this CLI on your device. Identifies via an Ed25519 keypair`,
-    `                  generated locally — the private key never leaves the OS keychain.`,
-    `   ${c.magenta('PERSON SERVER')}  consent broker that holds the user's identity and issues`,
-    `                  auth_tokens the resource will trust.`,
+    '                  generated locally — the private key never leaves the OS keychain.',
     `   ${c.green('RESOURCE')}       the API the agent wants to call.`,
-    `   ${c.yellow('USER')}           you, approving consent in a browser the first time.`,
+    `   ${c.magenta('PERSON SERVER')}  represents the user. Holds identity, decides authorization,`,
+    '                  issues auth_tokens the resource will trust.',
+    `   ${c.dim('ACCESS SERVER  (out of scope for this demo) policy engine that guards')}`,
+    `                  ${c.dim('resources in federated mode.')}`,
+    '',
+    'The user (you) approves consent in a browser the first time the PS sees',
+    'this agent.',
     '',
     'The flow:',
     '',
@@ -59,8 +68,11 @@ function renderTldr(): string {
     `              ${c.cyan('AGENT')}  registers a Person Server it will delegate consent to`,
     `   ${c.dim('per call')}   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (401: who are you?)`,
     `              ${c.cyan('AGENT')}  ─▶  ${c.magenta('PERSON SERVER')}  (token exchange — first time needs consent)`,
-    `              ${c.yellow('USER')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser, first time only)`,
+    `              ${c.yellow('user')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser, first time only)`,
     `              ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (200: data)`,
+    '',
+    `${c.dim('Key properties: agent identity without pre-registration · proof-of-possession')}`,
+    `${c.dim('on every request · user consent at the Person Server, never at the resource.')}`,
     '',
     '',
   ].join('\n')
@@ -72,7 +84,7 @@ function renderCondensedFlow(): string {
     '',
     `   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (401: who are you?)`,
     `   ${c.cyan('AGENT')}  ─▶  ${c.magenta('PERSON SERVER')}  (token exchange — needs consent)`,
-    `   ${c.yellow('USER')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser)`,
+    `   ${c.yellow('user')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser)`,
     `   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (200: data)`,
     '',
     c.dim('(Actors and one-time setup: see `npx @aauth/bootstrap --ps <url> --log`.)'),
@@ -176,14 +188,14 @@ function renderThisCall(url: string, agentUrl?: string, personServer?: string): 
 
 // ── HTTP card renderers ───────────────────────────────────────────────────────
 
-type Actor = 'AGENT' | 'RESOURCE' | 'PERSON SERVER' | 'USER'
+type Actor = 'AGENT' | 'RESOURCE' | 'PERSON SERVER' | 'user'
 
 function actorTint(a: Actor): (s: string) => string {
   switch (a) {
     case 'AGENT':         return c.cyan
     case 'RESOURCE':      return c.green
     case 'PERSON SERVER': return c.magenta
-    case 'USER':          return c.yellow
+    case 'user':          return c.yellow
   }
 }
 
@@ -400,7 +412,7 @@ function renderColdFlow(s: FlowState): string {
     out.push('')
 
     // Step 6: USER → PS (approve in browser)
-    out.push(stepHeader(6, 'USER', 'PERSON SERVER', 'approve in browser'))
+    out.push(stepHeader(6, 'user', 'PERSON SERVER', 'approve in browser'))
     out.push('')
     out.push('The user opens the consent screen, signs in to the Person Server, sees what')
     out.push('scopes this agent is requesting, and approves. AAuth\'s consent always')

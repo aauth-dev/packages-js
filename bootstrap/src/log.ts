@@ -33,15 +33,24 @@ function renderTldr(): string {
   return [
     section('What is AAuth?'),
     '',
-    "AAuth lets an agent call an API on a user's behalf without ever sharing",
-    "the user's credentials. Four parties are involved:",
+    'AAuth gives every agent its own cryptographic identity. The agent signs every',
+    'HTTP request with a private key only it holds; resources verify the signature',
+    'and decide whether to authorize. A Person Server represents the user and',
+    'grants the agent permission to act on their behalf — no pre-registration, no',
+    'shared secrets.',
+    '',
+    'Protocol parties:',
     '',
     `   ${c.cyan('AGENT')}          this CLI on your device. Identifies via an Ed25519 keypair`,
-    `                  generated locally — the private key never leaves the OS keychain.`,
-    `   ${c.magenta('PERSON SERVER')}  consent broker that holds the user's identity and issues`,
-    `                  auth_tokens the resource will trust.`,
+    '                  generated locally — the private key never leaves the OS keychain.',
     `   ${c.green('RESOURCE')}       the API the agent wants to call.`,
-    `   ${c.yellow('USER')}           you, approving consent in a browser the first time.`,
+    `   ${c.magenta('PERSON SERVER')}  represents the user. Holds identity, decides authorization,`,
+    '                  issues auth_tokens the resource will trust.',
+    `   ${c.dim('ACCESS SERVER  (out of scope for this demo) policy engine that guards')}`,
+    `                  ${c.dim('resources in federated mode.')}`,
+    '',
+    'The user (you) approves consent in a browser the first time the PS sees',
+    'this agent.',
     '',
     'The flow:',
     '',
@@ -49,8 +58,11 @@ function renderTldr(): string {
     `              ${c.cyan('AGENT')}  registers a Person Server it will delegate consent to`,
     `   ${c.dim('per call')}   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (401: who are you?)`,
     `              ${c.cyan('AGENT')}  ─▶  ${c.magenta('PERSON SERVER')}  (token exchange — first time needs consent)`,
-    `              ${c.yellow('USER')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser, first time only)`,
+    `              ${c.yellow('user')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser, first time only)`,
     `              ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (200: data)`,
+    '',
+    `${c.dim('Key properties: agent identity without pre-registration · proof-of-possession')}`,
+    `${c.dim('on every request · user consent at the Person Server, never at the resource.')}`,
     '',
     `${c.dim("You're about to run the one-time setup.")}`,
     '',
@@ -102,9 +114,12 @@ function renderStep0(state: Step0State, hasNewKey: boolean): string {
     lines.push('')
   } else if (state.agentUrl) {
     lines.push('  • Use the existing keypair on this device — no new key generated.')
+    lines.push('    The public key thumbprint below is this agent\'s identity.')
     lines.push('')
     lines.push(`      ${c.bold('agent')}       ${state.agentUrl}`)
-    if (state.kid) lines.push(`      ${c.bold('kid')}         ${state.kid} ${c.dim('(current)')}`)
+    if (state.kid)       lines.push(`      ${c.bold('kid')}         ${state.kid} ${c.dim('(current)')}`)
+    if (state.publicJwk) lines.push(`      ${c.bold('public key')}  ${renderJwk(state.publicJwk)}`)
+    if (state.jkt)       lines.push(`      ${c.bold('jkt')}         ${state.jkt}`)
     lines.push('')
   }
 
