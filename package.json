@@ -1,7 +1,7 @@
 {
   "name": "@aauth/aauth",
   "private": true,
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "AAuth utilities and packages",
   "repository": {
     "type": "git",

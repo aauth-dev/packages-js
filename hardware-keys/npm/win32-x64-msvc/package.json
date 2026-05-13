@@ -1,10 +1,16 @@
 {
   "name": "@aauth/hardware-keys-win32-x64-msvc",
-  "version": "0.10.2",
-  "os": ["win32"],
-  "cpu": ["x64"],
+  "version": "0.10.3",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "main": "index.win32-x64-msvc.node",
-  "files": ["index.win32-x64-msvc.node"],
+  "files": [
+    "index.win32-x64-msvc.node"
+  ],
   "description": "Hardware key backends for AAuth — Windows x64 (MSVC) native binary",
   "license": "MIT",
   "repository": {
