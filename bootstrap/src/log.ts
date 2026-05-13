@@ -49,11 +49,35 @@ const narrations: Record<string, Narration> = {
     `Scanned OS keychain — ${(e.urls as string[] | undefined)?.length ?? 0} agent URL(s) with software keys`,
 }
 
+// Decoded-JWT-payload fields worth pretty-printing in TTY mode.
+const PAYLOAD_KEYS = ['agent_token', 'agentToken', 'decoded']
+
+function formatPretty(event: BootstrapEvent): string {
+  const narration = narrations[event.step]?.(event)
+  const phaseTag = event.phase === 'info' ? '' : ` (${event.phase})`
+  const lines: string[] = [`● ${event.step}${phaseTag}`]
+  if (narration) lines.push(`  ${narration}`)
+  for (const key of PAYLOAD_KEYS) {
+    const value = event[key]
+    if (value && typeof value === 'object') {
+      lines.push(`  ${key}:`)
+      const pretty = JSON.stringify(value, null, 2).split('\n').map(l => `    ${l}`).join('\n')
+      lines.push(pretty)
+    }
+  }
+  return lines.join('\n') + '\n\n'
+}
+
+function formatNdjson(event: BootstrapEvent): string {
+  const narration = narrations[event.step]?.(event)
+  const line = narration ? { ...event, narration } : event
+  return JSON.stringify(line) + '\n'
+}
+
 export function buildLogEmitter(enabled: boolean): OnBootstrapEvent | undefined {
   if (!enabled) return undefined
+  const pretty = process.stderr.isTTY === true
   return (event: BootstrapEvent) => {
-    const narration = narrations[event.step]?.(event)
-    const line = narration ? { ...event, narration } : event
-    process.stderr.write(JSON.stringify(line) + '\n')
+    process.stderr.write(pretty ? formatPretty(event) : formatNdjson(event))
   }
 }
