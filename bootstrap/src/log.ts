@@ -84,7 +84,7 @@ function renderStep0(state: Step0State, hasNewKey: boolean): string {
     lines.push(`      ${c.bold('Host:')} ${url.host}`)
     lines.push('')
     const statusColor = state.metadataStatus && state.metadataStatus < 300 ? c.green : c.red
-    lines.push(`      ${c.dim('←')} HTTP/1.1 ${statusColor(String(state.metadataStatus ?? '?'))} ${state.metadataStatus === 200 ? 'OK' : ''}`)
+    lines.push(`      ← HTTP/1.1 ${statusColor(String(state.metadataStatus ?? '?'))} ${state.metadataStatus === 200 ? 'OK' : ''}`)
     lines.push(`      ${c.bold('Content-Type:')} application/json`)
     if (state.metadataBody) {
       const body = JSON.stringify(state.metadataBody, null, 2).split('\n').map(l => `      ${l}`).join('\n')

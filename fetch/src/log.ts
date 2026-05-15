@@ -138,7 +138,7 @@ function stepHeader(n: number, from: Actor, to: Actor, subtitle: string): string
 function statusLine(status: number): string {
   const tint = status >= 200 && status < 300 ? c.green : status >= 400 ? c.red : c.yellow
   const label = STATUS_LABELS[status] ?? ''
-  return `   ${c.dim('←')} HTTP/1.1 ${tint(String(status))} ${tint(label)}`
+  return `   ← HTTP/1.1 ${tint(String(status))} ${tint(label)}`
 }
 
 const STATUS_LABELS: Record<number, string> = {
