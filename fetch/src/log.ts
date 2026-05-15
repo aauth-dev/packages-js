@@ -1,6 +1,3 @@
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { readFileSync, existsSync } from 'node:fs'
 import type { AAuthEvent, OnEvent } from '@aauth/mcp-agent'
 import { readConfig, readKeychain } from '@aauth/local-keys'
 import { createHash } from 'node:crypto'
@@ -21,77 +18,7 @@ const c = {
 const RULE = '─'.repeat(80)
 const section = (title: string) => `${c.dim('─── ')}${c.bold(title)} ${c.dim(RULE.slice(title.length + 5))}`
 
-// ── Marker file (written by bootstrap --log, read here) ───────────────────────
-const MARKER_PATH = join(homedir(), '.aauth', '.tldr-shown')
-const MARKER_FRESH_MS = 5 * 60 * 1000
-
-function isMarkerFresh(): boolean {
-  try {
-    if (!existsSync(MARKER_PATH)) return false
-    const ts = readFileSync(MARKER_PATH, 'utf8').trim()
-    const when = Date.parse(ts)
-    if (Number.isNaN(when)) return false
-    return Date.now() - when < MARKER_FRESH_MS
-  } catch {
-    return false
-  }
-}
-
 // ── Header / preamble blocks ──────────────────────────────────────────────────
-
-function renderTldr(): string {
-  return [
-    section('What is AAuth?'),
-    '',
-    'AAuth gives every agent its own cryptographic identity. The agent signs every',
-    'HTTP request with a private key only it holds; resources verify the signature',
-    'and decide whether to authorize. A Person Server represents the user and',
-    'grants the agent permission to act on their behalf — no pre-registration, no',
-    'shared secrets.',
-    '',
-    'Protocol parties:',
-    '',
-    `   ${c.cyan('AGENT')}          this CLI on your device. Identifies via an Ed25519 keypair`,
-    '                  generated locally — the private key never leaves the OS keychain.',
-    `   ${c.green('RESOURCE')}       the API the agent wants to call.`,
-    `   ${c.magenta('PERSON SERVER')}  represents the user. Holds identity, decides authorization,`,
-    '                  issues auth_tokens the resource will trust.',
-    `   ${c.dim('ACCESS SERVER  (out of scope for this demo) policy engine that guards')}`,
-    `                  ${c.dim('resources in federated mode.')}`,
-    '',
-    'The user (you) approves consent in a browser the first time the PS sees',
-    'this agent.',
-    '',
-    'The flow:',
-    '',
-    `   ${c.dim('one-time')}   ${c.cyan('AGENT')}  generates keypair on this device`,
-    `              ${c.cyan('AGENT')}  registers a Person Server it will delegate consent to`,
-    `   ${c.dim('per call')}   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (401: who are you?)`,
-    `              ${c.cyan('AGENT')}  ─▶  ${c.magenta('PERSON SERVER')}  (token exchange — first time needs consent)`,
-    `              ${c.yellow('user')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser, first time only)`,
-    `              ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (200: data)`,
-    '',
-    `${c.dim('Key properties: agent identity without pre-registration · proof-of-possession')}`,
-    `${c.dim('on every request · user consent at the Person Server, never at the resource.')}`,
-    '',
-    '',
-  ].join('\n')
-}
-
-function renderCondensedFlow(): string {
-  return [
-    `${c.bold('AAuth · per-call flow')}`,
-    '',
-    `   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (401: who are you?)`,
-    `   ${c.cyan('AGENT')}  ─▶  ${c.magenta('PERSON SERVER')}  (token exchange — needs consent)`,
-    `   ${c.yellow('user')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser)`,
-    `   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (200: data)`,
-    '',
-    c.dim('(Actors and one-time setup: see `npx @aauth/bootstrap --ps <url> --log`.)'),
-    '',
-    '',
-  ].join('\n')
-}
 
 function computeJkt(jwk: Record<string, unknown>): string {
   const kty = jwk.kty as string
@@ -573,12 +500,7 @@ export function buildLogEmitter(
   function printPreamble() {
     if (preamblePrinted) return
     preamblePrinted = true
-    if (isMarkerFresh()) {
-      process.stderr.write(renderCondensedFlow())
-    } else {
-      process.stderr.write(renderTldr())
-      process.stderr.write(renderAlreadySetUp(context.agentUrl))
-    }
+    process.stderr.write(renderAlreadySetUp(context.agentUrl))
     if (context.url) {
       process.stderr.write(renderThisCall(context.url, context.agentUrl, context.personServer))
     }

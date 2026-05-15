@@ -1,7 +1,3 @@
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { writeFileSync, mkdirSync } from 'node:fs'
-
 export interface BootstrapEvent {
   step: string
   phase: 'start' | 'done' | 'info'
@@ -9,8 +5,6 @@ export interface BootstrapEvent {
 }
 
 export type OnBootstrapEvent = (event: BootstrapEvent) => void
-
-const MARKER_PATH = join(homedir(), '.aauth', '.tldr-shown')
 
 // ── ANSI styling (TTY only, respects NO_COLOR) ────────────────────────────────
 const IS_TTY = process.stderr.isTTY === true || process.env.AAUTH_FORCE_PRETTY === '1'
@@ -27,48 +21,6 @@ const c = {
 
 const RULE = '─'.repeat(80)
 const section = (title: string) => `${c.dim('─── ')}${c.bold(title)} ${c.dim(RULE.slice(title.length + 5))}`
-
-// ── TL;DR block (shown once at the top of bootstrap --ps --log) ───────────────
-function renderTldr(): string {
-  return [
-    section('What is AAuth?'),
-    '',
-    'AAuth gives every agent its own cryptographic identity. The agent signs every',
-    'HTTP request with a private key only it holds; resources verify the signature',
-    'and decide whether to authorize. A Person Server represents the user and',
-    'grants the agent permission to act on their behalf — no pre-registration, no',
-    'shared secrets.',
-    '',
-    'Protocol parties:',
-    '',
-    `   ${c.cyan('AGENT')}          this CLI on your device. Identifies via an Ed25519 keypair`,
-    '                  generated locally — the private key never leaves the OS keychain.',
-    `   ${c.green('RESOURCE')}       the API the agent wants to call.`,
-    `   ${c.magenta('PERSON SERVER')}  represents the user. Holds identity, decides authorization,`,
-    '                  issues auth_tokens the resource will trust.',
-    `   ${c.dim('ACCESS SERVER  (out of scope for this demo) policy engine that guards')}`,
-    `                  ${c.dim('resources in federated mode.')}`,
-    '',
-    'The user (you) approves consent in a browser the first time the PS sees',
-    'this agent.',
-    '',
-    'The flow:',
-    '',
-    `   ${c.dim('one-time')}   ${c.cyan('AGENT')}  generates keypair on this device`,
-    `              ${c.cyan('AGENT')}  registers a Person Server it will delegate consent to`,
-    `   ${c.dim('per call')}   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (401: who are you?)`,
-    `              ${c.cyan('AGENT')}  ─▶  ${c.magenta('PERSON SERVER')}  (token exchange — first time needs consent)`,
-    `              ${c.yellow('user')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser, first time only)`,
-    `              ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (200: data)`,
-    '',
-    `${c.dim('Key properties: agent identity without pre-registration · proof-of-possession')}`,
-    `${c.dim('on every request · user consent at the Person Server, never at the resource.')}`,
-    '',
-    `${c.dim("You're about to run the one-time setup.")}`,
-    '',
-    '',
-  ].join('\n')
-}
 
 // ── Step 0 card builder (accumulates from events) ─────────────────────────────
 interface Step0State {
@@ -148,16 +100,6 @@ function renderStep0(state: Step0State, hasNewKey: boolean): string {
   return lines.join('\n')
 }
 
-// ── Marker file ──────────────────────────────────────────────────────────────
-function writeTldrMarker(): void {
-  try {
-    mkdirSync(join(homedir(), '.aauth'), { recursive: true })
-    writeFileSync(MARKER_PATH, new Date().toISOString(), 'utf8')
-  } catch {
-    // Non-fatal — marker is purely a UX hint
-  }
-}
-
 // ── Public API ────────────────────────────────────────────────────────────────
 
 const narrations: Record<string, (e: BootstrapEvent) => string | undefined> = {
@@ -203,28 +145,18 @@ export function buildLogEmitter(enabled: boolean): OnBootstrapEvent | undefined 
     }
   }
 
-  // TTY: collect events, render TL;DR once, then render Step 0 on completion.
-  let printedTldr = false
+  // TTY: collect events, render Step 0 on completion.
   const state: Step0State = {}
   let hasNewKey = false
   let rendered = false
-
-  function maybePrintTldr() {
-    if (!printedTldr) {
-      process.stderr.write(renderTldr())
-      printedTldr = true
-    }
-  }
 
   function finalize() {
     if (rendered) return
     rendered = true
     process.stderr.write(renderStep0(state, hasNewKey))
-    writeTldrMarker()
   }
 
   return (event: BootstrapEvent) => {
-    maybePrintTldr()
     switch (event.step) {
       case 'bootstrap_started':
         state.agentUrl = event.agentUrl as string | undefined
