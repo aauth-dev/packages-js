@@ -1,6 +1,6 @@
 {
   "name": "@aauth/local-keys",
-  "version": "0.10.4",
+  "version": "0.11.0",
   "description": "Manage AAuth agent signing keys across hardware and software backends",
   "type": "module",
   "exports": {
@@ -40,7 +40,7 @@
     "jose": "^5.0.0"
   },
   "optionalDependencies": {
-    "@aauth/hardware-keys": "^0.10.4"
+    "@aauth/hardware-keys": "^0.11.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

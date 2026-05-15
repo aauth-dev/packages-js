@@ -26,6 +26,9 @@ import { listSkills, getSkill } from './skills.js'
 import { bootstrapWithPS } from './bootstrap-ps.js'
 import { buildLogEmitter } from './log.js'
 import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
+
+const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
 
 function computeJkt(jwk: Record<string, unknown>): string {
   const kty = jwk.kty as string
@@ -328,6 +331,7 @@ Commands:
   skill                    List available skills (JSON)
   skill <name>             Show full skill instructions
   help                     Show this help
+  --version                Print version and exit
 
 Generate options:
   --backend <name>         software (default), yubikey-piv, secure-enclave
@@ -436,6 +440,12 @@ async function runBootstrapPS(flags: Record<string, string>) {
 
 async function run() {
   const { flags, positional } = parseArgs(process.argv.slice(2))
+
+  if (flags.version === 'true') {
+    console.log(pkg.version)
+    return
+  }
+
   const command = positional[0]
 
   if (!command) {

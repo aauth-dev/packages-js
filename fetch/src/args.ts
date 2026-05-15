@@ -47,6 +47,8 @@ function usage(): never {
 
 Meta:
   --skill                     Output LLM-readable usage guide
+  --version                   Print version and exit
+  -h, --help                  Show this help
 
 Modes:
   --authorize                 Auth only: return authToken + signingKey JSON

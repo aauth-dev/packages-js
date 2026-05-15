@@ -15,6 +15,7 @@ Options:
   --agent-url <url>        Agent URL (or AAUTH_AGENT_URL env var, or from ~/.aauth/config.json)
   --local <name>           Local part of agent identifier (or AAUTH_LOCAL env var)
   --token-lifetime <sec>   Token lifetime in seconds (or AAUTH_TOKEN_LIFETIME env var, default: 3600)
+  --version                Print version and exit
 
 Environment variables:
   AAUTH_AGENT_URL          Agent URL

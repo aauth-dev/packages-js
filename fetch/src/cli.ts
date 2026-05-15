@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 
+import { createRequire } from 'node:module'
 import { parseArgs } from './args.js'
 import { readJsonInput, mergeJsonInput } from './json-input.js'
 import { printSkill } from './skill.js'
 import { printGettingStarted } from './getting-started.js'
+
+if (process.argv.includes('--version')) {
+  const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
+  console.log(pkg.version)
+  process.exit(0)
+}
 import {
   resolvePersonServer,
   buildGetKeyMaterial,

@@ -5,8 +5,15 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { createAAuthFetch } from '@aauth/mcp-agent'
 import { createAgentToken } from '@aauth/local-keys'
 import open from 'open'
+import { createRequire } from 'node:module'
 import { parseArgs } from './args.js'
 import { bridgeTransports } from './proxy.js'
+
+if (process.argv.includes('--version')) {
+  const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
+  console.log(pkg.version)
+  process.exit(0)
+}
 
 const { serverUrl, agentUrl, local, tokenLifetime } = parseArgs(process.argv)
 
