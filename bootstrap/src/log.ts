@@ -56,8 +56,7 @@ function renderStep0(state: Step0State, hasNewKey: boolean): string {
 
   // Sub-bullet 1: keypair
   if (hasNewKey && state.publicJwk && state.kid) {
-    lines.push('  • Generate Ed25519 keypair on this device — the private key stays in the OS')
-    lines.push('    keychain and never leaves. The public key thumbprint is the agent\'s identity.')
+    lines.push(...bulletWrap(describe('key_generation', 'start', { algorithm: state.algorithm ?? 'Ed25519' }) ?? ''))
     lines.push('')
     if (state.agentUrl) lines.push(`      ${c.bold('agent')}       ${state.agentUrl}`)
     if (state.kid)      lines.push(`      ${c.bold('kid')}         ${state.kid}`)
@@ -65,8 +64,7 @@ function renderStep0(state: Step0State, hasNewKey: boolean): string {
     if (state.jkt)      lines.push(`      ${c.bold('jkt')}         ${state.jkt}`)
     lines.push('')
   } else if (state.agentUrl) {
-    lines.push('  • Use the existing keypair on this device — no new key generated.')
-    lines.push('    The public key thumbprint below is this agent\'s identity.')
+    lines.push(...bulletWrap(describe('key_info', 'info') ?? ''))
     lines.push('')
     lines.push(`      ${c.bold('agent')}       ${state.agentUrl}`)
     if (state.kid)       lines.push(`      ${c.bold('kid')}         ${state.kid} ${c.dim('(current)')}`)
@@ -77,7 +75,7 @@ function renderStep0(state: Step0State, hasNewKey: boolean): string {
 
   // Sub-bullet 2: PS metadata
   if (state.metadataUrl) {
-    lines.push('  • Fetch Person Server metadata to confirm it\'s reachable and well-formed.')
+    lines.push(...bulletWrap(describe('ps_metadata_request', 'start') ?? ''))
     lines.push('')
     const url = new URL(state.metadataUrl)
     lines.push(`      ${c.bold('GET')} ${url.pathname}  HTTP/1.1`)
@@ -94,7 +92,11 @@ function renderStep0(state: Step0State, hasNewKey: boolean): string {
   }
 
   if (state.personServerUrl) {
-    lines.push(`  ${c.green('✓')} Bootstrap complete. The agent will bind to a user on its first authorized request.`)
+    const desc = describe('bootstrap_complete', 'info') ?? ''
+    const wrapped = wrap(desc, 76)
+    wrapped.forEach((line, i) => {
+      lines.push(i === 0 ? `  ${c.green('✓')} ${line}` : `    ${line}`)
+    })
     lines.push('')
   }
   return lines.join('\n')
@@ -102,7 +104,9 @@ function renderStep0(state: Step0State, hasNewKey: boolean): string {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-const narrations: Record<string, (e: BootstrapEvent) => string | undefined> = {
+type EventDescriber = (e: BootstrapEvent) => string | undefined
+
+const narrations: Record<string, EventDescriber> = {
   backend_discovery: (e) => e.phase === 'start'
     ? 'Discovering available key backends on this machine'
     : `Found ${(e.backends as unknown[] | undefined)?.length ?? 0} backend(s)`,
@@ -119,27 +123,72 @@ const narrations: Record<string, (e: BootstrapEvent) => string | undefined> = {
   sign_token: (e) => e.phase === 'start' ? `Signing agent_token` : 'Agent token signed',
 }
 
+// Long-form per-step prose explaining what's happening at the protocol level.
+// Single source of truth for both pretty (renderStep0) and JSON (--jsonl)
+// consumers — same map approach as fetch/src/log.ts uses for the per-call flow.
+const descriptions: Record<string, EventDescriber> = {
+  key_info: () =>
+    "Use the existing keypair on this device — no new key generated. The public key thumbprint below is this agent's identity.",
+  key_generation: (e) => e.phase === 'start'
+    ? `Generate ${e.algorithm ?? 'Ed25519'} keypair on this device — the private key stays in the OS keychain and never leaves. The public key thumbprint is the agent's identity.`
+    : undefined,
+  ps_metadata_request: (e) => e.phase === 'start'
+    ? "Fetch Person Server metadata to confirm it's reachable and well-formed."
+    : undefined,
+  bootstrap_complete: () =>
+    "Bootstrap complete. The agent will bind to a user on its first authorized request.",
+}
+
 function formatNdjson(event: BootstrapEvent): string {
   const narration = narrations[event.step]?.(event)
-  const line = narration ? { ...event, narration } : event
+  const description = descriptions[event.step]?.(event)
+  const line: Record<string, unknown> = { ...event }
+  if (narration) line.narration = narration
+  if (description) line.description = description
   return JSON.stringify(line) + '\n'
+}
+
+// Word-wrap a paragraph at `width` columns for terminal rendering.
+function wrap(text: string, width = 78): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let cur = ''
+  for (const w of words) {
+    if (cur.length === 0) cur = w
+    else if (cur.length + 1 + w.length <= width) cur += ' ' + w
+    else { lines.push(cur); cur = w }
+  }
+  if (cur) lines.push(cur)
+  return lines
+}
+
+// Render a paragraph as a bullet with hanging-indent continuation lines.
+//   "  • first line of paragraph..."
+//   "    continuation..."
+function bulletWrap(text: string, width = 76): string[] {
+  return wrap(text, width).map((line, i) => i === 0 ? `  • ${line}` : `    ${line}`)
+}
+
+// Look up a description for a synthetic event shape — used by renderStep0
+// so both pretty and JSON consumers read from the same map.
+function describe(step: string, phase: 'start' | 'done' | 'info', extra?: Record<string, unknown>): string | undefined {
+  const e: BootstrapEvent = { step, phase, ...(extra ?? {}) }
+  return descriptions[step]?.(e)
 }
 
 /**
  * Build a stream-aware bootstrap event handler.
  *
- * When stderr is a TTY: prints TL;DR + Step 0 grouped card, then writes a
- * marker file so a subsequent `fetch --log` can suppress its own TL;DR.
- *
- * When stderr is piped: emits NDJSON (one line per event) as before.
+ * mode='pretty':  prints Step 0 grouped card on stderr.
+ * mode='jsonl':   emits each event as one JSON object per line on stderr.
+ * mode=undefined: returns undefined (no logging).
  */
-export function buildLogEmitter(enabled: boolean): OnBootstrapEvent | undefined {
-  if (!enabled) return undefined
+export type LogMode = 'pretty' | 'jsonl'
 
-  const pretty = IS_TTY
+export function buildLogEmitter(mode: LogMode | undefined): OnBootstrapEvent | undefined {
+  if (!mode) return undefined
 
-  if (!pretty) {
-    // Piped — keep NDJSON shape for programmatic consumers.
+  if (mode === 'jsonl') {
     return (event: BootstrapEvent) => {
       process.stderr.write(formatNdjson(event))
     }
@@ -202,5 +251,5 @@ export function buildLogEmitter(enabled: boolean): OnBootstrapEvent | undefined 
 
 export function logEvent(enabled: boolean, event: BootstrapEvent): void {
   if (!enabled) return
-  buildLogEmitter(true)?.(event)
+  buildLogEmitter('jsonl')?.(event)
 }

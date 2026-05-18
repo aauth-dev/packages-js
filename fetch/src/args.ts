@@ -40,6 +40,7 @@ export interface FetchArgs {
   verbose: boolean
   debug: boolean
   log: boolean
+  jsonl: boolean
 }
 
 function usage(): never {
@@ -88,7 +89,10 @@ Interaction:
 Output:
   -v, --verbose               Show headers + status on stderr
   --debug                     Show all requests/responses with headers on stderr
-  --log                       Narrate each AAuth protocol step on stderr (JSONL)
+  --log                       Narrate each AAuth protocol step on stderr (human-readable)
+  --jsonl, --ndjson           Emit each AAuth protocol step on stderr as one JSON object
+                              per line. Each event carries 'narration' (one-line) and
+                              'description' (paragraph) fields. Mutually exclusive with --log.
 `)
   process.exit(1)
 }
@@ -109,6 +113,7 @@ export function parseArgs(argv: string[]): FetchArgs {
     verbose: false,
     debug: false,
     log: false,
+    jsonl: false,
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -215,6 +220,10 @@ export function parseArgs(argv: string[]): FetchArgs {
       case '--log':
         result.log = true
         break
+      case '--jsonl':
+      case '--ndjson':
+        result.jsonl = true
+        break
 
       default:
         if (args[i].startsWith('-')) {
@@ -233,6 +242,13 @@ export function parseArgs(argv: string[]): FetchArgs {
   result.authToken = result.authToken ?? process.env.AAUTH_AUTH_TOKEN
   result.signingKey = result.signingKey ?? process.env.AAUTH_SIGNING_KEY
   result.personServer = result.personServer ?? process.env.AAUTH_PERSON_SERVER
+
+  // --log and --jsonl are mutually exclusive — they emit the same protocol
+  // events in different formats. Pick one.
+  if (result.log && result.jsonl) {
+    console.error(JSON.stringify({ error: '--log and --jsonl are mutually exclusive (same events, different formats). Pick one.' }))
+    process.exit(1)
+  }
 
   return result
 }
