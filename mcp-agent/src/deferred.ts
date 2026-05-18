@@ -1,6 +1,6 @@
 import { parseAAuthHeader } from './aauth-header.js'
 import { summarizeResponseHeaders } from './log-helpers.js'
-import type { FetchLike, OnEvent } from './types.js'
+import type { FetchLike, OnEvent, CapturedSent } from './types.js'
 
 export interface DeferredOptions {
   signedFetch: FetchLike
@@ -11,6 +11,8 @@ export interface DeferredOptions {
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
   maxPollDuration?: number // total timeout in seconds, default 300
+  /** Shared sent-request tracker; see TokenExchangeOptions. */
+  sentTracker?: { latest?: CapturedSent }
 }
 
 export interface AAuthError {
@@ -46,6 +48,7 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
     onClarification,
     onEvent,
     maxPollDuration = DEFAULT_MAX_POLL_DURATION,
+    sentTracker,
   } = options
 
   const deadline = Date.now() + maxPollDuration * 1000
@@ -74,6 +77,7 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
       phase: 'done',
       status: response.status,
       iteration: pollIteration,
+      request_headers: sentTracker?.latest?.headers,
       response: { headers: summarizeResponseHeaders(response.headers) },
     })
 
