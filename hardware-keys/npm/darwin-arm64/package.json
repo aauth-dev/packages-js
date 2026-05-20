@@ -1,6 +1,6 @@
 {
-  "name": "@aauth/hardware-keys-darwin-arm64",
-  "version": "0.11.1",
+  "name": "@mntu/hardware-keys-darwin-arm64",
+  "version": "0.11.2",
   "os": [
     "darwin"
   ],
@@ -12,7 +12,7 @@
     "index.darwin-arm64.node",
     "se-helper"
   ],
-  "description": "Hardware key backends for AAuth — macOS ARM64 native binary",
+  "description": "Hardware key backends for macOS ARM64 native binary",
   "license": "MIT",
   "repository": {
     "type": "git",

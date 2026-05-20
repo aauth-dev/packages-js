@@ -190,11 +190,11 @@ jobs:
         run: |
           VERSION=$(node -p "require('./hardware-keys/package.json').version")
           for pkg in darwin-arm64 darwin-x64 linux-x64-gnu win32-x64-msvc; do
-            published=$(npm view "@aauth/hardware-keys-$pkg" version 2>/dev/null || echo "0.0.0")
+            published=$(npm view "@mntu/hardware-keys-$pkg" version 2>/dev/null || echo "0.0.0")
             if [ "$published" = "$VERSION" ]; then
-              echo "Skipping @aauth/hardware-keys-$pkg@$VERSION (already published)"
+              echo "Skipping @mntu/hardware-keys-$pkg@$VERSION (already published)"
             else
-              echo "Publishing @aauth/hardware-keys-$pkg@$VERSION (npm has $published)..."
+              echo "Publishing @mntu/hardware-keys-$pkg@$VERSION (npm has $published)..."
               (cd hardware-keys/npm/$pkg && npm publish --provenance --access public)
             fi
           done
@@ -204,11 +204,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION=$(node -p "require('./hardware-keys/package.json').version")
-          published=$(npm view "@aauth/hardware-keys" version 2>/dev/null || echo "0.0.0")
+          published=$(npm view "@mntu/hardware-keys" version 2>/dev/null || echo "0.0.0")
           if [ "$published" = "$VERSION" ]; then
-            echo "Skipping @aauth/hardware-keys@$VERSION (already published)"
+            echo "Skipping @mntu/hardware-keys@$VERSION (already published)"
           else
-            echo "Publishing @aauth/hardware-keys@$VERSION (npm has $published)..."
+            echo "Publishing @mntu/hardware-keys@$VERSION (npm has $published)..."
             cd hardware-keys
             npm publish --provenance --access public
           fi

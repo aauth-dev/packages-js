@@ -1,6 +1,6 @@
 {
-  "name": "@aauth/hardware-keys-linux-x64-gnu",
-  "version": "0.11.1",
+  "name": "@mntu/hardware-keys-linux-x64-gnu",
+  "version": "0.11.2",
   "os": [
     "linux"
   ],
@@ -14,10 +14,10 @@
   "files": [
     "index.linux-x64-gnu.node"
   ],
-  "description": "Hardware key backends for AAuth — Linux x64 (glibc) native binary",
+  "description": "Hardware key backends for Linux x64 (glibc) native binary",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aauth-dev/packages-js"
+    "url": "https://github.com/mntu/packages-js"
   }
 }

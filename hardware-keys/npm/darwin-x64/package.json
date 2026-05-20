@@ -1,6 +1,6 @@
 {
-  "name": "@aauth/hardware-keys-darwin-x64",
-  "version": "0.11.1",
+  "name": "@mntu/hardware-keys-darwin-x64",
+  "version": "0.11.2",
   "os": [
     "darwin"
   ],
@@ -12,10 +12,10 @@
     "index.darwin-x64.node",
     "se-helper"
   ],
-  "description": "Hardware key backends for AAuth — macOS x64 native binary",
+  "description": "Hardware key backends for macOS x64 native binary",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aauth-dev/packages-js"
+    "url": "https://github.com/mntu/packages-js"
   }
 }

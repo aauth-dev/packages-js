@@ -310,9 +310,10 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { discover, generateKey, signHash, listKeys } = nativeBinding
+const { discover, generateKey, signHash, listKeys, deleteKey } = nativeBinding
 
 module.exports.discover = discover
 module.exports.generateKey = generateKey
 module.exports.signHash = signHash
 module.exports.listKeys = listKeys
+module.exports.deleteKey = deleteKey

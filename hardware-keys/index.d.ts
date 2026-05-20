@@ -34,12 +34,35 @@ export interface SignatureResult {
 }
 /** Discover available hardware key backends */
 export declare function discover(): Array<HardwareKeyInfo>
-/** Generate a key on the specified backend */
-export declare function generateKey(backend: string, algorithm: string): GeneratedKey
 /**
- * Sign a hash with a hardware key
- * For JWT: pass the SHA-256 hash of the header.payload string
+ * Generate a key on the specified backend.
+ *
+ * # Parameters (Secure Enclave only)
+ * - `label`           – Key label stored as `kSecAttrApplicationLabel`. Required for
+ *                       Secure Enclave; ignored for YubiKey (slot is fixed to 9e).
+ * - `permanent`       – Persist to keychain (`kSecAttrIsPermanent`). Requires the
+ *                       binary to be codesigned with `keychain-access-groups`.
+ *                       Ignored for YubiKey.
+ * - `replace_if_exists` – When `true` and `label` already exists, the old key is
+ *                       deleted before creating a new one. When `false` the call
+ *                       returns an error on duplicate labels. Ignored for YubiKey.
+ */
+export declare function generateKey(backend: string, algorithm: string, label?: string | undefined | null, permanent?: boolean | undefined | null, replaceIfExists?: boolean | undefined | null): GeneratedKey
+/**
+ * Sign a hash with a hardware key.
+ * For JWT: pass the SHA-256 hash of the `header.payload` string.
  */
 export declare function signHash(backend: string, keyId: string, hash: Buffer): SignatureResult
-/** List existing keys on a backend */
-export declare function listKeys(backend: string): Array<GeneratedKey>
+/**
+ * List existing keys on a backend.
+ *
+ * - `prefix` – Optional label prefix filter (Secure Enclave only; ignored for YubiKey).
+ */
+export declare function listKeys(backend: string, prefix?: string | undefined | null): Array<GeneratedKey>
+/**
+ * Delete a key by label.
+ *
+ * For Secure Enclave: removes from the in-process cache and keychain (if permanent).
+ * For YubiKey: no-op — PIV slots cannot be deleted, only overwritten via `generate_key`.
+ */
+export declare function deleteKey(backend: string, label: string): void
