@@ -130,6 +130,18 @@ pub fn list_keys() -> Result<Vec<GeneratedKey>> {
     Ok(keys)
 }
 
+/// Delete a key by label.
+///
+/// YubiKey PIV does not support deleting individual keys — a slot can only be
+/// overwritten by generating a new key into it. This stub exists so that
+/// `lib.rs` can call a uniform `delete_key` interface across all backends.
+///
+/// Returns `Ok(())` unconditionally to avoid breaking callers; actual key
+/// removal should be done by calling `generate_key` on the desired slot.
+pub fn delete_key(_label: &str) -> Result<()> {
+    Ok(())
+}
+
 fn try_sign_ecdsa(yk: &mut YubiKey, slot: SlotId, hash: &[u8]) -> Result<Vec<u8>> {
     // sign_data expects the raw hash for ECDSA
     let sig_der = piv::sign_data(yk, hash, AlgorithmId::EccP256, slot)

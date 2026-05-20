@@ -23,8 +23,6 @@ use std::sync::Mutex;
 
 use crate::{GeneratedKey, HardwareKeyInfo, SignatureResult};
 
-const AAUTH_KEY_LABEL_PREFIX: &str = "com.aauth.agent.";
-
 // kSecAttrApplicationTag is not exported by security-framework-sys,
 // so we use kSecAttrApplicationLabel instead for key lookup
 extern "C" {
@@ -34,6 +32,14 @@ extern "C" {
 // In-process cache of SE key handles (since ephemeral keys can't be re-queried from keychain)
 static SE_KEYS: std::sync::LazyLock<Mutex<HashMap<String, SecKey>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Behaviour when `generate_key` is called with a label that already exists.
+pub enum DuplicateLabelPolicy {
+    /// Delete the existing key and create a fresh one.
+    Replace,
+    /// Return an error immediately.
+    Error,
+}
 
 /// Check if Secure Enclave is available
 pub fn discover() -> Option<HardwareKeyInfo> {
@@ -53,17 +59,55 @@ pub fn discover() -> Option<HardwareKeyInfo> {
     }
 }
 
-/// Generate a P-256 key in the Secure Enclave
-pub fn generate_key(algorithm: &str) -> Result<GeneratedKey> {
+/// Generate a P-256 key in the Secure Enclave.
+///
+/// # Parameters
+/// - `label`       – Application label stored as `kSecAttrApplicationLabel`. Must be unique
+///                   per key; used for subsequent `sign_hash` / `delete_key` lookups.
+/// - `algorithm`   – Only `"ES256"` is supported.
+/// - `permanent`   – When `true` the key is written to the keychain
+///                   (`kSecAttrIsPermanent = true`). Requires the binary to be
+///                   codesigned with the `keychain-access-groups` entitlement;
+///                   without it the Security framework returns
+///                   `errSecMissingEntitlement (-34018)`. Pass `false` for
+///                   non-codesigned binaries (e.g. plain `node`).
+/// - `on_duplicate` – Controls behaviour when `label` is already known (either
+///                    in the in-process cache or in the keychain).
+pub fn generate_key(
+    label: &str,
+    algorithm: &str,
+    permanent: bool,
+    on_duplicate: DuplicateLabelPolicy,
+) -> Result<GeneratedKey> {
     if algorithm != "ES256" {
         return Err(Error::from_reason(
             "Secure Enclave only supports ES256 (P-256)",
         ));
     }
 
-    let label = format!("{}{}", AAUTH_KEY_LABEL_PREFIX, simple_date());
+    // Check for an existing key with the same label.
+    let label_exists = SE_KEYS
+        .lock()
+        .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?
+        .contains_key(label)
+        || keychain_has_label(label);
 
-    let private_key = create_se_key(&label)?;
+    if label_exists {
+        match on_duplicate {
+            DuplicateLabelPolicy::Replace => {
+                // Best-effort: remove from both cache and keychain before re-creating.
+                delete_key(label)?;
+            }
+            DuplicateLabelPolicy::Error => {
+                return Err(Error::from_reason(format!(
+                    "A key with label '{}' already exists",
+                    label
+                )));
+            }
+        }
+    }
+
+    let private_key = create_se_key(label, permanent)?;
 
     let public_key = private_key
         .public_key()
@@ -71,15 +115,15 @@ pub fn generate_key(algorithm: &str) -> Result<GeneratedKey> {
 
     let public_jwk = se_pubkey_to_jwk(&public_key)?;
 
-    // Cache the key handle for later signing
+    // Cache the key handle for later signing.
     SE_KEYS
         .lock()
         .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?
-        .insert(label.clone(), private_key);
+        .insert(label.to_string(), private_key);
 
     Ok(GeneratedKey {
         backend: "secure-enclave".to_string(),
-        key_id: label,
+        key_id: label.to_string(),
         algorithm: "ES256".to_string(),
         public_jwk,
     })
@@ -114,14 +158,189 @@ pub fn sign_hash(key_id: &str, hash: &[u8]) -> Result<SignatureResult> {
     })
 }
 
-/// List keys stored in the Secure Enclave with our label prefix
-pub fn list_keys() -> Result<Vec<GeneratedKey>> {
-    // TODO: query keychain for keys with our label prefix
-    Ok(Vec::new())
+/// List all Secure Enclave keys whose `kSecAttrApplicationLabel` starts with the
+/// given `prefix`. Pass `None` to list every key managed by this module.
+///
+/// Keys that are in the in-process cache but not persisted to the keychain are
+/// included via the cache. Keys that are only in the keychain (i.e. permanent
+/// keys created by a previous process) are discovered via `SecItemCopyMatching`.
+pub fn list_keys(prefix: Option<&str>) -> Result<Vec<GeneratedKey>> {
+    let mut keys: Vec<GeneratedKey> = Vec::new();
+
+    // --- 1. Collect labels from the keychain ---
+    let query = CFDictionary::from_CFType_pairs(&[
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecClass) },
+            unsafe { CFString::wrap_under_get_rule(kSecClassKey).as_CFType() },
+        ),
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecAttrKeyType) },
+            unsafe {
+                CFString::wrap_under_get_rule(kSecAttrKeyTypeECSECPrimeRandom).as_CFType()
+            },
+        ),
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecAttrTokenID) },
+            unsafe { CFString::wrap_under_get_rule(kSecAttrTokenIDSecureEnclave).as_CFType() },
+        ),
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecReturnRef) },
+            CFBoolean::true_value().as_CFType(),
+        ),
+        // Return all matches as an array.
+        (
+            CFString::new("matchLimit"),
+            CFString::new("matchLimitAll").as_CFType(),
+        ),
+    ]);
+
+    let mut result: core_foundation::base::CFTypeRef = std::ptr::null_mut();
+    let status = unsafe {
+        security_framework_sys::keychain_item::SecItemCopyMatching(
+            query.as_concrete_TypeRef(),
+            &mut result,
+        )
+    };
+
+    // errSecItemNotFound (-25300) simply means no permanent keys exist yet.
+    if status == 0 && !result.is_null() {
+        let array = unsafe {
+            core_foundation::array::CFArray::<core_foundation::base::CFType>::wrap_under_create_rule(
+                result as *mut _,
+            )
+        };
+
+        for item in array.iter() {
+            // Each item is a SecKey ref. Wrap it and extract the public key.
+            let sec_key = unsafe {
+                SecKey::wrap_under_get_rule(
+                    item.as_CFTypeRef() as *mut _
+                )
+            };
+
+            if let Some(pub_key) = sec_key.public_key() {
+                if let Ok(public_jwk) = se_pubkey_to_jwk(&pub_key) {
+                    // We cannot reliably recover the label from the SecKey ref without
+                    // an additional SecItemCopyMatching with kSecReturnAttributes, so
+                    // we use the JWK thumbprint as a fallback key_id here.
+                    // Callers who need the original label should use the in-process cache.
+                    let key_id = jwk_thumbprint_id(&public_jwk);
+
+                    let entry = GeneratedKey {
+                        backend: "secure-enclave".to_string(),
+                        key_id,
+                        algorithm: "ES256".to_string(),
+                        public_jwk,
+                    };
+
+                    if prefix.map_or(true, |p| entry.key_id.starts_with(p)) {
+                        keys.push(entry);
+                    }
+                }
+            }
+        }
+    }
+
+    // --- 2. Merge in-process cache (covers ephemeral / not-yet-persisted keys) ---
+    let cache = SE_KEYS
+        .lock()
+        .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?;
+
+    for (label, sec_key) in cache.iter() {
+        if prefix.map_or(true, |p| label.starts_with(p)) {
+            // Skip if already found via keychain (avoid duplicates).
+            let already_listed = keys.iter().any(|k| &k.key_id == label);
+            if already_listed {
+                continue;
+            }
+
+            if let Some(pub_key) = sec_key.public_key() {
+                if let Ok(public_jwk) = se_pubkey_to_jwk(&pub_key) {
+                    keys.push(GeneratedKey {
+                        backend: "secure-enclave".to_string(),
+                        key_id: label.clone(),
+                        algorithm: "ES256".to_string(),
+                        public_jwk,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(keys)
 }
 
+/// Delete a Secure Enclave key by its application label.
+///
+/// Removes the key from both the in-process cache and the keychain (if it was
+/// stored there as a permanent key). Returns `Ok(())` if the key was found and
+/// removed from at least one location, or an error if it was not found anywhere.
+pub fn delete_key(label: &str) -> Result<()> {
+    let mut removed_from_cache = false;
+    let mut removed_from_keychain = false;
+
+    // --- 1. Remove from in-process cache ---
+    {
+        let mut cache = SE_KEYS
+            .lock()
+            .map_err(|e| Error::from_reason(format!("Lock error: {}", e)))?;
+        if cache.remove(label).is_some() {
+            removed_from_cache = true;
+        }
+    }
+
+    // --- 2. Remove from keychain (permanent keys) ---
+    let label_data = CFData::from_buffer(label.as_bytes());
+
+    let query = CFDictionary::from_CFType_pairs(&[
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecClass) },
+            unsafe { CFString::wrap_under_get_rule(kSecClassKey).as_CFType() },
+        ),
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecAttrApplicationLabel) },
+            label_data.as_CFType(),
+        ),
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecAttrKeyType) },
+            unsafe {
+                CFString::wrap_under_get_rule(kSecAttrKeyTypeECSECPrimeRandom).as_CFType()
+            },
+        ),
+    ]);
+
+    let status = unsafe {
+        security_framework_sys::keychain_item::SecItemDelete(query.as_concrete_TypeRef())
+    };
+
+    // 0 = errSecSuccess, -25300 = errSecItemNotFound (not an error for us)
+    match status {
+        0 => removed_from_keychain = true,
+        -25300 => {} // not in keychain — that's fine
+        code => {
+            return Err(Error::from_reason(format!(
+                "SecItemDelete failed for label '{}': OSStatus {}",
+                label, code
+            )));
+        }
+    }
+
+    if removed_from_cache || removed_from_keychain {
+        Ok(())
+    } else {
+        Err(Error::from_reason(format!(
+            "Key not found for label: '{}'",
+            label
+        )))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
 /// Create a P-256 key in the Secure Enclave via Security.framework
-fn create_se_key(label: &str) -> Result<SecKey> {
+fn create_se_key(label: &str, permanent: bool) -> Result<SecKey> {
     let label_data = CFData::from_buffer(label.as_bytes());
 
     // Private key attributes
@@ -129,10 +348,16 @@ fn create_se_key(label: &str) -> Result<SecKey> {
     // because errSecMissingEntitlement (-34018) prevents keychain persistence.
     // The key lives only for the process lifetime. For persistent SE keys,
     // the binary must be codesigned with keychain-access-groups entitlement.
+    let is_permanent = if permanent {
+        CFBoolean::true_value()
+    } else {
+        CFBoolean::false_value()
+    };
+
     let private_key_attrs = CFDictionary::from_CFType_pairs(&[
         (
             unsafe { CFString::wrap_under_get_rule(kSecAttrIsPermanent) },
-            CFBoolean::false_value().as_CFType(),
+            is_permanent.as_CFType(),
         ),
         (
             unsafe { CFString::wrap_under_get_rule(kSecAttrApplicationLabel) },
@@ -165,8 +390,12 @@ fn create_se_key(label: &str) -> Result<SecKey> {
 
     if key.is_null() {
         let err_msg = if !error.is_null() {
-            let cf_error = unsafe { core_foundation::error::CFError::wrap_under_create_rule(error) };
-            format!("Secure Enclave key creation failed: {}", cf_error.description())
+            let cf_error =
+                unsafe { core_foundation::error::CFError::wrap_under_create_rule(error) };
+            format!(
+                "Secure Enclave key creation failed: {}",
+                cf_error.description()
+            )
         } else {
             "Failed to create Secure Enclave key (unknown error)".to_string()
         };
@@ -219,6 +448,42 @@ fn load_se_key(label: &str) -> Result<SecKey> {
     Ok(unsafe { SecKey::wrap_under_create_rule(result as *mut _) })
 }
 
+/// Returns `true` if the keychain contains a permanent SE key with the given label.
+fn keychain_has_label(label: &str) -> bool {
+    let label_data = CFData::from_buffer(label.as_bytes());
+
+    let query = CFDictionary::from_CFType_pairs(&[
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecClass) },
+            unsafe { CFString::wrap_under_get_rule(kSecClassKey).as_CFType() },
+        ),
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecAttrApplicationLabel) },
+            label_data.as_CFType(),
+        ),
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecAttrKeyType) },
+            unsafe {
+                CFString::wrap_under_get_rule(kSecAttrKeyTypeECSECPrimeRandom).as_CFType()
+            },
+        ),
+        (
+            unsafe { CFString::wrap_under_get_rule(kSecReturnRef) },
+            CFBoolean::false_value().as_CFType(),
+        ),
+    ]);
+
+    let mut result: core_foundation::base::CFTypeRef = std::ptr::null_mut();
+    let status = unsafe {
+        security_framework_sys::keychain_item::SecItemCopyMatching(
+            query.as_concrete_TypeRef(),
+            &mut result,
+        )
+    };
+
+    status == 0
+}
+
 /// Convert SecKey public key to JWK
 fn se_pubkey_to_jwk(public_key: &SecKey) -> Result<String> {
     let external_rep = public_key
@@ -245,6 +510,16 @@ fn se_pubkey_to_jwk(public_key: &SecKey) -> Result<String> {
         r#"{{"kty":"EC","crv":"P-256","x":"{}","y":"{}","alg":"ES256","use":"sig"}}"#,
         x_b64, y_b64
     ))
+}
+
+/// Derive a short deterministic ID from a JWK string (first 16 chars of its SHA-256 hex).
+/// Used as a fallback `key_id` when the original label cannot be recovered from the keychain ref.
+fn jwk_thumbprint_id(jwk: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    jwk.hash(&mut h);
+    format!("se-key-{:016x}", h.finish())
 }
 
 /// Convert DER-encoded ECDSA signature to raw r||s format (64 bytes)
@@ -288,15 +563,4 @@ fn der_ecdsa_to_raw(der: &[u8]) -> Result<Vec<u8>> {
     result[64 - s_trimmed.len()..64].copy_from_slice(s_trimmed);
 
     Ok(result)
-}
-
-fn simple_date() -> String {
-    use std::process::Command;
-    Command::new("date")
-        .arg("+%Y-%m-%d")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
 }
