@@ -18,8 +18,8 @@ export function printGettingStarted(): void {
   if (!configured) {
     console.log('You don\'t have an agent configured yet.')
     console.log('')
-    console.log('Set one up first:')
-    console.log('  npx @aauth/bootstrap --ps https://person.hello-beta.net')
+    console.log('Set one up first (use your own agent URL):')
+    console.log('  npx @aauth/bootstrap generate --agent https://me.github.io --ps')
     console.log('')
   }
 

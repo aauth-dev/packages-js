@@ -7,9 +7,14 @@ Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Proto
 ## Quick Start
 
 ```bash
-# Generate keys, configure a person server, and walk through hosting setup
-npx @aauth/bootstrap --ps <your-ps-url>
+# Generate keys, bind the default person server (person.hello.coop), and walk through hosting setup
+npx @aauth/bootstrap generate --agent <your-agent-url> --ps
+
+# ...or point at a specific person server
+npx @aauth/bootstrap generate --agent <your-agent-url> --ps https://person.example
 ```
+
+`--ps` with no URL binds the default person server (`https://person.hello.coop`). Once an agent exists, you can re-run just `npx @aauth/bootstrap --ps` to (re)configure its person server.
 
 The bootstrap flow detects available key backends (YubiKey PIV, macOS Secure Enclave, software), generates keys on the strongest available backend, configures a person server for your agent, and bundles agent skills that walk you through publishing keys on platforms like GitHub Pages, GitLab Pages, Cloudflare Pages, and Netlify.
 
@@ -54,7 +59,7 @@ Commands:
 Can be combined with any command:
 
 ```
---person-server <url>    Bootstrap with person server (alias: --ps)
+--person-server [url]    Bootstrap with person server (alias: --ps; default: https://person.hello.coop)
 --local <name>           Local part of agent identifier (default: "local")
 --login-hint <hint>      Hint about who to authorize
 --domain-hint <domain>   Domain/org routing hint

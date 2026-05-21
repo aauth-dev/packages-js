@@ -83,8 +83,8 @@ const token = await createResourceToken({ resource, authServer, agent, agentJkt 
 ### Local development
 
 ```bash
-# Generate keys, configure a person server, and publish them
-npx @aauth/bootstrap --ps <your-ps-url>
+# Generate keys and bind the default person server (person.hello.coop)
+npx @aauth/bootstrap generate --agent <your-agent-url> --ps
 ```
 
 See [`@aauth/bootstrap`](./bootstrap) for the full setup flow.
