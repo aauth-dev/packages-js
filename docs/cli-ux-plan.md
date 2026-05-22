@@ -4,13 +4,14 @@ Review starts here.
 
 1. **Command name: `list`?** (vs `show` / `config` / `read`). Lean `list` — enumerate-all, mirrors `gh … list` / `docker ls` / `kubectl get`, and fits `create`/`update`/`delete`. (`read` would fit only if reframed to read *one* provider; `show` barely used; `config` implies get/set.)
 2. **Rename `sign-token` → `token`?** Suggested — mirrors `gh auth token`.
-3. **Multiple keys per provider — how to select & manage?** Data model supports many, but no way to pick one (a `--kid` flag on `token`?) or add/delete a single key (`create` mints only the first; `delete` wipes all).
-4. **Multiple agents per provider — first-class or ad-hoc?** Config stores one `agentId`, but a provider can sign any `sub`. Manage a set of agents, or keep one default + `--agent-id`/`--local` overrides?
-5. **Multiple providers — a `current` marker?** Sole provider auto-defaults; for many, a switchable current/default provider (kubectl/aws/git style)?
-6. **Do we need `--quiet`?** Result on stdout, errors on stderr — any use for a silent mode here?
-7. **Single-letter flags — now or later?** None for now — long-form only (`--help`, `--version`, `--person-server`); add shorts like `-h` later?
-8. **What does `update` cover, and do `--jwks-uri`/`--hosting` belong anywhere?** `update` currently has only `--person-server`; the provider's other settings could be updatable too. And `--jwks-uri`/`--hosting` (carried over from `add-agent`) are metadata that nothing publishes — publishing is via skills — so are they needed at all, and on which command (`create`? `update`?)? Removed from `create` for now. Changing the agent id (`--local`/`agentId`) changes the agent's `sub`, **orphaning existing person bindings**, so it may not belong as a plain `update` flag.
-9. **Breaking changes (OK? no users yet):** `agents`→`agentProviders`; `show`→`list`; `add-agent`/`remove-agent`→`create`/`delete`; drop `discover`/`public-key`/`generate`, `--log`/`--jsonl`; `--agent`→`--agent-provider`; text→JSON default.
+3. **Keystore naming — `keystore`?** Renamed from "backends" (sounded like a server backend). Proposing **`keystore`** — mirrors **Android Keystore** / **Java KeyStore** (where signing keys live, incl. hardware-backed). (`--backend` → `--keystore`.)
+4. **Multiple keys per provider — how to select & manage?** Data model supports many, but no way to pick one (a `--kid` flag on `token`?) or add/delete a single key (`create` mints only the first; `delete` wipes all).
+5. **Multiple agents per provider — first-class or ad-hoc?** Config stores one `agentId`, but a provider can sign any `sub`. Manage a set of agents, or keep one default + `--agent-id`/`--local` overrides?
+6. **Multiple providers — a `current` marker?** Sole provider auto-defaults; for many, a switchable current/default provider (kubectl/aws/git style)?
+7. **Do we need `--quiet`?** Result on stdout, errors on stderr — any use for a silent mode here?
+8. **Single-letter flags — now or later?** None for now — long-form only (`--help`, `--version`, `--person-server`); add shorts like `-h` later?
+9. **What does `update` cover, and do `--jwks-uri`/`--hosting` belong anywhere?** `update` currently has only `--person-server`; the provider's other settings could be updatable too. And `--jwks-uri`/`--hosting` (carried over from `add-agent`) are metadata that nothing publishes — publishing is via skills — so are they needed at all, and on which command (`create`? `update`?)? Removed from `create` for now. Changing the agent id (`--local`/`agentId`) changes the agent's `sub`, **orphaning existing person bindings**, so it may not belong as a plain `update` flag.
+10. **Breaking changes (OK? no users yet):** `agents`→`agentProviders`; `show`→`list`; `add-agent`/`remove-agent`→`create`/`delete`; drop `discover`/`public-key`/`generate`, `--log`/`--jsonl`; `--agent`→`--agent-provider`; text→JSON default.
 
 # Contents
 
