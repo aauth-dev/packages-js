@@ -2,24 +2,36 @@
 
 Review starts here.
 
-1. **Command name — `list` (vs `show` / `config`).** Leaning **`list`**, flagged for review. `show` — barely used by anyone. `config` — git/npm use it, but for value get/**set**; ours is read-only, and a get/set config API is overkill for our ~1 setting (the current agent provider — see Q3). `list` — best CRUD fit (create/list/update/delete) and widely used (`gh ... list`, `docker ls`, `kubectl get`). `read` would be CRUD-correct but no CLI uses it (sounds weird). Confirm `list`?
-2. **`sign-token` → `token`?** Suggestion: rename to **`token`** — it prints an agent token, exactly like **`gh auth token`** prints the auth token. It's nearly zero-arg (agent provider + agent-id default from config). Keep, rename, or drop entirely (since `fetch` mints its own token internally)? It earns its place only as "give me a token to use elsewhere (curl/debug)."
-3. **Should `create` bundle everything, or split?** `create` does three things in one step: registers the agent provider, generates a signing key, and binds a person server. Keep it as one-step setup (convenience, like `gh repo create` wiring everything), or split into separate orthogonal commands (e.g. bring back a `generate` for keys)? Related: `generate` is dropped for v1 (create mints the first key); multi-key/rotation is deferred — when added, fold into `update` (`--rotate-key`) or a dedicated key verb / `key` sub-group (à la `gh ssh-key add`).
-4. **Multiple agent providers / a `current` marker.** Sole agent provider auto-defaults. For multiple: adopt a `current`/default agent provider (kubectl current-context, aws default profile, git `origin`), used when `--agent-provider` is omitted and switchable (e.g. a `use <url>` command)? Newest `create` auto-becomes current?
-5. **Do we need `--quiet`?** Output is always JSON on stdout, errors on stderr — is there any silent/quiet need at all, or is `--quiet` unnecessary for this package?
-6. **Single-letter flags — add them, and when?** All dropped for now (long-form only: `--help`, `--version`, `--person-server`). Add shorts later, or now? (Strict-Unix shorts are single-char `-p`, not `-ps`.)
-7. **Breaking changes — all OK?** No one is using this yet, so presumably yes — confirm we're fine with: config key `agents` → `agentProviders`; `show` → `list`; `add-agent`/`remove-agent` → `create`/`delete`; dropping `discover`/`public-key`/`generate` (folded into `create`)/`--verbose`/`--jsonl`; `--agent` → `--agent-provider`; default output text → JSON.
+1. **Command name — `list` (vs `show` / `config` / `read`).** Leaning **`list`**, flagged for review. `show` — barely used by anyone. `config` — git/npm use it, but for value get/**set**; ours is read-only. `read` — used by credential tools like us (HashiCorp Vault `read`, 1Password `op read`), **but in those tools `read` fetches one item by path and `list` enumerates** (both have `vault list` / `op item list`). Our command enumerates the whole config, which is the *list* operation in their own vocabulary — so `read` would only fit if reframed as `read <agent-provider-url>` (one provider). `list` — enumerate-all; consistent with create/update/delete and widely used (`gh ... list`, `docker ls`, `kubectl get`, plus `vault list` / `op item list`). Lean: `list`. Open: enumerate-all (`list`) or read-one (`read <provider>`)?
+2. **`token` — suggested (mirrors `gh auth token`).** A standalone command to mint an agent token for use elsewhere (curl, debugging). Suggest keeping it with this name, since it mirrors `gh auth token`.
+3. **Multiple keys per provider — how do you select and manage them?** The data model already supports multiple keys per agent provider (redundancy across devices, rotation), but there's no way to *invoke* a specific one — e.g. a `--kid` flag on `token` to choose which key signs? There's also no way to add or delete individual keys on an existing provider (`create` only mints the first; `delete` wipes the whole provider). How should key selection and add/delete work?
+4. **Multiple agents per agent provider — first-class or ad-hoc?** A provider's key can sign a token for any `sub`, so it can back many agents (`aauth:local@…`, `aauth:claude@…`, `aauth:research-bot@…`). But config stores only **one** `agentId` per provider and there's no command to manage a set. Keep one default + ad-hoc overrides (`--local`/`--agent-id` per call), or make agents first-class (store/list/add/remove agents under a provider)?
+5. **Multiple agent providers / a `current` marker.** Sole agent provider auto-defaults. For multiple: adopt a `current`/default agent provider (kubectl current-context, aws default profile, git `origin`), used when `--agent-provider` is omitted and switchable (e.g. a `use <url>` command)? Newest `create` auto-becomes current?
+6. **Do we need `--quiet`?** Output is always JSON on stdout, errors on stderr — is there any silent/quiet need at all, or is `--quiet` unnecessary for this package?
+7. **Single-letter flags — add them, and when?** All dropped for now (long-form only: `--help`, `--version`, `--person-server`). Add shorts later, or now? (Strict-Unix shorts are single-char `-p`, not `-ps`.)
+8. **What does `update` cover?** Currently only `--person-server`. The provider's other stored settings could be updatable too — `--jwks-uri`, `--hosting`. And the agent id (`--local`/`agentId`): changing it changes the agent's `sub`, which **orphans existing person bindings** (the agent must re-consent), so it may not belong as a plain `update` flag. Open: which settings does `update` expose? (Keys are Q3.)
+9. **Breaking changes:** config key `agents` → `agentProviders`; `show` → `list`; `add-agent`/`remove-agent` → `create`/`delete`; dropping `discover`/`public-key`/`generate` (folded into `create`); dropping the `--log`/`--jsonl` output flags; `--agent` → `--agent-provider`; default output text → JSON.
 
 # Contents
 
 - [`npx @aauth/bootstrap`](#npx-aauthbootstrap) — top-level help (also `help`, `--help`)
 - [`list`](#npx-aauthbootstrap-list) — list agent providers, keys, keystores
-- [`create`](#npx-aauthbootstrap-create) `<agent-provider-url> [--keystore <name>] [--algorithm <alg>] [--person-server <url>]` — register an agent provider
-- [`update`](#npx-aauthbootstrap-update) `<agent-provider-url> [--person-server <url>]` — update an agent provider
-- [`delete`](#npx-aauthbootstrap-delete) `<agent-provider-url>` — delete an agent provider and its keys
-- [`sign-token`](#npx-aauthbootstrap-sign-token) `[--agent-provider <url>] [--lifetime <s>]` — sign an agent token
-- [`skill`](#npx-aauthbootstrap-skill) `[name]` — agent setup guides
-- [`help`](#npx-aauthbootstrap) `[command]` — help
+- [`create`](#npx-aauthbootstrap-create) — register an agent provider
+  - required: `<agent-provider-url>`
+  - optional: `--keystore <name>`, `--algorithm <alg>`, `--person-server <url>`
+  - default: software keystore, EdDSA, person.hello.coop
+- [`update`](#npx-aauthbootstrap-update) — update an agent provider
+  - required: `<agent-provider-url>`
+  - optional: `--person-server <url>`
+- [`delete`](#npx-aauthbootstrap-delete) — delete an agent provider and its keys
+  - required: `<agent-provider-url>`
+- [`token`](#npx-aauthbootstrap-token) — generate an agent token
+  - optional: `--agent-provider <url>`, `--agent-id <id>`, `--local <name>`, `--lifetime <s>`
+  - default: current agent provider + its agent-id, lifetime 3600s
+- [`skill`](#npx-aauthbootstrap-skill) — agent setup guides
+  - optional: `name`
+- [`help`](#npx-aauthbootstrap) — help
+  - optional: `command`
 
 # `npx @aauth/bootstrap`
 
@@ -44,8 +56,8 @@ COMMANDS
   update <agent-provider-url> [--person-server <url>]
                                         Update an agent provider's settings
   delete <agent-provider-url>           Delete an agent provider and its keys
-  sign-token [--agent-provider <url>] [--lifetime <s>]
-                                        Sign an agent token
+  token [--agent-provider <url>] [--lifetime <s>]
+                                        Generate an agent token
   help [command]                        Show help for a command
 
 GLOBAL
@@ -66,9 +78,8 @@ EXAMPLE
   $ npx @aauth/bootstrap list
   {
     "keystores": [
-      { "keystore": "software", "algorithms": ["EdDSA", "ES256"] },
-      { "keystore": "secure-enclave", "algorithms": ["ES256"] },
-      { "keystore": "yubikey-piv", "algorithms": ["ES256", "RS256"] }
+      { "keystore": "software", "description": "Software keys stored in OS keychain", "algorithms": ["EdDSA", "ES256"] },
+      { "keystore": "secure-enclave", "description": "macOS Secure Enclave (Apple Silicon)", "algorithms": ["ES256"] }
     ],
     "agentProviders": [
       {
@@ -101,8 +112,8 @@ USAGE
   npx @aauth/bootstrap create <agent-provider-url> [flags]
 
 FLAGS
-  --keystore <name>       Where to create the key: software (default), secure-enclave, yubikey-piv
-  --algorithm <alg>       EdDSA (default for software), ES256, RS256
+  --keystore <name>       which keystore to use (default: software) — run `list` for available keystores
+  --algorithm <alg>       an algorithm the chosen keystore supports (see `list`); defaults to the keystore's default
   --person-server <url>   Person server to bind (default: person.hello.coop)
   --jwks-uri <uri>        JWKS URI for the agent provider
   --hosting <name>        Hosting platform (with --repo <repo>)
@@ -114,7 +125,8 @@ EXAMPLE
     "agentId": "aauth:local@descartes.github.io",
     "personServer": "https://person.hello.coop",
     "keys": [
-      { "kid": "bd3f9c…", "current": true, "keystore": "software" }
+      { "kid": "bd3f9c…", "current": true, "keystore": "software",
+        "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS…", "alg": "EdDSA" } }
     ]
   }
 ```
@@ -147,8 +159,7 @@ EXAMPLE
 
 ```text
 Delete an agent provider and its keys, including from hardware keystores.
-Removing the keys is the whole point — a config file is easy to edit by hand,
-a hardware key is not. Fails if the agent provider doesn't exist.
+Fails if the agent provider doesn't exist.
 
 USAGE
   npx @aauth/bootstrap delete <agent-provider-url>
@@ -161,15 +172,17 @@ EXAMPLE
   }
 ```
 
-# `npx @aauth/bootstrap sign-token`
+# `npx @aauth/bootstrap token`
 
 ```text
-Sign an agent token — the credential an agent presents to make authenticated calls.
-With one agent provider configured, takes no flags: the agent provider and its
-agent-id come from config.
+Generate an agent token — the credential an agent presents to make authenticated calls.
+With one agent provider configured it needs no arguments — the agent provider and
+its agent-id come from config. Output is the agent token (`signatureKey`) plus
+the ephemeral private key (`signingKey`) you sign requests with — the token's `cnf`
+binds to its public half.
 
 USAGE
-  npx @aauth/bootstrap sign-token [flags]
+  npx @aauth/bootstrap token [flags]
 
 FLAGS
   --agent-provider <url>  Pick the agent provider (default: the only / current one in config)
@@ -178,8 +191,9 @@ FLAGS
   --lifetime <seconds>    Token lifetime (default: 3600)
 
 EXAMPLE
-  $ npx @aauth/bootstrap sign-token
+  $ npx @aauth/bootstrap token
   {
+    "signingKey": { "kty": "OKP", "crv": "Ed25519", "x": "…", "d": "…" },
     "signatureKey": {
       "type": "jwt",
       "jwt": "eyJhbGci…"
@@ -247,3 +261,10 @@ Exit code is `0` on success, non-zero on failure. Errors print to **stderr** as 
 The configured entity is an **agent provider** — a URL like `descartes.github.io` that publishes keys/metadata. A specific **agent** is an instance under it, like `claude@descartes.github.io`, identified by the `sub`/agent-id when a token is signed. The term `agentProvider`/`agentProviders` (data) and `--agent-provider`/`<agent-provider-url>` (CLI) is used everywhere for consistency and to avoid clashing with the overloaded auth sense of "provider" (identity/OAuth provider).
 
 The agent itself is never "created" or registered — the agent provider self-asserts it by signing a token with that `sub`, and it becomes person-bound on the first authorized `fetch` request (consent at the person server). bootstrap manages *agent providers*; agents are implicit.
+
+# Implementation notes
+
+- **Output is pretty-printed JSON, syntax-colorized when stdout is a TTY** — easy for a human to read at the terminal.
+- **When piped or redirected (non-TTY), or when `NO_COLOR` is set, color is dropped** so the output is plain, valid JSON — machine-readable and safe to pipe straight into `jq` (`… | jq`). Color (ANSI) codes never reach a pipe, so `jq` never sees them.
+- **One format either way — no `--json` / `--pretty` flags.** Pretty + colorized for a human at the terminal; clean JSON for a pipe or an agent. The same examples in this doc are what both get (minus the color).
+- Help (and `skill <name>` markdown) are the only plain-text, non-JSON outputs.
