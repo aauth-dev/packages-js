@@ -5,6 +5,7 @@ import {
   renderSkillListMarkdown,
   topLevelHelp,
   COMMAND_HELP,
+  colorizeJson,
 } from './render.js'
 import type { SkillSummary } from './skills.js'
 
@@ -62,5 +63,21 @@ describe('help text', () => {
       expect(COMMAND_HELP[cmd]).toBeTruthy()
       expect(COMMAND_HELP[cmd]).toContain('DESCRIPTION')
     }
+  })
+})
+
+describe('colorizeJson', () => {
+  const json = JSON.stringify({ a: 'hi', n: 42, b: true, z: null }, null, 2)
+
+  it('adds ANSI codes', () => {
+    const out = colorizeJson(json)
+    expect(out).toContain('\x1b[') // has color
+    expect(out).not.toBe(json)
+  })
+
+  it('is purely additive — stripping ANSI yields the original JSON', () => {
+    const stripped = colorizeJson(json).replace(/\x1b\[[0-9]*m/g, '')
+    expect(stripped).toBe(json)
+    expect(JSON.parse(stripped)).toEqual({ a: 'hi', n: 42, b: true, z: null })
   })
 })

@@ -28,6 +28,7 @@ import {
   COMMAND_HELP,
   shapeKeystores,
   renderSkillListMarkdown,
+  colorizeJson,
 } from './render.js'
 
 /** A JWK is opaque here — we only pass it through to JSON output. */
@@ -40,7 +41,11 @@ const DEFAULT_PERSON_SERVER = 'https://person.hello.coop'
 // === output helpers (stdout = result, stderr = errors) ===
 
 function printResult(value: unknown): void {
-  console.log(JSON.stringify(value, null, 2))
+  const json = JSON.stringify(value, null, 2)
+  // Color only at a TTY; piped/redirected or NO_COLOR stays plain so ANSI codes
+  // never reach `jq` or an agent reading the JSON.
+  const useColor = process.stdout.isTTY === true && !process.env.NO_COLOR
+  console.log(useColor ? colorizeJson(json) : json)
 }
 
 function fail(message: string): void {
@@ -75,6 +80,17 @@ async function resolvePublicJwk(agentUrl: string, kid: string, meta: LocalKeyMet
   }
 }
 
+/**
+ * Re-attach the `aauth` metadata (device + created) that `create` publishes, so
+ * `list` shows the same public-key shape. `created` comes from the kid's date
+ * prefix (`YYYY-MM-DD_hex`); `device` from the stored key metadata.
+ */
+function withAauthMeta(pub: Jwk | null, meta: LocalKeyMeta, kid: string): Jwk | null {
+  if (!pub || typeof pub !== 'object') return pub
+  const created = kid.includes('_') ? kid.split('_')[0] : undefined
+  return { ...(pub as Record<string, unknown>), aauth: { device: meta.deviceLabel, created } }
+}
+
 // === commands ===
 
 async function cmdList(): Promise<void> {
@@ -86,7 +102,8 @@ async function cmdList(): Promise<void> {
     if (!cfg) continue
     const keys = []
     for (const [kid, meta] of Object.entries(cfg.keys)) {
-      keys.push({ kid, keystore: meta.backend, publicJwk: await resolvePublicJwk(url, kid, meta) })
+      const publicJwk = withAauthMeta(await resolvePublicJwk(url, kid, meta), meta, kid)
+      keys.push({ kid, keystore: meta.backend, publicJwk })
     }
     agentProviders.push({
       url,

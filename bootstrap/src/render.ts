@@ -8,6 +8,27 @@ export interface KeystoreInfo {
   algorithms: string[]
 }
 
+/**
+ * Add ANSI syntax colors to a pretty-printed JSON string: keys blue, strings
+ * green, numbers cyan, booleans/null yellow. Caller decides whether to apply it
+ * (TTY only) — colors must never reach a pipe, or `jq` would choke on them.
+ */
+export function colorizeJson(json: string): string {
+  const RESET = '\x1b[0m'
+  return json.replace(
+    /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (match, str, colon, keyword, num) => {
+      if (str !== undefined) {
+        if (colon !== undefined) return `\x1b[34m${str}${RESET}${colon}` // key
+        return `\x1b[32m${str}${RESET}` // string value
+      }
+      if (keyword !== undefined) return `\x1b[33m${keyword}${RESET}` // bool / null
+      if (num !== undefined) return `\x1b[36m${num}${RESET}` // number
+      return match
+    },
+  )
+}
+
 /** Map discovered backends to the `keystore` shape used in `list` output. */
 export function shapeKeystores(backends: BackendInfo[]): KeystoreInfo[] {
   return backends.map((b) => ({
