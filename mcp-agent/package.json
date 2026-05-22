@@ -32,7 +32,7 @@
     "directory": "mcp-agent"
   },
   "dependencies": {
-    "@hellocoop/httpsig": "^1.1.3"
+    "@hellocoop/httpsig": "^1.6.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
