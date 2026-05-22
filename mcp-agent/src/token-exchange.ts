@@ -1,9 +1,9 @@
-import type { FetchLike, GetKeyMaterial, OnEvent } from './types.js'
+import type { FetchLike, GetKeyMaterial, OnEvent, CapturedSent } from './types.js'
 import { pollDeferred } from './deferred.js'
 import type { AAuthError } from './deferred.js'
 import { parseAAuthHeader } from './aauth-header.js'
 import { decodeJwtPayload } from './decode-jwt.js'
-import { summarizeResponseHeaders, decodeSignatureKey } from './log-helpers.js'
+import { summarizeResponseHeaders, decodeSignatureKey, peekResponseBody } from './log-helpers.js'
 
 export class TokenExchangeError extends Error {
   constructor(
@@ -38,6 +38,12 @@ export interface TokenExchangeOptions {
    * outgoing-token visibility under --log.
    */
   getKeyMaterial?: GetKeyMaterial
+  /**
+   * Optional: mutable holder that signed-fetch's onSigned callback updates
+   * after each signed request. exchangeToken reads `.latest` after its own
+   * signedFetch calls to attach request_headers to :done events.
+   */
+  sentTracker?: { latest?: CapturedSent }
 }
 
 export interface TokenExchangeResult {
@@ -74,10 +80,11 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     onClarification,
     onEvent,
     getKeyMaterial,
+    sentTracker,
   } = options
 
   // 1. Fetch auth server metadata
-  const metadata = await fetchMetadata(signedFetch, authServerUrl, onEvent, getKeyMaterial)
+  const metadata = await fetchMetadata(signedFetch, authServerUrl, onEvent, getKeyMaterial, sentTracker)
 
   const { capabilities, prompt } = options
 
@@ -105,19 +112,27 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
       agent_token: agentToken,
     })
   }
+  const tokenBody = JSON.stringify(body)
   const response = await signedFetch(metadata.token_endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Prefer: `wait=${PREFER_WAIT}`,
     },
-    body: JSON.stringify(body),
+    body: tokenBody,
   })
+  // Peek body for 202 (deferred) responses where downstream code only reads headers.
+  const tokenResponseBody = response.status === 202 ? await peekResponseBody(response) : undefined
   onEvent?.({
     step: 'ps_token_request',
     phase: 'done',
     status: response.status,
-    response: { headers: summarizeResponseHeaders(response.headers) },
+    request_headers: sentTracker?.latest?.headers,
+    request_body: sentTracker?.latest?.body ?? tokenBody,
+    response: {
+      headers: summarizeResponseHeaders(response.headers),
+      ...(tokenResponseBody !== undefined ? { body: tokenResponseBody } : {}),
+    },
   })
 
   // 4. Handle response
@@ -159,6 +174,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
       onInteraction,
       onClarification,
       onEvent,
+      sentTracker,
     })
 
     if (result.response.status === 200) {
@@ -183,6 +199,7 @@ async function fetchMetadata(
   authServerUrl: string,
   onEvent?: OnEvent,
   getKeyMaterial?: GetKeyMaterial,
+  sentTracker?: { latest?: CapturedSent },
 ): Promise<AuthServerMetadata> {
   const metadataUrl = `${authServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
   if (onEvent) {
@@ -192,11 +209,17 @@ async function fetchMetadata(
     onEvent({ step: 'ps_metadata_request', phase: 'start', url: metadataUrl, agent_token: agentToken })
   }
   const response = await signedFetch(metadataUrl, { method: 'GET' })
+  // Peek body so the rendered card can show the discovered endpoints.
+  const responseBody = response.ok ? await peekResponseBody(response) : undefined
   onEvent?.({
     step: 'ps_metadata_request',
     phase: 'done',
     status: response.status,
-    response: { headers: summarizeResponseHeaders(response.headers) },
+    request_headers: sentTracker?.latest?.headers,
+    response: {
+      headers: summarizeResponseHeaders(response.headers),
+      ...(responseBody !== undefined ? { body: responseBody } : {}),
+    },
   })
 
   if (!response.ok) {

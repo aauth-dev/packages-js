@@ -24,7 +24,20 @@ import {
 import type { KeyAlgorithm, KeyBackend, AAuthPublicJwk } from '@aauth/local-keys'
 import { listSkills, getSkill } from './skills.js'
 import { bootstrapWithPS } from './bootstrap-ps.js'
-import { buildLogEmitter } from './log.js'
+import { buildLogEmitter, type LogMode } from './log.js'
+
+// --log → pretty narrative; --jsonl (alias --ndjson) → NDJSON; neither → silent.
+function pickLogMode(flags: Record<string, string>): LogMode | undefined {
+  const log = flags.log === 'true'
+  const jsonl = flags.jsonl === 'true' || flags.ndjson === 'true'
+  if (log && jsonl) {
+    console.error(JSON.stringify({ error: '--log and --jsonl are mutually exclusive (same events, different formats). Pick one.' }))
+    process.exit(1)
+  }
+  if (log) return 'pretty'
+  if (jsonl) return 'jsonl'
+  return undefined
+}
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 
@@ -67,7 +80,7 @@ function parseArgs(args: string[]) {
 // === Commands ===
 
 function cmdDiscover(flags: Record<string, string>) {
-  const onEvent = buildLogEmitter(flags.log === 'true')
+  const onEvent = buildLogEmitter(pickLogMode(flags))
   onEvent?.({ step: 'backend_discovery', phase: 'start' })
   const backends = discoverBackends()
   onEvent?.({ step: 'backend_discovery', phase: 'done', backends: backends.map(b => b.backend) })
@@ -79,7 +92,7 @@ async function cmdGenerate(flags: Record<string, string>) {
   const algorithm = (flags.algorithm || (backend === 'software' ? 'EdDSA' : 'ES256')) as KeyAlgorithm
   const agentUrl = flags.agent
   const kid = generateKid()
-  const onEvent = buildLogEmitter(flags.log === 'true')
+  const onEvent = buildLogEmitter(pickLogMode(flags))
 
   const driver = getBackend(backend)
   const deviceLabel = driver.getDeviceLabel()
@@ -138,7 +151,7 @@ async function cmdGenerate(flags: Record<string, string>) {
 async function cmdSignToken(flags: Record<string, string>) {
   const agentUrl = flags.agent
   const lifetime = parseInt(flags.lifetime || '3600', 10)
-  const onEvent = buildLogEmitter(flags.log === 'true')
+  const onEvent = buildLogEmitter(pickLogMode(flags))
 
   if (!agentUrl) {
     console.error(JSON.stringify({ error: '--agent <url> required' }))
@@ -244,7 +257,7 @@ function cmdConfig() {
 }
 
 function cmdShow(flags: Record<string, string> = {}) {
-  const onEvent = buildLogEmitter(flags.log === 'true')
+  const onEvent = buildLogEmitter(pickLogMode(flags))
 
   console.log('@aauth/bootstrap — set up an agent identity for AAuth')
   console.log('')
@@ -404,8 +417,9 @@ async function runBootstrapPS(flags: Record<string, string>) {
     }
   }
 
-  const logEnabled = flags.log === 'true'
-  const onEvent = buildLogEmitter(logEnabled)
+  const logMode = pickLogMode(flags)
+  const onEvent = buildLogEmitter(logMode)
+  const logEnabled = logMode !== undefined
 
   if (logEnabled) {
     onEvent?.({ step: 'bootstrap_started', phase: 'info', agentUrl, personServerUrl })

@@ -9,7 +9,15 @@ import {
 } from '@aauth/mcp-agent'
 import type { GetKeyMaterial, KeyMaterial, FetchLike, Capability, OnEvent } from '@aauth/mcp-agent'
 import open from 'open'
-import { buildLogEmitter } from './log.js'
+import { buildLogEmitter, type LogMode } from './log.js'
+
+// --log → pretty narrative; --jsonl → NDJSON; neither → silent. The args
+// parser already enforces mutual exclusion between the two.
+function pickLogMode(args: { log?: boolean; jsonl?: boolean }): LogMode | undefined {
+  if (args.log) return 'pretty'
+  if (args.jsonl) return 'jsonl'
+  return undefined
+}
 
 /**
  * Filter response headers to AAuth-relevant set for --log events. Mirrors the
@@ -105,7 +113,7 @@ export function buildRequestInit(args: { method: string; data?: string; headers:
 export async function handleAuthorize(
   args: {
     url: string; agentUrl?: string; operations?: string; scope?: string;
-    browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean; log?: boolean;
+    browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean; log?: boolean; jsonl?: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
     capabilities?: string[]; forceConsent?: boolean;
   },
@@ -114,7 +122,7 @@ export async function handleAuthorize(
 ): Promise<void> {
   const shouldOpenBrowser = args.browser ?? true
   const capabilities = args.capabilities as Capability[] | undefined
-  const log = buildLogEmitter(args.log ?? false, { url: args.url, agentUrl: args.agentUrl, personServer })
+  const log = buildLogEmitter(pickLogMode(args), { url: args.url, agentUrl: args.agentUrl, personServer })
   const onEvent: OnEvent | undefined = log?.onEvent
 
   const keyMaterial = await getKeyMaterial()
@@ -289,7 +297,7 @@ export async function handleAuthorize(
  * Pre-authed mode: use provided auth token + signing key.
  */
 export async function handlePreAuthed(
-  args: { url: string; method: string; authToken: string; signingKey: string; verbose: boolean; log?: boolean; data?: string; headers: string[] },
+  args: { url: string; method: string; authToken: string; signingKey: string; verbose: boolean; log?: boolean; jsonl?: boolean; data?: string; headers: string[] },
   init: RequestInit,
 ): Promise<void> {
   let signingKey: JsonWebKey
@@ -301,7 +309,7 @@ export async function handlePreAuthed(
     return
   }
 
-  const log = buildLogEmitter(args.log ?? false, { url: args.url })
+  const log = buildLogEmitter(pickLogMode(args), { url: args.url })
   const onEvent: OnEvent | undefined = log?.onEvent
   const getKeyMaterial: GetKeyMaterial = async () => ({
     signingKey,
@@ -333,11 +341,11 @@ export async function handlePreAuthed(
  * --agent-only mode: sign with agent token, don't handle 401.
  */
 export async function handleAgentOnly(
-  args: { url: string; verbose: boolean; log?: boolean },
+  args: { url: string; verbose: boolean; log?: boolean; jsonl?: boolean },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
 ): Promise<void> {
-  const log = buildLogEmitter(args.log ?? false, { url: args.url })
+  const log = buildLogEmitter(pickLogMode(args), { url: args.url })
   const onEvent: OnEvent | undefined = log?.onEvent
   const signedFetch = createSignedFetch(getKeyMaterial)
 
@@ -368,7 +376,7 @@ export async function handleAgentOnly(
  */
 export async function handleFullFlow(
   args: {
-    url: string; agentUrl?: string; browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean; log?: boolean;
+    url: string; agentUrl?: string; browser?: boolean; nonInteractive: boolean; verbose: boolean; debug?: boolean; log?: boolean; jsonl?: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
     capabilities?: string[]; forceConsent?: boolean;
   },
@@ -377,7 +385,7 @@ export async function handleFullFlow(
   personServer: string | undefined,
 ): Promise<void> {
   const shouldOpenBrowser = args.browser ?? true
-  const log = buildLogEmitter(args.log ?? false, { url: args.url, agentUrl: args.agentUrl, personServer })
+  const log = buildLogEmitter(pickLogMode(args), { url: args.url, agentUrl: args.agentUrl, personServer })
   const onEvent: OnEvent | undefined = log?.onEvent
 
   // Pin key material so the same ephemeral key is used for the initial request,

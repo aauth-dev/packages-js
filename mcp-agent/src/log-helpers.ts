@@ -1,4 +1,5 @@
-import type { SignatureKeyJwt, SignatureKeyJktJwt, SignatureKeyHwk } from './types.js'
+import type { SignatureKeyJwt, SignatureKeyJktJwt, SignatureKeyHwk, CapturedSent } from './types.js'
+import type { SentRequest } from '@hellocoop/httpsig'
 import { decodeJwtPayload } from './decode-jwt.js'
 
 /**
@@ -42,4 +43,33 @@ export function decodeSignatureKey(
 ): Record<string, unknown> | undefined {
   const jwt = jwtFromSignatureKey(sk)
   return jwt ? decodeJwtPayload(jwt) : undefined
+}
+
+/**
+ * Convert @hellocoop/httpsig's SentRequest (Headers object) to a plain
+ * Record-based CapturedSent suitable for inclusion in --log events and
+ * JSON serialisation.
+ */
+export function captureSentFromHttpsig(sent: SentRequest): CapturedSent {
+  const headers: Record<string, string> = {}
+  sent.headers.forEach((value, key) => { headers[key] = value })
+  return {
+    method: sent.method,
+    url: sent.url,
+    headers,
+    body: typeof sent.body === 'string' ? sent.body : undefined,
+  }
+}
+
+/**
+ * Read a Response's body as text without consuming it for downstream
+ * consumers. Uses Response.clone() so the caller can still read body
+ * afterwards. Returns undefined if the body can't be read as text.
+ */
+export async function peekResponseBody(response: Response): Promise<string | undefined> {
+  try {
+    return await response.clone().text()
+  } catch {
+    return undefined
+  }
 }

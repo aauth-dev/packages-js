@@ -4,8 +4,8 @@ import { parseAAuthHeader, buildCapabilitiesHeader, buildMissionHeader } from '.
 import { exchangeToken } from './token-exchange.js'
 import { pollDeferred } from './deferred.js'
 import { decodeJwtPayload } from './decode-jwt.js'
-import { summarizeResponseHeaders, decodeSignatureKey } from './log-helpers.js'
-import type { GetKeyMaterial, FetchLike, OnEvent } from './types.js'
+import { summarizeResponseHeaders, decodeSignatureKey, captureSentFromHttpsig, peekResponseBody } from './log-helpers.js'
+import type { GetKeyMaterial, FetchLike, OnEvent, CapturedSent } from './types.js'
 import type { Capability, AAuthMission } from './aauth-header.js'
 
 export interface AAuthFetchOptions {
@@ -57,7 +57,15 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     prompt,
   } = options
 
-  const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, mission })
+  // Shared mutable holder for the latest signed-request capture. signed-fetch
+  // and the fetchWith* helpers populate `.latest` via onSigned; the next
+  // emitted :done event (here, in token-exchange, or in deferred) reads it.
+  // Wide explicit type so TS doesn't narrow `.latest` to never after we set
+  // it to undefined before an awaited call that mutates it via callback.
+  const sentTracker: { latest: CapturedSent | undefined } = { latest: undefined }
+  const onSigned = onEvent ? (sent: CapturedSent) => { sentTracker.latest = sent } : undefined
+
+  const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, mission, onSigned })
   const tokenCache = new Map<string, CachedToken>()
   const accessCache = new Map<string, CachedAccess>()
 
@@ -69,7 +77,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     const cached = findCachedToken(tokenCache, resourceOrigin)
     if (cached) {
       // Use cached auth token — sign with auth token instead of agent token
-      const response = await fetchWithAuthToken(url, init, cached.authToken, getKeyMaterial)
+      const response = await fetchWithAuthToken(url, init, cached.authToken, getKeyMaterial, onSigned)
       // If the cached token is rejected, fall through to challenge flow
       if (response.status !== 401) {
         cacheAccessToken(accessCache, resourceOrigin, response)
@@ -82,7 +90,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     // Check cache for an opaque AAuth-Access token (two-party mode)
     const cachedAccess = accessCache.get(resourceOrigin)
     if (cachedAccess) {
-      const response = await fetchWithAccessToken(url, init, cachedAccess.token, getKeyMaterial)
+      const response = await fetchWithAccessToken(url, init, cachedAccess.token, getKeyMaterial, onSigned)
       if (response.status !== 401) {
         cacheAccessToken(accessCache, resourceOrigin, response)
         return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
@@ -103,11 +111,16 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       })
     }
     const response = await signedFetch(url, init)
+    const responseBody = response.status === 401 ? await peekResponseBody(response) : undefined
     onEvent?.({
       step: 'signed_request',
       phase: 'done',
       status: response.status,
-      response: { headers: summarizeResponseHeaders(response.headers) },
+      request_headers: sentTracker.latest?.headers,
+      response: {
+        headers: summarizeResponseHeaders(response.headers),
+        ...(responseBody !== undefined ? { body: responseBody } : {}),
+      },
     })
 
     // 200: success — check for AAuth-Access token
@@ -152,6 +165,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           onClarification,
           onEvent,
           getKeyMaterial,
+          sentTracker,
         })
 
         // Cache the auth token
@@ -170,12 +184,13 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           auth_token: decodeJwtPayload(result.authToken),
         })
         const retryResponse = await fetchWithAuthToken(
-          url, init, result.authToken, getKeyMaterial,
+          url, init, result.authToken, getKeyMaterial, onSigned,
         )
         onEvent?.({
           step: 'retry_with_auth_token',
           phase: 'done',
           status: retryResponse.status,
+          request_headers: sentTracker.latest?.headers,
           response: { headers: summarizeResponseHeaders(retryResponse.headers) },
         })
         cacheAccessToken(accessCache, resourceOrigin, retryResponse)
@@ -247,14 +262,24 @@ async function fetchWithAuthToken(
   init: RequestInit | undefined,
   authToken: string,
   getKeyMaterial: GetKeyMaterial,
+  onSigned?: (sent: CapturedSent) => void,
 ): Promise<Response> {
   const { signingKey } = await getKeyMaterial()
-  const response = await httpSigFetch(url, {
+  if (onSigned) {
+    const { response, sent } = await httpSigFetch(url, {
+      ...init,
+      signingKey,
+      signatureKey: { type: 'jwt', jwt: authToken },
+      returnSent: true,
+    })
+    onSigned(captureSentFromHttpsig(sent))
+    return response
+  }
+  return await httpSigFetch(url, {
     ...init,
     signingKey,
     signatureKey: { type: 'jwt', jwt: authToken },
   })
-  return response as Response
 }
 
 /**
@@ -266,6 +291,7 @@ async function fetchWithAccessToken(
   init: RequestInit | undefined,
   accessToken: string,
   getKeyMaterial: GetKeyMaterial,
+  onSigned?: (sent: CapturedSent) => void,
 ): Promise<Response> {
   const { signingKey, signatureKey } = await getKeyMaterial()
   const headers = new Headers(init?.headers)
@@ -273,13 +299,23 @@ async function fetchWithAccessToken(
   const httpSigKey = signatureKey.type === 'jkt-jwt'
     ? { type: 'jwt' as const, jwt: signatureKey.jwt }
     : signatureKey
-  const response = await httpSigFetch(url, {
+  if (onSigned) {
+    const { response, sent } = await httpSigFetch(url, {
+      ...init,
+      headers,
+      signingKey,
+      signatureKey: httpSigKey,
+      returnSent: true,
+    })
+    onSigned(captureSentFromHttpsig(sent))
+    return response
+  }
+  return await httpSigFetch(url, {
     ...init,
     headers,
     signingKey,
     signatureKey: httpSigKey,
   })
-  return response as Response
 }
 
 /**

@@ -1,6 +1,3 @@
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { readFileSync, existsSync } from 'node:fs'
 import type { AAuthEvent, OnEvent } from '@aauth/mcp-agent'
 import { readConfig, readKeychain } from '@aauth/local-keys'
 import { createHash } from 'node:crypto'
@@ -21,77 +18,7 @@ const c = {
 const RULE = '─'.repeat(80)
 const section = (title: string) => `${c.dim('─── ')}${c.bold(title)} ${c.dim(RULE.slice(title.length + 5))}`
 
-// ── Marker file (written by bootstrap --log, read here) ───────────────────────
-const MARKER_PATH = join(homedir(), '.aauth', '.tldr-shown')
-const MARKER_FRESH_MS = 5 * 60 * 1000
-
-function isMarkerFresh(): boolean {
-  try {
-    if (!existsSync(MARKER_PATH)) return false
-    const ts = readFileSync(MARKER_PATH, 'utf8').trim()
-    const when = Date.parse(ts)
-    if (Number.isNaN(when)) return false
-    return Date.now() - when < MARKER_FRESH_MS
-  } catch {
-    return false
-  }
-}
-
 // ── Header / preamble blocks ──────────────────────────────────────────────────
-
-function renderTldr(): string {
-  return [
-    section('What is AAuth?'),
-    '',
-    'AAuth gives every agent its own cryptographic identity. The agent signs every',
-    'HTTP request with a private key only it holds; resources verify the signature',
-    'and decide whether to authorize. A Person Server represents the user and',
-    'grants the agent permission to act on their behalf — no pre-registration, no',
-    'shared secrets.',
-    '',
-    'Protocol parties:',
-    '',
-    `   ${c.cyan('AGENT')}          this CLI on your device. Identifies via an Ed25519 keypair`,
-    '                  generated locally — the private key never leaves the OS keychain.',
-    `   ${c.green('RESOURCE')}       the API the agent wants to call.`,
-    `   ${c.magenta('PERSON SERVER')}  represents the user. Holds identity, decides authorization,`,
-    '                  issues auth_tokens the resource will trust.',
-    `   ${c.dim('ACCESS SERVER  (out of scope for this demo) policy engine that guards')}`,
-    `                  ${c.dim('resources in federated mode.')}`,
-    '',
-    'The user (you) approves consent in a browser the first time the PS sees',
-    'this agent.',
-    '',
-    'The flow:',
-    '',
-    `   ${c.dim('one-time')}   ${c.cyan('AGENT')}  generates keypair on this device`,
-    `              ${c.cyan('AGENT')}  registers a Person Server it will delegate consent to`,
-    `   ${c.dim('per call')}   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (401: who are you?)`,
-    `              ${c.cyan('AGENT')}  ─▶  ${c.magenta('PERSON SERVER')}  (token exchange — first time needs consent)`,
-    `              ${c.yellow('user')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser, first time only)`,
-    `              ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (200: data)`,
-    '',
-    `${c.dim('Key properties: agent identity without pre-registration · proof-of-possession')}`,
-    `${c.dim('on every request · user consent at the Person Server, never at the resource.')}`,
-    '',
-    '',
-  ].join('\n')
-}
-
-function renderCondensedFlow(): string {
-  return [
-    `${c.bold('AAuth · per-call flow')}`,
-    '',
-    `   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (401: who are you?)`,
-    `   ${c.cyan('AGENT')}  ─▶  ${c.magenta('PERSON SERVER')}  (token exchange — needs consent)`,
-    `   ${c.yellow('user')}   ─▶  ${c.magenta('PERSON SERVER')}  (approve in browser)`,
-    `   ${c.cyan('AGENT')}  ─▶  ${c.green('RESOURCE')}       (200: data)`,
-    '',
-    c.dim('(Actors and one-time setup: see `npx @aauth/bootstrap --ps <url> --log`.)'),
-    '',
-    '',
-  ].join('\n')
-}
 
 function computeJkt(jwk: Record<string, unknown>): string {
   const kty = jwk.kty as string
@@ -211,7 +138,7 @@ function stepHeader(n: number, from: Actor, to: Actor, subtitle: string): string
 function statusLine(status: number): string {
   const tint = status >= 200 && status < 300 ? c.green : status >= 400 ? c.red : c.yellow
   const label = STATUS_LABELS[status] ?? ''
-  return `   ${c.dim('←')} HTTP/1.1 ${tint(String(status))} ${tint(label)}`
+  return `   ← HTTP/1.1 ${tint(String(status))} ${tint(label)}`
 }
 
 const STATUS_LABELS: Record<number, string> = {
@@ -275,36 +202,135 @@ function compactJson(v: unknown): string {
   return `{ ${inner} }`
 }
 
-function renderRequestHeaders(method: string, url: string, hasBody: boolean): string[] {
+// Header-Case formatter: "signature-input" → "Signature-Input"
+function headerCase(name: string): string {
+  return name.split('-').map(p => p ? p[0].toUpperCase() + p.slice(1) : '').join('-')
+}
+
+// Truncate the Signature header's base64 value: sig=:<long base64>: → sig=:<16 chars>…:
+function truncateSig(value: string): string {
+  return value.replace(/=:([^:]+):/g, (_, b64) =>
+    b64.length > 16 ? `=:${b64.slice(0, 16)}…:` : `=:${b64}:`)
+}
+
+// Truncate the JWT inside Signature-Key: sig=jwt;jwt="<long base64.base64.base64>"
+function truncateSigKey(value: string): string {
+  return value.replace(/jwt="([^"]+)"/g, (_, jwt) =>
+    jwt.length > 24 ? `jwt="${jwt.slice(0, 24)}…"` : `jwt="${jwt}"`)
+}
+
+// Pretty-print a request/response body. JSON gets parsed + indented; long
+// JWT-looking string values inside are truncated. Non-JSON returns as-is
+// with simple length truncation.
+function formatBody(body: string): string {
+  try {
+    const parsed = JSON.parse(body)
+    const pretty = JSON.stringify(parsed, null, 2)
+    // Truncate JWT-shaped values (>= 40 chars, alphanum/-/_) so the body stays scannable.
+    return pretty.replace(/("[\w\-.]+":\s*)"([a-zA-Z0-9_\-.]{40,})"/g, (_m, key, val) =>
+      `${key}"${val.slice(0, 32)}…"`)
+  } catch {
+    return body.length > 200 ? `${body.slice(0, 200)}…` : body
+  }
+}
+
+// Canonical ordering for the AAuth-relevant request headers we know about.
+// Anything not in this list is appended after, in insertion order.
+const REQUEST_HEADER_ORDER = [
+  'content-type',
+  'content-length',
+  'content-digest',
+  'prefer',
+  'authorization',
+  'aauth-capabilities',
+  'aauth-mission',
+  'signature-input',
+  'signature',
+  'signature-key',
+]
+
+function renderRequestHeaders(
+  method: string,
+  url: string,
+  headers: Record<string, string> | undefined,
+  body?: string,
+): string[] {
   const u = new URL(url)
   const path = u.pathname + u.search
-  const components = hasBody
-    ? '("@method" "@authority" "@path" "content-digest" "signature-key")'
-    : '("@method" "@authority" "@path" "signature-key")'
-  const created = Math.floor(Date.now() / 1000)
   const lines: string[] = []
   lines.push(`   ${c.bold(method)} ${path}  HTTP/1.1`)
   lines.push(`   ${c.bold('Host:')} ${u.host}`)
-  if (hasBody) {
-    lines.push(`   ${c.bold('Content-Type:')} application/json`)
-  } else {
-    lines.push(`   ${c.bold('Content-Type:')} application/json`)
+
+  if (!headers) {
+    // Fallback for events without captured headers (shouldn't happen post-Layer-2).
+    lines.push(`   ${c.dim('(signed-request headers not captured for this exchange)')}`)
+    return lines
   }
-  lines.push(`   ${c.bold('Signature-Input:')} sig=${components};created=${created}`)
-  lines.push(`   ${c.bold('Signature:')} sig=:${c.dim('<base64 signature>')}:`)
-  lines.push(`   ${c.bold('Signature-Key:')} sig=jwt;jwt="${c.dim('<JWT — decoded below>')}"`)
+
+  const seen = new Set<string>(['host'])
+  for (const name of REQUEST_HEADER_ORDER) {
+    const value = headers[name]
+    if (value === undefined) continue
+    seen.add(name)
+    const display =
+      name === 'signature' ? truncateSig(value)
+      : name === 'signature-key' ? truncateSigKey(value)
+      : value
+    lines.push(`   ${c.bold(headerCase(name) + ':')} ${display}`)
+  }
+  // Trailing pass for any headers we didn't anticipate (HTTP/2 implementations
+  // sometimes add extras like accept-encoding).
+  for (const [k, v] of Object.entries(headers)) {
+    if (seen.has(k)) continue
+    lines.push(`   ${c.bold(headerCase(k) + ':')} ${v}`)
+  }
+  if (body) {
+    lines.push('')
+    const formatted = formatBody(body)
+    lines.push(...formatted.split('\n').map(l => `   ${l}`))
+  }
   return lines
 }
 
 // ── Collected event state ─────────────────────────────────────────────────────
 
-interface Step1Data { url?: string; method?: string; agentToken?: Record<string, unknown> }
-interface Step2Data { status?: number; resourceToken?: Record<string, unknown>; aauthRequirement?: string }
-interface Step3Data { url?: string; status?: number; body?: Record<string, unknown> }
-interface Step4Data { url?: string; status?: number; agentToken?: Record<string, unknown>; aauthRequirement?: string; location?: string }
+interface Step1Data {
+  url?: string
+  method?: string
+  agentToken?: Record<string, unknown>
+  requestHeaders?: Record<string, string>
+}
+interface Step2Data {
+  status?: number
+  resourceToken?: Record<string, unknown>
+  aauthRequirement?: string
+  responseBody?: string
+}
+interface Step3Data {
+  url?: string
+  status?: number
+  body?: Record<string, unknown>
+  requestHeaders?: Record<string, string>
+  responseBody?: string
+}
+interface Step4Data {
+  url?: string
+  status?: number
+  agentToken?: Record<string, unknown>
+  aauthRequirement?: string
+  location?: string
+  requestHeaders?: Record<string, string>
+  requestBody?: string
+  responseBody?: string
+}
 interface Step5UserData { interactionUrl?: string; code?: string; resolvedAt?: number; startedAt?: number }
 interface Step6TokenData { authToken?: Record<string, unknown>; expiresIn?: number }
-interface Step8Data { url?: string; method?: string; authToken?: Record<string, unknown> }
+interface Step8Data {
+  url?: string
+  method?: string
+  authToken?: Record<string, unknown>
+  requestHeaders?: Record<string, string>
+}
 interface Step9Data { status?: number }
 
 interface FlowState {
@@ -329,18 +355,23 @@ function newState(): FlowState {
 
 // ── Render the flow ───────────────────────────────────────────────────────────
 
+function pushDescription(out: string[], step: string, phase: 'start' | 'done' | 'info', status?: number): void {
+  const text = describe(step, phase, status)
+  if (text) {
+    out.push(...wrap(text))
+    out.push('')
+  }
+}
+
 function renderColdFlow(s: FlowState): string {
   const out: string[] = []
 
   // Step 1: AGENT → RESOURCE
   out.push(stepHeader(1, 'AGENT', 'RESOURCE', "sign with agent's key"))
   out.push('')
-  out.push("We sign an HTTP request with the agent's keypair and call the resource. The")
-  out.push('Signature-Key header carries the agent_token so the resource can verify the')
-  out.push("signature against the agent's public key.")
-  out.push('')
+  pushDescription(out, 'signed_request', 'start')
   if (s.step1.url) {
-    out.push(...renderRequestHeaders(s.step1.method ?? 'GET', s.step1.url, false))
+    out.push(...renderRequestHeaders(s.step1.method ?? 'GET', s.step1.url, s.step1.requestHeaders))
     out.push('')
     out.push(renderJwtBlock('agent_token (decoded JWT in Signature-Key)', s.step1.agentToken))
   }
@@ -348,10 +379,7 @@ function renderColdFlow(s: FlowState): string {
   // Step 2: RESOURCE → AGENT (401 + resource_token)
   out.push(stepHeader(2, 'RESOURCE', 'AGENT', '401 with capability'))
   out.push('')
-  out.push('The resource verified the signature, but the agent isn\'t carrying an')
-  out.push('auth_token for this call. It mints a resource_token bound to the agent\'s')
-  out.push("public-key thumbprint and tells us to exchange it at the PS.")
-  out.push('')
+  pushDescription(out, 'signed_request', 'done', 401)
   out.push(statusLine(s.step2.status ?? 401))
   out.push(`   ${c.bold('Content-Type:')} application/json`)
   if (s.step2.aauthRequirement) {
@@ -363,9 +391,7 @@ function renderColdFlow(s: FlowState): string {
   // Step 3: AGENT → PS (discovery)
   out.push(stepHeader(3, 'AGENT', 'PERSON SERVER', 'discover token endpoint'))
   out.push('')
-  out.push("We fetch the PS's well-known metadata to find the token endpoint we'll POST")
-  out.push("the resource_token to.")
-  out.push('')
+  pushDescription(out, 'ps_metadata_request', 'start')
   if (s.step3.url) {
     const u = new URL(s.step3.url)
     out.push(`   ${c.bold('GET')} ${u.pathname}  HTTP/1.1`)
@@ -383,24 +409,18 @@ function renderColdFlow(s: FlowState): string {
   // Step 4: AGENT → PS (token exchange)
   out.push(stepHeader(4, 'AGENT', 'PERSON SERVER', 'exchange resource_token'))
   out.push('')
-  out.push('We POST the resource_token to the token endpoint we just discovered, signed')
-  out.push('with the same agent key as Step 1.')
-  out.push('')
+  pushDescription(out, 'ps_token_request', 'start')
   if (s.step4.url) {
-    out.push(...renderRequestHeaders('POST', s.step4.url, true))
+    out.push(...renderRequestHeaders('POST', s.step4.url, s.step4.requestHeaders, s.step4.requestBody))
     out.push('')
-    out.push(`   ${c.dim('{ resource_token: "…", capabilities: ["interaction"]' + (s.step4.url ? '' : '') + ' }')}`)
-    out.push('')
+    out.push(renderJwtBlock('agent_token (decoded JWT in Signature-Key)', s.step4.agentToken ?? s.step1.agentToken))
   }
 
   if (s.consentRequired) {
     // Step 5: PS → AGENT (202 consent required)
     out.push(stepHeader(5, 'PERSON SERVER', 'AGENT', '202, consent required'))
     out.push('')
-    out.push('The PS recognised the agent and the resource_token, but the user has not yet')
-    out.push('consented to this agent acting on their behalf. It deferred — returning a URL')
-    out.push("and a short code the user must approve, plus a Location to long-poll.")
-    out.push('')
+    pushDescription(out, 'ps_token_request', 'done', 202)
     out.push(statusLine(202))
     out.push(`   ${c.bold('Content-Type:')} application/json; charset=utf-8`)
     if (s.step4.aauthRequirement) {
@@ -414,10 +434,7 @@ function renderColdFlow(s: FlowState): string {
     // Step 6: USER → PS (approve in browser)
     out.push(stepHeader(6, 'user', 'PERSON SERVER', 'approve in browser'))
     out.push('')
-    out.push('The user opens the consent screen, signs in to the Person Server, sees what')
-    out.push('scopes this agent is requesting, and approves. AAuth\'s consent always')
-    out.push('happens at the user\'s PS — never at the resource and never at the agent.')
-    out.push('')
+    pushDescription(out, 'consent_prompt', 'info')
     if (s.step5.interactionUrl) {
       out.push(`   ${c.bold('→ Open')}  ${s.step5.interactionUrl}`)
     }
@@ -434,30 +451,22 @@ function renderColdFlow(s: FlowState): string {
     // Step 7: PS → AGENT (auth_token issued)
     out.push(stepHeader(7, 'PERSON SERVER', 'AGENT', 'issues auth_token'))
     out.push('')
-    out.push('The long-poll from Step 6 resolves with the auth_token. It\'s bound to the')
-    out.push('agent\'s key, scoped only to what the user granted, and carries identity')
-    out.push('claims released by the openid + profile scopes (if requested).')
-    out.push('')
+    pushDescription(out, 'auth_token_received', 'info')
     out.push(statusLine(200))
     out.push(`   ${c.bold('Content-Type:')} application/json`)
     out.push('')
     out.push(renderJwtBlock('auth_token (decoded)', s.step6.authToken, {
-      cnf: 'same key as Step 1',
       scope: 'identity scopes consumed as claims',
     }))
   } else {
     // Warm path: PS returns 200 directly with auth_token
     out.push(stepHeader(5, 'PERSON SERVER', 'AGENT', '200 with auth_token'))
     out.push('')
-    out.push('The PS recognised the agent and saw that the user has already consented to')
-    out.push('this agent + scope combination. It issued an auth_token directly — no 202,')
-    out.push('no consent screen, no long-poll.')
-    out.push('')
+    pushDescription(out, 'ps_token_request', 'done', 200)
     out.push(statusLine(200))
     out.push(`   ${c.bold('Content-Type:')} application/json`)
     out.push('')
     out.push(renderJwtBlock('auth_token (decoded)', s.step6.authToken, {
-      cnf: 'same key as Step 1',
       scope: 'identity scopes consumed as claims',
     }))
   }
@@ -466,12 +475,11 @@ function renderColdFlow(s: FlowState): string {
   const retryStepNum = s.consentRequired ? 8 : 6
   out.push(stepHeader(retryStepNum, 'AGENT', 'RESOURCE', 'retry with auth_token'))
   out.push('')
-  out.push('Same signature scheme as Step 1, but the Signature-Key now carries the')
-  out.push('auth_token instead of the agent_token.')
-  out.push('')
+  pushDescription(out, 'retry_with_auth_token', 'start')
   if (s.step8.url) {
-    out.push(...renderRequestHeaders(s.step8.method ?? 'GET', s.step8.url, false))
-    out.push(`   ${c.dim('  ← the auth_token from the previous step')}`)
+    out.push(...renderRequestHeaders(s.step8.method ?? 'GET', s.step8.url, s.step8.requestHeaders))
+    out.push('')
+    out.push(renderJwtBlock('auth_token (decoded JWT in Signature-Key)', s.step8.authToken ?? s.step6.authToken))
     out.push('')
   }
 
@@ -479,10 +487,7 @@ function renderColdFlow(s: FlowState): string {
   const finalStepNum = s.consentRequired ? 9 : 7
   out.push(stepHeader(finalStepNum, 'RESOURCE', 'AGENT', '200 with data'))
   out.push('')
-  out.push("The resource verifies the HTTP signature against the auth_token's cnf.jwk,")
-  out.push("confirms the PS issued the token (using a cached copy of the PS's JWKS),")
-  out.push('checks the scope covers this endpoint, and returns the data.')
-  out.push('')
+  pushDescription(out, 'retry_with_auth_token', 'done', 200)
   out.push(statusLine(s.step9.status ?? 200))
   out.push(`   ${c.bold('Content-Type:')} application/json`)
   out.push('')
@@ -510,7 +515,9 @@ function renderCloser(consentRequired: boolean): string {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-const narrations: Record<string, (e: AAuthEvent) => string | undefined> = {
+type EventDescriber = (e: AAuthEvent) => string | undefined
+
+const narrations: Record<string, EventDescriber> = {
   signed_request: (e) => e.phase === 'start'
     ? `Agent → Resource: ${e.method ?? 'GET'} ${e.url} (HTTP-signed)`
     : `Resource responded ${e.status}`,
@@ -531,10 +538,68 @@ const narrations: Record<string, (e: AAuthEvent) => string | undefined> = {
     : `Resource responded ${e.status}`,
 }
 
+// Long-form per-step prose explaining what's happening at the protocol level.
+// Single source of truth for both --log (pretty CLI rendering) and --jsonl
+// (machine-readable events). Each function returns a paragraph (no embedded
+// newlines); the CLI word-wraps for terminal display, JSON consumers can
+// reflow as they see fit. Disambiguated by phase/status when one step has
+// multiple narrative outcomes (e.g., ps_token_request:done is 200 for warm
+// path, 202 for cold).
+const descriptions: Record<string, EventDescriber> = {
+  signed_request: (e) => e.phase === 'start'
+    ? "We sign an HTTP request with the agent's keypair and call the resource. The Signature-Key header carries the agent_token so the resource can verify the signature against the agent's public key."
+    : e.status === 401
+      ? "The resource verified the signature, but the agent isn't carrying an auth_token for this call. It mints a resource_token bound to the agent's public-key thumbprint and tells us to exchange it at the Person Server."
+      : undefined,
+  ps_metadata_request: (e) => e.phase === 'start'
+    ? "We fetch the Person Server's well-known metadata to find the token endpoint we'll POST the resource_token to."
+    : undefined,
+  ps_token_request: (e) => e.phase === 'start'
+    ? 'We POST the resource_token to the token endpoint we just discovered, signed with the same agent key as the initial call.'
+    : e.status === 202
+      ? "The PS recognised the agent and the resource_token, but the user has not yet consented to this agent acting on their behalf. It deferred — returning a URL and a short code the user must approve, plus a Location to long-poll."
+      : e.status === 200
+        ? "The PS recognised the agent and saw that the user has already consented to this agent + scope combination. It issued an auth_token directly — no 202, no consent screen, no long-poll."
+        : undefined,
+  consent_prompt: () =>
+    "The user opens the consent screen, signs in to the Person Server, sees what scopes this agent is requesting, and approves. AAuth's consent always happens at the user's PS — never at the resource and never at the agent.",
+  auth_token_received: () =>
+    "The PS issued an auth_token. It's bound to the agent's key, scoped only to what the user granted, and carries identity claims released by the openid + profile scopes (if requested).",
+  retry_with_auth_token: (e) => e.phase === 'start'
+    ? 'Same signature scheme as the initial call, but the Signature-Key now carries the auth_token instead of the agent_token.'
+    : e.status === 200
+      ? "The resource verifies the HTTP signature against the auth_token's cnf.jwk, confirms the PS issued the token (using a cached copy of the PS's JWKS), checks the scope covers this endpoint, and returns the data."
+      : undefined,
+}
+
 function formatNdjson(event: AAuthEvent): string {
   const narration = narrations[event.step]?.(event)
-  const line = narration ? { ...event, narration } : event
+  const description = descriptions[event.step]?.(event)
+  const line: Record<string, unknown> = { ...event }
+  if (narration) line.narration = narration
+  if (description) line.description = description
   return JSON.stringify(line) + '\n'
+}
+
+// Word-wrap a paragraph at `width` columns for terminal rendering.
+function wrap(text: string, width = 78): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let cur = ''
+  for (const w of words) {
+    if (cur.length === 0) cur = w
+    else if (cur.length + 1 + w.length <= width) cur += ' ' + w
+    else { lines.push(cur); cur = w }
+  }
+  if (cur) lines.push(cur)
+  return lines
+}
+
+// Look up a description for a synthetic event shape — used by the CLI
+// pretty-printer so both --log and --jsonl read from the same map.
+function describe(step: string, phase: 'start' | 'done' | 'info', status?: number): string | undefined {
+  const e: AAuthEvent = { step, phase, ...(status !== undefined ? { status } : {}) }
+  return descriptions[step]?.(e)
 }
 
 export interface LogHandle {
@@ -542,24 +607,25 @@ export interface LogHandle {
   finish: () => void
 }
 
+export type LogMode = 'pretty' | 'jsonl'
+
 /**
  * Build a stream-aware fetch event handler.
  *
- * TTY mode: collects events, renders TL;DR + Already-set-up (if marker stale)
- * or condensed flow (if marker fresh) at first event, then renders 7/9-step
- * cards + closer at finish().
- *
- * Piped mode: emits NDJSON one line per event (current behavior preserved).
+ * mode='pretty':  collects events, renders the human-readable step cards
+ *                 (Already-set-up + This-call + numbered steps + closer)
+ * mode='jsonl':   emits each event as one JSON object per line on stderr.
+ *                 Each line carries `narration` (short) and `description`
+ *                 (paragraph) fields so machine + AI consumers get the
+ *                 same prose --log shows.
  */
 export function buildLogEmitter(
-  enabled: boolean,
+  mode: LogMode | undefined,
   context: { url?: string; agentUrl?: string; personServer?: string } = {},
 ): LogHandle | undefined {
-  if (!enabled) return undefined
+  if (!mode) return undefined
 
-  const pretty = IS_TTY
-
-  if (!pretty) {
+  if (mode === 'jsonl') {
     return {
       onEvent: (event: AAuthEvent) => process.stderr.write(formatNdjson(event)),
       finish: () => {},
@@ -573,12 +639,7 @@ export function buildLogEmitter(
   function printPreamble() {
     if (preamblePrinted) return
     preamblePrinted = true
-    if (isMarkerFresh()) {
-      process.stderr.write(renderCondensedFlow())
-    } else {
-      process.stderr.write(renderTldr())
-      process.stderr.write(renderAlreadySetUp(context.agentUrl))
-    }
+    process.stderr.write(renderAlreadySetUp(context.agentUrl))
     if (context.url) {
       process.stderr.write(renderThisCall(context.url, context.agentUrl, context.personServer))
     }
@@ -594,9 +655,14 @@ export function buildLogEmitter(
           state.step1.agentToken = event.agent_token as Record<string, unknown> | undefined
         } else if (event.phase === 'done') {
           state.step2.status = event.status as number | undefined
-          const headers = (event.response as Record<string, unknown> | undefined)?.headers as Record<string, string> | undefined
+          state.step1.requestHeaders = event.request_headers as Record<string, string> | undefined
+          const response = event.response as Record<string, unknown> | undefined
+          const headers = response?.headers as Record<string, string> | undefined
           if (headers) {
             state.step2.aauthRequirement = headers['aauth-requirement']
+          }
+          if (typeof response?.body === 'string') {
+            state.step2.responseBody = response.body
           }
         }
         break
@@ -608,6 +674,11 @@ export function buildLogEmitter(
           state.step3.url = event.url as string | undefined
         } else if (event.phase === 'done') {
           state.step3.status = event.status as number | undefined
+          state.step3.requestHeaders = event.request_headers as Record<string, string> | undefined
+          const response = event.response as Record<string, unknown> | undefined
+          if (typeof response?.body === 'string') {
+            try { state.step3.body = JSON.parse(response.body) } catch { state.step3.responseBody = response.body }
+          }
         }
         break
       case 'ps_token_request':
@@ -616,10 +687,16 @@ export function buildLogEmitter(
           state.step4.agentToken = event.agent_token as Record<string, unknown> | undefined
         } else if (event.phase === 'done') {
           state.step4.status = event.status as number | undefined
-          const headers = (event.response as Record<string, unknown> | undefined)?.headers as Record<string, string> | undefined
+          state.step4.requestHeaders = event.request_headers as Record<string, string> | undefined
+          state.step4.requestBody = event.request_body as string | undefined
+          const response = event.response as Record<string, unknown> | undefined
+          const headers = response?.headers as Record<string, string> | undefined
           if (headers) {
             state.step4.aauthRequirement = headers['aauth-requirement']
             state.step4.location = headers['location']
+          }
+          if (typeof response?.body === 'string') {
+            state.step4.responseBody = response.body
           }
         }
         break
@@ -645,6 +722,7 @@ export function buildLogEmitter(
           state.step8.authToken = event.auth_token as Record<string, unknown> | undefined
         } else if (event.phase === 'done') {
           state.step9.status = event.status as number | undefined
+          state.step8.requestHeaders = event.request_headers as Record<string, string> | undefined
         }
         break
     }
@@ -664,5 +742,5 @@ export function buildLogEmitter(
 
 export function logEvent(enabled: boolean, event: AAuthEvent): void {
   if (!enabled) return
-  buildLogEmitter(true)?.onEvent(event)
+  buildLogEmitter('jsonl')?.onEvent(event)
 }
