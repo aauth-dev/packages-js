@@ -1,0 +1,66 @@
+import { describe, it, expect } from 'vitest'
+import type { BackendInfo } from '@aauth/local-keys'
+import {
+  shapeKeystores,
+  renderSkillListMarkdown,
+  topLevelHelp,
+  COMMAND_HELP,
+} from './render.js'
+import type { SkillSummary } from './skills.js'
+
+describe('shapeKeystores', () => {
+  it('maps BackendInfo to the keystore output shape', () => {
+    const backends: BackendInfo[] = [
+      { backend: 'software', description: 'OS keychain', algorithms: ['EdDSA', 'ES256'], deviceId: 'local' },
+      { backend: 'secure-enclave', description: 'macOS Secure Enclave', algorithms: ['ES256'], deviceId: 'local' },
+    ]
+    expect(shapeKeystores(backends)).toEqual([
+      { keystore: 'software', description: 'OS keychain', algorithms: ['EdDSA', 'ES256'] },
+      { keystore: 'secure-enclave', description: 'macOS Secure Enclave', algorithms: ['ES256'] },
+    ])
+  })
+
+  it('returns an empty array for no backends', () => {
+    expect(shapeKeystores([])).toEqual([])
+  })
+})
+
+describe('renderSkillListMarkdown', () => {
+  const skills: SkillSummary[] = [
+    { name: 'setup', description: 'Set up an agent identity', when: '' },
+    { name: 'github-pages', description: 'Publish to GitHub Pages', when: '' },
+  ]
+
+  it('renders a markdown title and a ## heading per skill (not bold, not JSON)', () => {
+    const md = renderSkillListMarkdown(skills)
+    expect(md).toContain('# AAuth bootstrap skills')
+    expect(md).toContain('## setup')
+    expect(md).toContain('Set up an agent identity')
+    expect(md).toContain('## github-pages')
+    expect(md).not.toContain('**setup**')
+    expect(md.trimStart().startsWith('[')).toBe(false) // not a JSON array
+  })
+
+  it('points at `skill <name>`', () => {
+    expect(renderSkillListMarkdown(skills)).toContain('skill <name>')
+  })
+})
+
+describe('help text', () => {
+  it('top-level help shows the version and the v1 commands', () => {
+    const help = topLevelHelp('1.2.3')
+    expect(help).toContain('v1.2.3')
+    for (const cmd of ['list', 'create', 'delete', 'token', 'skill', 'help']) {
+      expect(help).toContain(cmd)
+    }
+    // GLOBAL section was dropped; --version/--help are silent aliases.
+    expect(help).not.toContain('GLOBAL')
+  })
+
+  it('has per-command help for every v1 command', () => {
+    for (const cmd of ['list', 'create', 'delete', 'token', 'skill', 'help']) {
+      expect(COMMAND_HELP[cmd]).toBeTruthy()
+      expect(COMMAND_HELP[cmd]).toContain('DESCRIPTION')
+    }
+  })
+})

@@ -67,9 +67,9 @@ export function resolvePersonServer(agentUrl: string | undefined, override: stri
   if (override) return override
   if (!agentUrl) {
     const config = readConfig()
-    const agents = Object.entries(config.agents)
-    if (agents.length === 1) {
-      return agents[0][1].personServerUrl
+    const providers = Object.entries(config.agentProviders)
+    if (providers.length === 1) {
+      return providers[0][1].personServerUrl
     }
     return undefined
   }

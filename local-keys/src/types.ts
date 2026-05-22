@@ -28,6 +28,24 @@ export interface KeyBackendDriver {
   getPublicKey(keyId: string): Promise<JWK>
   /** Auto-derived device label for this backend */
   getDeviceLabel(): string
+  /**
+   * Permanently remove a key from this keystore.
+   * Backends that cannot delete programmatically (e.g. YubiKey PIV today)
+   * throw a {@link KeyDeletionUnsupportedError} so callers can report the
+   * manual step instead.
+   */
+  deleteKey?(keyId: string): Promise<void>
+}
+
+/**
+ * Thrown by a backend's `deleteKey` when the keystore can't remove a key
+ * programmatically. Carries a hint with the manual command to run.
+ */
+export class KeyDeletionUnsupportedError extends Error {
+  constructor(public readonly hint: string) {
+    super(hint)
+    this.name = 'KeyDeletionUnsupportedError'
+  }
 }
 
 // === Public JWK with AAuth metadata ===
@@ -82,7 +100,8 @@ export interface AgentConfig {
 }
 
 export interface AAuthConfig {
-  agents: Record<string, AgentConfig>  // agent URL → agent config
+  /** agent provider URL → its config. (Renamed from `agents` in v1.) */
+  agentProviders: Record<string, AgentConfig>
 }
 
 // === Keychain Types (existing, for software backend) ===

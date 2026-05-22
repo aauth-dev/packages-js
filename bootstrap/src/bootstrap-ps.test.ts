@@ -33,7 +33,7 @@ describe('bootstrapWithPS', () => {
   })
 
   beforeEach(() => {
-    writeConfig({ agents: {} })
+    writeConfig({ agentProviders: {} })
     mockFetch = vi.fn()
     vi.stubGlobal('fetch', mockFetch)
   })
@@ -70,7 +70,7 @@ describe('bootstrapWithPS', () => {
 
   it('preserves existing key entries when writing the agent config', async () => {
     writeConfig({
-      agents: {
+      agentProviders: {
         [AGENT_URL]: {
           keys: {
             'kid-123': {

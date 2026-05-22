@@ -20,7 +20,7 @@ describe('Agent Token with YubiKey PIV', () => {
     'signs and verifies agent token with YubiKey slot 9e',
     async () => {
       // Register YubiKey key for agent
-      writeConfig({ agents: {} })
+      writeConfig({ agentProviders: {} })
       addKeyToAgent(AGENT_URL, 'yk-test', {
         backend: 'yubikey-piv',
         algorithm: 'ES256',
@@ -60,7 +60,7 @@ describe('Agent Token with YubiKey PIV', () => {
   it.skipIf(!ykAvailable)(
     'includes person server URL as ps claim',
     async () => {
-      writeConfig({ agents: {} })
+      writeConfig({ agentProviders: {} })
       addKeyToAgent(AGENT_URL, 'yk-test', {
         backend: 'yubikey-piv',
         algorithm: 'ES256',
@@ -112,7 +112,7 @@ describe('Agent Token with Secure Enclave', () => {
       const key = await seBackend.generateKey('ES256')
       seKeyId = key.keyId
 
-      writeConfig({ agents: {} })
+      writeConfig({ agentProviders: {} })
       addKeyToAgent(AGENT_URL, 'se-test', {
         backend: 'secure-enclave',
         algorithm: 'ES256',
@@ -150,7 +150,7 @@ describe('Agent Token fallback', () => {
   it('signs with any available hardware key when no config', async () => {
     // With key resolution, if a hardware key is available it will be used
     // even without explicit config. This tests that behavior.
-    writeConfig({ agents: {} })
+    writeConfig({ agentProviders: {} })
     const backends = discoverBackends()
     const hasHardware = backends.some(
       (b) => b.backend === 'yubikey-piv' || b.backend === 'secure-enclave',

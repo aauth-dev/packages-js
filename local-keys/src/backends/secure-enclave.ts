@@ -144,4 +144,9 @@ export const secureEnclaveBackend: KeyBackendDriver = {
   getDeviceLabel(): string {
     return machineLabel()
   },
+
+  async deleteKey(keyId: string): Promise<void> {
+    // se-helper's `delete <label>` removes the key via SecItemDelete.
+    callHelper('delete', keyId)
+  },
 }

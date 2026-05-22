@@ -5,7 +5,8 @@ import {
   getAgentConfig,
   addKeyToAgent,
   setPersonServer,
-  listConfiguredAgents,
+  listAgentProviders,
+  deleteAgentProvider,
 } from '../config.js'
 
 describe('Config', () => {
@@ -16,13 +17,13 @@ describe('Config', () => {
   })
 
   it('reads empty config when none exists', () => {
-    writeConfig({ agents: {} })
+    writeConfig({ agentProviders: {} })
     const config = readConfig()
-    expect(config.agents).toEqual({})
+    expect(config.agentProviders).toEqual({})
   })
 
   it('stores and retrieves agent config', () => {
-    writeConfig({ agents: {} })
+    writeConfig({ agentProviders: {} })
     addKeyToAgent('https://test.example', '2026-04-09_a3f', {
       backend: 'yubikey-piv',
       algorithm: 'ES256',
@@ -38,7 +39,7 @@ describe('Config', () => {
   })
 
   it('sets person server URL', () => {
-    writeConfig({ agents: {} })
+    writeConfig({ agentProviders: {} })
     setPersonServer('https://test.example', 'https://person.example')
 
     const ac = getAgentConfig('https://test.example')
@@ -46,7 +47,7 @@ describe('Config', () => {
   })
 
   it('supports multiple agents', () => {
-    writeConfig({ agents: {} })
+    writeConfig({ agentProviders: {} })
     addKeyToAgent('https://personal.example', 'kid1', {
       backend: 'secure-enclave',
       algorithm: 'ES256',
@@ -60,13 +61,13 @@ describe('Config', () => {
       deviceLabel: 'yubikey-5c-0775',
     })
 
-    const agents = listConfiguredAgents()
+    const agents = listAgentProviders()
     expect(agents).toContain('https://personal.example')
     expect(agents).toContain('https://work.example')
   })
 
   it('supports multiple keys per agent', () => {
-    writeConfig({ agents: {} })
+    writeConfig({ agentProviders: {} })
     addKeyToAgent('https://test.example', 'kid-yk', {
       backend: 'yubikey-piv',
       algorithm: 'ES256',
@@ -84,5 +85,38 @@ describe('Config', () => {
     expect(Object.keys(ac!.keys)).toHaveLength(2)
     expect(ac!.keys['kid-yk'].backend).toBe('yubikey-piv')
     expect(ac!.keys['kid-se'].backend).toBe('secure-enclave')
+  })
+
+  it('deletes an agent provider', () => {
+    writeConfig({ agentProviders: {} })
+    addKeyToAgent('https://gone.example', 'kid1', {
+      backend: 'software',
+      algorithm: 'EdDSA',
+      keyId: 'kid1',
+      deviceLabel: 'macbook-pro',
+    })
+    expect(getAgentConfig('https://gone.example')).not.toBeNull()
+
+    const removed = deleteAgentProvider('https://gone.example')
+    expect(removed).toBe(true)
+    expect(getAgentConfig('https://gone.example')).toBeNull()
+    expect(listAgentProviders()).not.toContain('https://gone.example')
+  })
+
+  it('deleteAgentProvider returns false for a missing provider', () => {
+    writeConfig({ agentProviders: {} })
+    expect(deleteAgentProvider('https://nope.example')).toBe(false)
+  })
+
+  it('ignores a legacy `agents` key (no back-compat)', () => {
+    // v0 used `agents`; v1 reads only `agentProviders`. A stale `agents` key is
+    // dropped, not migrated.
+    writeConfig({ agentProviders: {} })
+    addKeyToAgent('https://kept.example', 'kid1', {
+      backend: 'software', algorithm: 'EdDSA', keyId: 'kid1', deviceLabel: 'm',
+    })
+    const config = readConfig()
+    expect(config.agentProviders['https://kept.example']).toBeDefined()
+    expect((config as Record<string, unknown>).agents).toBeUndefined()
   })
 })
