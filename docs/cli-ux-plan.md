@@ -1,529 +1,249 @@
+# Questions
+
+Review starts here.
+
+1. **Command name — `list` (vs `show` / `config`).** Leaning **`list`**, flagged for review. `show` — barely used by anyone. `config` — git/npm use it, but for value get/**set**; ours is read-only, and a get/set config API is overkill for our ~1 setting (the current agent provider — see Q3). `list` — best CRUD fit (create/list/update/delete) and widely used (`gh ... list`, `docker ls`, `kubectl get`). `read` would be CRUD-correct but no CLI uses it (sounds weird). Confirm `list`?
+2. **`sign-token` → `token`?** Suggestion: rename to **`token`** — it prints an agent token, exactly like **`gh auth token`** prints the auth token. It's nearly zero-arg (agent provider + agent-id default from config). Keep, rename, or drop entirely (since `fetch` mints its own token internally)? It earns its place only as "give me a token to use elsewhere (curl/debug)."
+3. **Should `create` bundle everything, or split?** `create` does three things in one step: registers the agent provider, generates a signing key, and binds a person server. Keep it as one-step setup (convenience, like `gh repo create` wiring everything), or split into separate orthogonal commands (e.g. bring back a `generate` for keys)? Related: `generate` is dropped for v1 (create mints the first key); multi-key/rotation is deferred — when added, fold into `update` (`--rotate-key`) or a dedicated key verb / `key` sub-group (à la `gh ssh-key add`).
+4. **Multiple agent providers / a `current` marker.** Sole agent provider auto-defaults. For multiple: adopt a `current`/default agent provider (kubectl current-context, aws default profile, git `origin`), used when `--agent-provider` is omitted and switchable (e.g. a `use <url>` command)? Newest `create` auto-becomes current?
+5. **Do we need `--quiet`?** Output is always JSON on stdout, errors on stderr — is there any silent/quiet need at all, or is `--quiet` unnecessary for this package?
+6. **Single-letter flags — add them, and when?** All dropped for now (long-form only: `--help`, `--version`, `--person-server`). Add shorts later, or now? (Strict-Unix shorts are single-char `-p`, not `-ps`.)
+7. **Breaking changes — all OK?** No one is using this yet, so presumably yes — confirm we're fine with: config key `agents` → `agentProviders`; `show` → `list`; `add-agent`/`remove-agent` → `create`/`delete`; dropping `discover`/`public-key`/`generate` (folded into `create`)/`--verbose`/`--jsonl`; `--agent` → `--agent-provider`; default output text → JSON.
+
 # Contents
 
-- [`npx @aauth/bootstrap`](#npx-aauthbootstrap) — top-level help
-  - [`npx @aauth/bootstrap help`](#npx-aauthbootstrap)
-  - [`npx @aauth/bootstrap --help`](#npx-aauthbootstrap)
-  - [`npx @aauth/bootstrap -h`](#npx-aauthbootstrap)
-- [`npx @aauth/bootstrap show`](#npx-aauthbootstrap-show) — status: agents, keys, backends
-- [`npx @aauth/bootstrap generate`](#npx-aauthbootstrap-generate) — generate a signing key
-- [`npx @aauth/bootstrap sign-token`](#npx-aauthbootstrap-sign-token) — sign a one-off agent token
-- [`npx @aauth/bootstrap public-key`](#npx-aauthbootstrap-public-key) — print public key(s)
-- [`npx @aauth/bootstrap add-agent`](#npx-aauthbootstrap-add-agent) — register an agent URL
-- [`npx @aauth/bootstrap remove-agent`](#npx-aauthbootstrap-remove-agent) — remove an agent
-- [`npx @aauth/bootstrap skill`](#npx-aauthbootstrap-skill) — agent-readable guide
+- [`npx @aauth/bootstrap`](#npx-aauthbootstrap) — top-level help (also `help`, `--help`)
+- [`list`](#npx-aauthbootstrap-list) — list agent providers, keys, keystores
+- [`create`](#npx-aauthbootstrap-create) `<agent-provider-url> [--keystore <name>] [--algorithm <alg>] [--person-server <url>]` — register an agent provider
+- [`update`](#npx-aauthbootstrap-update) `<agent-provider-url> [--person-server <url>]` — update an agent provider
+- [`delete`](#npx-aauthbootstrap-delete) `<agent-provider-url>` — delete an agent provider and its keys
+- [`sign-token`](#npx-aauthbootstrap-sign-token) `[--agent-provider <url>] [--lifetime <s>]` — sign an agent token
+- [`skill`](#npx-aauthbootstrap-skill) `[name]` — agent setup guides
+- [`help`](#npx-aauthbootstrap) `[command]` — help
 
 # `npx @aauth/bootstrap`
 
-### Prints top-level help and lists commands.
-
-## Aliases
-- `npx @aauth/bootstrap help`
-- `npx @aauth/bootstrap --help`
-- `npx @aauth/bootstrap -h`
-
-## Output
-
-### Default
 ```text
-Set up an AAuth agent identity — keys, person server, hosting.
+AAuth bootstrap vX.Y.Z — set up an agent provider identity for AAuth.
+
+Agents: run `npx @aauth/bootstrap skill setup` for end-to-end setup.
 
 USAGE
-  npx @aauth/bootstrap <command> [options]
+  npx @aauth/bootstrap <command> [flags]
 
 COMMANDS
-  show          Show configured agents, keys, and available backends
-  generate      Generate a signing key
-  sign-token    Sign a one-off agent token
-  public-key    Print public key(s)
-  add-agent     Register an agent URL
-  remove-agent  Remove an agent from config
-  skill         Print agent-readable usage guide
-  help          Show help for a command
+  skill [name]                          Agent setup guides — start here:
+      setup             Set up an agent identity end-to-end
+      github-pages      Publish to GitHub Pages
+      gitlab-pages      Publish to GitLab Pages
+      cloudflare-pages  Publish to Cloudflare Pages
+      netlify           Publish to Netlify
+  list                                  List agent providers, keys, and keystores
+  create <agent-provider-url> [--keystore <name>] [--algorithm <alg>] [--person-server <url>]
+                                        Register an agent provider (generates its first key, binds a person server)
+  update <agent-provider-url> [--person-server <url>]
+                                        Update an agent provider's settings
+  delete <agent-provider-url>           Delete an agent provider and its keys
+  sign-token [--agent-provider <url>] [--lifetime <s>]
+                                        Sign an agent token
+  help [command]                        Show help for a command
 
-GLOBAL OPTIONS
-  -h, --help       Show help
-      --version    Print version
-      --json       Output result as JSON
-  -v, --verbose    Show detailed progress (stderr)
-
-EXAMPLES
-  npx @aauth/bootstrap generate --agent https://me.github.io --ps
-  npx @aauth/bootstrap show
-  npx @aauth/bootstrap help generate
+GLOBAL
+  --help      Show help
+  --version   Print version
 ```
 
-# `npx @aauth/bootstrap show`
+# `npx @aauth/bootstrap list`
 
-### Shows configured agents, keys, and available backends.
-
-## Output
-
-### `--help`/`-h`
 ```text
-Show configured agents, keys, and available backends.
+List configured agent providers, their keys (with public
+JWKs), and the keystores available on this machine.
 
 USAGE
-  npx @aauth/bootstrap show [options]
+  npx @aauth/bootstrap list
 
-OPTIONS
-  -h, --help       Show help
-      --json       Output result as JSON
-  -v, --verbose    Show detailed progress (stderr)
-```
-
-### Default
-```text
-Backends:
-  software        EdDSA, ES256
-  secure-enclave  ES256
-  yubikey-piv     ES256, RS256
-
-Agents:
-  https://me.github.io
-    person-server  person.hello.coop
-    bd3f… [EdDSA] software (this device)  (current)
-
-Next step — make your first authenticated request:
-  npx @aauth/fetch https://whoami.aauth.dev
-```
-
-### `--json`
-```json
-{
-  "backends": [
-    { "backend": "software", "algorithms": ["EdDSA", "ES256"] },
-    { "backend": "secure-enclave", "algorithms": ["ES256"] },
-    { "backend": "yubikey-piv", "algorithms": ["ES256", "RS256"] }
-  ],
-  "agents": [
-    {
-      "url": "https://me.github.io",
-      "personServer": "https://person.hello.coop",
-      "keys": [
-        { "kid": "bd3f…", "alg": "EdDSA", "backend": "software", "device": "this device", "current": true }
-      ]
-    }
-  ]
-}
-```
-
-### `-v`/`--verbose`
-```text
-reading config ~/.aauth/config.json…    ← stderr
-scanning software keychain…             ← stderr
-discovering backends…                   ← stderr
-<default output above, on stdout>
-```
-
-### `--json` `-v`/`--verbose`
-```text
-reading config ~/.aauth/config.json…    ← stderr
-scanning software keychain…             ← stderr
-discovering backends…                   ← stderr
-<json output above, on stdout>
-```
-
-# `npx @aauth/bootstrap generate`
-
-### Generates a signing key for an agent.
-
-## Flags
-- `--backend <name>` — `software` (default), `yubikey-piv`, `secure-enclave`
-- `--algorithm <alg>` — `EdDSA` (default for software), `ES256`, `RS256`
-- `--agent <url>` — associate the key with an agent URL
-- `--ps [url]` — also bind a person server (default: `person.hello.coop`)
-
-## Output
-
-### `--help`/`-h`
-```text
-Generate a signing key for an agent.
-
-USAGE
-  npx @aauth/bootstrap generate [options]
-
-OPTIONS
-  --backend <name>    software (default), yubikey-piv, secure-enclave
-  --algorithm <alg>   EdDSA (default for software), ES256, RS256
-  --agent <url>       Associate the key with an agent URL
-  --ps [url]          Also bind a person server (default: person.hello.coop)
-
-  -h, --help          Show help
-      --json          Output result as JSON
-  -v, --verbose       Show detailed progress (stderr)
-```
-
-### Default
-```text
-Generated EdDSA signing key
-  kid      bd3f9c…
-  backend  software (this device)
-  agent    https://me.github.io
-```
-
-### `--json`
-```json
-{
-  "kid": "bd3f9c…",
-  "publicJwk": {
-    "kty": "OKP",
-    "crv": "Ed25519",
-    "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-    "alg": "EdDSA"
+EXAMPLE
+  $ npx @aauth/bootstrap list
+  {
+    "keystores": [
+      { "keystore": "software", "algorithms": ["EdDSA", "ES256"] },
+      { "keystore": "secure-enclave", "algorithms": ["ES256"] },
+      { "keystore": "yubikey-piv", "algorithms": ["ES256", "RS256"] }
+    ],
+    "agentProviders": [
+      {
+        "url": "https://descartes.github.io",
+        "agentId": "aauth:local@descartes.github.io",
+        "personServer": "https://person.hello.coop",
+        "keys": [
+          {
+            "kid": "bd3f9c…",
+            "current": true,
+            "keystore": "software",
+            "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS…", "alg": "EdDSA" }
+          }
+        ]
+      }
+    ]
   }
-}
 ```
 
-### `-v`/`--verbose`
+# `npx @aauth/bootstrap create`
+
 ```text
-discovering backends… software, secure-enclave      ← stderr
-generating EdDSA key on software…                   ← stderr
-writing private key to keychain (~/.aauth)…         ← stderr
-registering key with agent https://me.github.io…    ← stderr
-<default output above, on stdout>
+Register a new agent provider. One command does the whole setup:
+  - generates a signing key (in the chosen keystore)
+  - binds that key to the agent provider
+  - binds a person server (default: person.hello.coop, unless --person-server)
+Fails if the agent provider already exists (use `update`).
+
+USAGE
+  npx @aauth/bootstrap create <agent-provider-url> [flags]
+
+FLAGS
+  --keystore <name>       Where to create the key: software (default), secure-enclave, yubikey-piv
+  --algorithm <alg>       EdDSA (default for software), ES256, RS256
+  --person-server <url>   Person server to bind (default: person.hello.coop)
+  --jwks-uri <uri>        JWKS URI for the agent provider
+  --hosting <name>        Hosting platform (with --repo <repo>)
+
+EXAMPLE
+  $ npx @aauth/bootstrap create https://descartes.github.io
+  {
+    "agentProvider": "https://descartes.github.io",
+    "agentId": "aauth:local@descartes.github.io",
+    "personServer": "https://person.hello.coop",
+    "keys": [
+      { "kid": "bd3f9c…", "current": true, "keystore": "software" }
+    ]
+  }
 ```
 
-### `--json` `-v`/`--verbose`
+# `npx @aauth/bootstrap update`
+
 ```text
-discovering backends… software, secure-enclave      ← stderr
-generating EdDSA key on software…                   ← stderr
-writing private key to keychain (~/.aauth)…         ← stderr
-registering key with agent https://me.github.io…    ← stderr
-<json output above, on stdout>
+Update an existing agent provider's settings (e.g. its person server).
+Fails if the agent provider doesn't exist (use `create`).
+
+USAGE
+  npx @aauth/bootstrap update <agent-provider-url> [flags]
+
+FLAGS
+  --person-server <url>   Change the bound person server
+
+EXAMPLE
+  $ npx @aauth/bootstrap update https://descartes.github.io --person-server https://person.example
+  {
+    "agentProvider": "https://descartes.github.io",
+    "agentId": "aauth:local@descartes.github.io",
+    "personServer": "https://person.example",
+    "keys": [
+      { "kid": "bd3f9c…", "current": true, "keystore": "software" }
+    ]
+  }
+```
+
+# `npx @aauth/bootstrap delete`
+
+```text
+Delete an agent provider and its keys, including from hardware keystores.
+Removing the keys is the whole point — a config file is easy to edit by hand,
+a hardware key is not. Fails if the agent provider doesn't exist.
+
+USAGE
+  npx @aauth/bootstrap delete <agent-provider-url>
+
+EXAMPLE
+  $ npx @aauth/bootstrap delete https://descartes.github.io
+  {
+    "deleted": "https://descartes.github.io",
+    "keysDeleted": 1
+  }
 ```
 
 # `npx @aauth/bootstrap sign-token`
 
-### Signs a one-off agent token.
-
-## Flags
-- `--agent <url>` — agent URL (required)
-- `--agent-id <id>` — agent identifier (default: from config)
-- `--lifetime <seconds>` — token lifetime (default: 3600)
-
-## Output
-
-### `--help`/`-h`
 ```text
-Sign a one-off agent token.
+Sign an agent token — the credential an agent presents to make authenticated calls.
+With one agent provider configured, takes no flags: the agent provider and its
+agent-id come from config.
 
 USAGE
-  npx @aauth/bootstrap sign-token --agent <url> [options]
+  npx @aauth/bootstrap sign-token [flags]
 
-OPTIONS
-  --agent <url>          Agent URL (required)
-  --agent-id <id>        Agent identifier (default: from config)
-  --lifetime <seconds>   Token lifetime in seconds (default: 3600)
+FLAGS
+  --agent-provider <url>  Pick the agent provider (default: the only / current one in config)
+  --agent-id <id>         Override the agent id (default: the resolved provider's agent)
+  --local <name>          Override just the local-part → aauth:<name>@<host>
+  --lifetime <seconds>    Token lifetime (default: 3600)
 
-  -h, --help             Show help
-      --json             Output result as JSON
-  -v, --verbose          Show detailed progress (stderr)
-```
-
-### Default
-```text
-Signed agent token for https://me.github.io
-  expires  in 1h (2026-05-22 11:30 UTC)
-  token    eyJhbGci…
-```
-
-### `--json`
-```json
-{
-  "signatureKey": {
-    "type": "jwt",
-    "jwt": "eyJhbGci…"
+EXAMPLE
+  $ npx @aauth/bootstrap sign-token
+  {
+    "signatureKey": {
+      "type": "jwt",
+      "jwt": "eyJhbGci…"
+    }
   }
-}
-```
-
-### `-v`/`--verbose`
-```text
-reading config ~/.aauth/config.json…              ← stderr
-resolving signing key for https://me.github.io…   ← stderr
-signing agent token (ttl=3600s)…                  ← stderr
-<default output above, on stdout>
-```
-
-### `--json` `-v`/`--verbose`
-```text
-reading config ~/.aauth/config.json…              ← stderr
-resolving signing key for https://me.github.io…   ← stderr
-signing agent token (ttl=3600s)…                  ← stderr
-<json output above, on stdout>
-```
-
-### error
-```text
-error: --agent is required
-```
-
-# `npx @aauth/bootstrap public-key`
-
-### Prints public key(s).
-
-## Flags
-- `--agent <url>` — print the key for this agent (default: all keys)
-
-## Output
-
-### `--help`/`-h`
-```text
-Print public key(s).
-
-USAGE
-  npx @aauth/bootstrap public-key [options]
-
-OPTIONS
-  --agent <url>   Print the key for this agent (default: all keys)
-
-  -h, --help      Show help
-      --json      Output result as JSON
-  -v, --verbose   Show detailed progress (stderr)
-```
-
-### Default
-```text
-Public key for https://me.github.io
-  kid      bd3f9c…
-  alg      EdDSA
-  backend  software
-```
-
-### `--json`
-```json
-{
-  "kty": "OKP",
-  "crv": "Ed25519",
-  "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-  "kid": "bd3f9c…",
-  "alg": "EdDSA"
-}
-```
-
-### `-v`/`--verbose`
-```text
-resolving key for https://me.github.io…       ← stderr
-reading public key from software backend…     ← stderr
-<default output above, on stdout>
-```
-
-### `--json` `-v`/`--verbose`
-```text
-resolving key for https://me.github.io…       ← stderr
-reading public key from software backend…     ← stderr
-<json output above, on stdout>
-```
-
-# `npx @aauth/bootstrap add-agent`
-
-### Registers an agent URL in config.
-
-## Flags
-- `--jwks-uri <uri>` — JWKS URI for the agent
-- `--hosting <name>` — hosting platform (with `--repo <repo>`)
-- `--kid <kid>` + `--backend <name>` + `--key-id <id>` — attach an existing key (optional `--algorithm`, `--device`)
-
-## Output
-
-### `--help`/`-h`
-```text
-Register an agent URL in config.
-
-USAGE
-  npx @aauth/bootstrap add-agent <url> [options]
-
-OPTIONS
-  --jwks-uri <uri>    JWKS URI for the agent
-  --hosting <name>    Hosting platform (with --repo <repo>)
-  --kid <kid>         Attach an existing key: its key id …
-  --backend <name>    … its backend …
-  --key-id <id>       … and backend-specific key id
-
-  -h, --help          Show help
-      --json          Output result as JSON
-  -v, --verbose       Show detailed progress (stderr)
-```
-
-### Default
-```text
-Registered agent https://me.github.io
-  person-server  (none)
-  keys           (none)
-```
-
-### `--json`
-```json
-{
-  "agentUrl": "https://me.github.io",
-  "config": {
-    "keys": {}
-  }
-}
-```
-
-### `-v`/`--verbose`
-```text
-validating https://me.github.io…        ← stderr
-writing config ~/.aauth/config.json…    ← stderr
-<default output above, on stdout>
-```
-
-### `--json` `-v`/`--verbose`
-```text
-validating https://me.github.io…        ← stderr
-writing config ~/.aauth/config.json…    ← stderr
-<json output above, on stdout>
-```
-
-### error
-```text
-error: invalid agent URL "htps://typo"
-```
-
-# `npx @aauth/bootstrap remove-agent`
-
-### Removes an agent from config.
-
-## Flags
-- `--purge` — also delete the agent's keys (irreversible for hardware backends)
-- `-y`, `--yes` — skip the confirmation prompt (required with `--json` / non-interactive)
-
-## Output
-
-### `--help`/`-h`
-```text
-Remove an agent from config.
-
-USAGE
-  npx @aauth/bootstrap remove-agent <url> [options]
-
-OPTIONS
-  --purge         Also delete the agent's keys (irreversible for hardware keys)
-  -y, --yes       Skip the confirmation prompt
-
-  -h, --help      Show help
-      --json      Output result as JSON
-  -v, --verbose   Show detailed progress (stderr)
-
-List configured agents with: npx @aauth/bootstrap show
-```
-
-### Default
-```text
-Remove agent https://me.github.io and keep its keys? [y/N] y    ← stderr (prompt)
-Removed agent https://me.github.io
-```
-
-### `--json`
-```json
-{
-  "removed": "https://me.github.io",
-  "keysDeleted": 0
-}
-```
-
-### `-v`/`--verbose`
-```text
-reading config ~/.aauth/config.json…      ← stderr
-removing agent https://me.github.io…      ← stderr
-writing config…                           ← stderr
-<default output above, on stdout>
-```
-
-### `--json` `-v`/`--verbose`
-```text
-reading config ~/.aauth/config.json…      ← stderr
-removing agent https://me.github.io…      ← stderr
-writing config…                           ← stderr
-<json output above, on stdout>
-```
-
-### error
-```text
-error: no agent registered for https://unknown.example
 ```
 
 # `npx @aauth/bootstrap skill`
 
-### Prints agent-readable skill guides.
-
-## Output
-
-### `--help`/`-h`
 ```text
-Print agent-readable skill guides.
+Print agent setup guides — how to generate keys and publish your agent identity.
 
 USAGE
   npx @aauth/bootstrap skill [name]
 
-  No name  — list available skills
-  <name>   — print that skill's full instructions (markdown)
+  No name   List available skills
+  <name>    Print that skill's full instructions (markdown, plain text)
 
-OPTIONS
-  -h, --help      Show help
-      --json      Output result as JSON
+SKILLS
+  setup             Set up an agent identity end-to-end
+  github-pages      Publish to GitHub Pages
+  gitlab-pages      Publish to GitLab Pages
+  cloudflare-pages  Publish to Cloudflare Pages
+  netlify           Publish to Netlify
+
+EXAMPLE
+  $ npx @aauth/bootstrap skill
+  [
+    { "name": "setup", "description": "Set up AAuth agent identity — generate signing keys, add keys from new devices, and publish to a hosting platform" },
+    { "name": "github-pages", "description": "Publish AAuth agent metadata and public keys to GitHub Pages (username.github.io)" },
+    { "name": "gitlab-pages", "description": "Publish AAuth agent metadata and public keys to GitLab Pages (username.gitlab.io)" },
+    { "name": "cloudflare-pages", "description": "Publish AAuth agent metadata and public keys to Cloudflare Pages" },
+    { "name": "netlify", "description": "Publish AAuth agent metadata and public keys to Netlify" }
+  ]
 ```
 
-### Default (list)
-```text
-Available skills:
-  bootstrap-agent   Set up an agent identity end-to-end
-  publish-jwks      Publish your JWKS to a hosting platform
-```
-
-### `skill <name>`
-```text
-# Bootstrap an AAuth agent
-
-1. Detect the strongest available key backend…
-2. Generate a signing key…
-3. Bind a person server…
-…(full markdown instructions)
-```
-
-### `--json`
-```json
-[
-  { "name": "bootstrap-agent", "description": "Set up an agent identity end-to-end" },
-  { "name": "publish-jwks", "description": "Publish your JWKS to a hosting platform" }
-]
-```
+`skill <name>` prints that guide's full markdown (plain text — the one non-JSON command output besides help).
 
 # Research
 
 Conventions in this plan follow established CLI practice. Sources referenced:
 
-- [Command Line Interface Guidelines (clig.dev)](https://clig.dev/) — stdout vs stderr split, "show output on success but keep it brief", print help on no args, prefer JSON for machine output.
-- [GitHub CLI — output formatting](https://cli.github.com/manual/gh_help_formatting) — `--json` for machine-readable output; `-h`/`--help` treated identically.
-- [JSON Lines (jsonlines.org)](https://jsonlines.org/) — NDJSON / JSONL is a newline-delimited *stream*, distinct from one JSON document.
-- [HTTPie docs](https://httpie.io/docs/cli) — human-readable/colorized by default at a TTY, machine output when piped.
+- [Command Line Interface Guidelines (clig.dev)](https://clig.dev/) — stdout vs stderr split, print help on no args, machine-readable output.
+- [GitHub CLI — output formatting](https://cli.github.com/manual/gh_help_formatting) — help on bare invocation; `gh auth token` precedent for a token-printing command.
+- [JSON Lines (jsonlines.org)](https://jsonlines.org/) — NDJSON is a *stream*, distinct from one JSON document.
 
-Verified firsthand by running the tools: **npm, docker, gh, aws, curl, kubectl, ssh** — default-vs-`--json` output, `-v`/`--verbose` and `-q`/`--quiet` conventions, and single-dash (`-h`) vs double-dash (`--help`) flag forms.
+Verified firsthand by running the tools: **npm, docker, gh, aws, kubectl, ssh** — bare-invocation behavior, `--json`/`--output` conventions, and CRUD verb naming.
+
+## Agent-first: JSON by default
+
+Output is **pretty-printed JSON by default** — no `--json` flag. These tools are built to be driven by agents (agent-first, the way "mobile-first" reframed web design), so structured output is the primary case. Pretty-printing keeps it readable for the occasional human too, and `jq` consumes pretty JSON fine.
+
+This is the **aws model** (JSON-default) rather than the gh/npm model (text-default + `--json`) — but for a different reason than aws's. aws defaults to JSON because it's a thin passthrough over API responses; we default to JSON because the primary *operator* is an agent.
 
 ## Bare invocation prints help
 
-Run with no command, the tool prints top-level help — matching **npm, gh, git, docker, cargo**, which all print help on bare invocation. Bare invocation and `--help` are expected to agree. (We considered a status dashboard on bare invocation but rejected it to follow this convention; status lives behind the explicit `show` verb.)
-
-## Human-readable by default (aws is the exception)
-
-Most comparable tools default to human-readable text and take an explicit `--json` (or `--format json` / `-o json`) for machine output — verified with **gh, npm, docker, kubectl**. **aws is the exception: it defaults to JSON**, because it's a thin passthrough over API responses where there's no natural human form. bootstrap is a `gh auth login`-style setup tool, not an API passthrough, so it follows the human-default majority.
+Run with no command, the tool prints top-level help — matching npm, gh, git, docker, cargo. Help is **plain text** (not JSON), shows the version, lists every command with its flags inline, and surfaces `skill setup` first so an agent finds the setup path immediately.
 
 ## Errors & exit codes
 
-Exit code is `0` on success, non-zero on failure. Errors print to **stderr**. With
-`--json`, an error is emitted as a single JSON object: `{ "error": "<message>" }`.
+Exit code is `0` on success, non-zero on failure. Errors print to **stderr** as a single JSON object: `{ "error": "<message>" }`. stdout stays clean (empty on error), so `… | jq` never chokes on a non-result; consumers branch on the exit code.
 
-## Why no `--jsonl` / `--ndjson`
+## Naming: agent vs agent provider
 
-JSON Lines (NDJSON) is a *stream* format for unbounded or large sequences — one JSON object per line, processed incrementally. In the wild it shows up in loggers (pino, bunyan), watch/streaming commands (`docker events`, `kubectl --watch`), and LLM token streams — **not as a general-purpose CLI flag.** None of the comparable tools (gh, npm, docker, kubectl) expose a `--jsonl` flag, and developers don't expect one.
+The configured entity is an **agent provider** — a URL like `descartes.github.io` that publishes keys/metadata. A specific **agent** is an instance under it, like `claude@descartes.github.io`, identified by the `sub`/agent-id when a token is signed. The term `agentProvider`/`agentProviders` (data) and `--agent-provider`/`<agent-provider-url>` (CLI) is used everywhere for consistency and to avoid clashing with the overloaded auth sense of "provider" (identity/OAuth provider).
 
-A command's *result* is bounded, so the convention is **one JSON document** via `--json` — which pipes to `jq` just as well as a stream does (`jq` reads both). "Only JSONL is pipeable" is a myth; the real difference is streaming, which a bounded result doesn't need.
-
-Dropping `--jsonl` also removes a genuine ambiguity: `--json` (the result, as data) vs `--jsonl` (which a user could reasonably read as "my result, one record per line"). One result format, `--json`, keeps the mental model clean.
-
-## TBD / to revisit later
-
-- **`-q` / `--quiet`** — suppress non-essential output (brief confirmations, progress, warnings), leaving only the result and errors. It's the low end of the same verbosity axis as `-v` (`-q` errors-only → default brief → `-v` detailed). Standard convention (curl `-s`, git `-q`, npm `--quiet`), but deferred for now — add once the default vs `-v` behavior is settled.
-- **`protocol` / `spec` skill** — print the AAuth spec from a single source of truth (not vendored in this repo). Lean toward a **skill** (`skill protocol`) over a new command, since it's agent-readable reference text — the same channel/consumer as existing skills, and avoids re-growing the command surface. Source via **live-fetch from the canonical spec URL** (version-pinned) with a cached offline fallback; vendoring a snapshot would drift and contradicts "single source of truth." Open: spec version to pin, network/offline behavior.
-- **Keep `discover` / `config` as deprecated aliases of `show`?** Both were dropped as subsets of `show` (`discover` ≈ `show`'s backends, `config` ≈ `show --json`). To avoid breaking existing scripts, consider keeping them as deprecated aliases (`discover` → `show`, `config` → `show --json`) that print a deprecation notice, rather than removing them outright.
+The agent itself is never "created" or registered — the agent provider self-asserts it by signing a token with that `sub`, and it becomes person-bound on the first authorized `fetch` request (consent at the person server). bootstrap manages *agent providers*; agents are implicit.
