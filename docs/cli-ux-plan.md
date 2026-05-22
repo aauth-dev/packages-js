@@ -6,10 +6,10 @@ Review starts here.
 2. **`token` — suggested (mirrors `gh auth token`).** A standalone command to mint an agent token for use elsewhere (curl, debugging). Suggest keeping it with this name, since it mirrors `gh auth token`.
 3. **Multiple keys per provider — how do you select and manage them?** The data model already supports multiple keys per agent provider (redundancy across devices, rotation), but there's no way to *invoke* a specific one — e.g. a `--kid` flag on `token` to choose which key signs? There's also no way to add or delete individual keys on an existing provider (`create` only mints the first; `delete` wipes the whole provider). How should key selection and add/delete work?
 4. **Multiple agents per agent provider — first-class or ad-hoc?** A provider's key can sign a token for any `sub`, so it can back many agents (`aauth:local@…`, `aauth:claude@…`, `aauth:research-bot@…`). But config stores only **one** `agentId` per provider and there's no command to manage a set. Keep one default + ad-hoc overrides (`--local`/`--agent-id` per call), or make agents first-class (store/list/add/remove agents under a provider)?
-5. **Multiple agent providers / a `current` marker.** Sole agent provider auto-defaults. For multiple: adopt a `current`/default agent provider (kubectl current-context, aws default profile, git `origin`), used when `--agent-provider` is omitted and switchable (e.g. a `use <url>` command)? Newest `create` auto-becomes current?
+5. **Multiple agent providers / a `current` provider marker.** Sole agent provider auto-defaults. For multiple: adopt a `current`/default agent provider (kubectl current-context, aws default profile, git `origin`), used when `--agent-provider` is omitted and switchable (e.g. a `use <url>` command)? Newest `create` auto-becomes current?
 6. **Do we need `--quiet`?** Output is always JSON on stdout, errors on stderr — is there any silent/quiet need at all, or is `--quiet` unnecessary for this package?
 7. **Single-letter flags — add them, and when?** All dropped for now (long-form only: `--help`, `--version`, `--person-server`). Add shorts later, or now? (Strict-Unix shorts are single-char `-p`, not `-ps`.)
-8. **What does `update` cover?** Currently only `--person-server`. The provider's other stored settings could be updatable too — `--jwks-uri`, `--hosting`. And the agent id (`--local`/`agentId`): changing it changes the agent's `sub`, which **orphans existing person bindings** (the agent must re-consent), so it may not belong as a plain `update` flag. Open: which settings does `update` expose? (Keys are Q3.)
+8. **What does `update` cover, and do `--jwks-uri`/`--hosting` belong anywhere?** `update` currently has only `--person-server`; the provider's other settings could be updatable too. And `--jwks-uri`/`--hosting` (carried over from `add-agent`) are metadata that nothing publishes — publishing is via skills — so are they needed at all, and on which command (`create`? `update`?)? Removed from `create` for now. Changing the agent id (`--local`/`agentId`) changes the agent's `sub`, **orphaning existing person bindings**, so it may not belong as a plain `update` flag. (Keys are Q3.)
 9. **Breaking changes:** config key `agents` → `agentProviders`; `show` → `list`; `add-agent`/`remove-agent` → `create`/`delete`; dropping `discover`/`public-key`/`generate` (folded into `create`); dropping the `--log`/`--jsonl` output flags; `--agent` → `--agent-provider`; default output text → JSON.
 
 # Contents
@@ -56,7 +56,7 @@ COMMANDS
   update <agent-provider-url> [--person-server <url>]
                                         Update an agent provider's settings
   delete <agent-provider-url>           Delete an agent provider and its keys
-  token [--agent-provider <url>] [--lifetime <s>]
+  token [--agent-provider <url>] [--agent-id <id>] [--local <name>] [--lifetime <s>]
                                         Generate an agent token
   help [command]                        Show help for a command
 
@@ -68,8 +68,8 @@ GLOBAL
 # `npx @aauth/bootstrap list`
 
 ```text
-List configured agent providers, their keys (with public
-JWKs), and the keystores available on this machine.
+List configured agent providers, their keys (with public JWKs), and the
+keystores available on this machine.
 
 USAGE
   npx @aauth/bootstrap list
@@ -89,7 +89,6 @@ EXAMPLE
         "keys": [
           {
             "kid": "bd3f9c…",
-            "current": true,
             "keystore": "software",
             "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS…", "alg": "EdDSA" }
           }
@@ -115,8 +114,6 @@ FLAGS
   --keystore <name>       which keystore to use (default: software) — run `list` for available keystores
   --algorithm <alg>       an algorithm the chosen keystore supports (see `list`); defaults to the keystore's default
   --person-server <url>   Person server to bind (default: person.hello.coop)
-  --jwks-uri <uri>        JWKS URI for the agent provider
-  --hosting <name>        Hosting platform (with --repo <repo>)
 
 EXAMPLE
   $ npx @aauth/bootstrap create https://descartes.github.io
@@ -125,7 +122,7 @@ EXAMPLE
     "agentId": "aauth:local@descartes.github.io",
     "personServer": "https://person.hello.coop",
     "keys": [
-      { "kid": "bd3f9c…", "current": true, "keystore": "software",
+      { "kid": "bd3f9c…", "keystore": "software",
         "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS…", "alg": "EdDSA" } }
     ]
   }
@@ -150,7 +147,8 @@ EXAMPLE
     "agentId": "aauth:local@descartes.github.io",
     "personServer": "https://person.example",
     "keys": [
-      { "kid": "bd3f9c…", "current": true, "keystore": "software" }
+      { "kid": "bd3f9c…", "keystore": "software",
+        "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS…", "alg": "EdDSA" } }
     ]
   }
 ```
@@ -238,9 +236,8 @@ Conventions in this plan follow established CLI practice. Sources referenced:
 
 - [Command Line Interface Guidelines (clig.dev)](https://clig.dev/) — stdout vs stderr split, print help on no args, machine-readable output.
 - [GitHub CLI — output formatting](https://cli.github.com/manual/gh_help_formatting) — help on bare invocation; `gh auth token` precedent for a token-printing command.
-- [JSON Lines (jsonlines.org)](https://jsonlines.org/) — NDJSON is a *stream*, distinct from one JSON document.
 
-Verified firsthand by running the tools: **npm, docker, gh, aws, kubectl, ssh** — bare-invocation behavior, `--json`/`--output` conventions, and CRUD verb naming.
+Verified firsthand by running the tools: **npm, docker, gh, aws, kubectl, ssh** — bare-invocation behavior, default-output (text-vs-JSON) conventions, and CRUD verb naming.
 
 ## Agent-first: JSON by default
 
