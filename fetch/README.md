@@ -6,11 +6,17 @@ Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Proto
 
 ## Prerequisites
 
-The agent must be bootstrapped with a person server before making authorized requests. Use [`@aauth/bootstrap`](../bootstrap):
+The agent must be bootstrapped before making authorized requests — it needs a signing key and a person server in config. Use [`@aauth/bootstrap`](../bootstrap):
 
 ```bash
-npx @aauth/bootstrap --ps <your-ps-url>
+# Generate a key for your agent and bind the default person server (person.hello.coop)
+npx @aauth/bootstrap generate --agent <your-agent-url> --ps
+
+# ...or point at a specific person server
+npx @aauth/bootstrap generate --agent <your-agent-url> --ps https://person.example
 ```
+
+Once an agent is configured, you can re-bind the person server on its own with `npx @aauth/bootstrap --ps` (defaults to person.hello.coop).
 
 ## Quick Start
 

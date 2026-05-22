@@ -43,6 +43,9 @@ import { createRequire } from 'node:module'
 
 const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
 
+/** Person Server used when `--ps`/`--person-server` is given without a URL. */
+const DEFAULT_PERSON_SERVER = 'https://person.hello.coop'
+
 function computeJkt(jwk: Record<string, unknown>): string {
   const kty = jwk.kty as string
   const crv = jwk.crv as string
@@ -299,8 +302,9 @@ function cmdShow(flags: Record<string, string> = {}) {
   // Getting-started footer: shown for both `bootstrap` (no command) and `bootstrap show`.
   console.log('')
   if (agents.length === 0) {
-    console.log('No agents configured yet. Quick start:')
-    console.log('  npx @aauth/bootstrap --ps https://person.hello-beta.net')
+    console.log('No agents configured yet. Quick start (use your own agent URL):')
+    console.log('  npx @aauth/bootstrap generate --agent https://me.github.io --ps')
+    console.log('  (generates a key, then binds the default person server person.hello.coop)')
   } else {
     console.log('Try calling an AAuth-protected resource:')
     console.log('  npx @aauth/fetch https://whoami.aauth.dev --log')
@@ -309,7 +313,7 @@ function cmdShow(flags: Record<string, string> = {}) {
   console.log('Common commands:')
   console.log('  npx @aauth/bootstrap discover         List available key backends')
   console.log('  npx @aauth/bootstrap generate [opts]  Generate a signing key')
-  console.log('  npx @aauth/bootstrap --ps <url>       Configure a person server')
+  console.log('  npx @aauth/bootstrap --ps [url]       Configure a person server (default: person.hello.coop)')
   console.log('  npx @aauth/bootstrap sign-token       Sign a one-off agent_token')
   console.log('  npx @aauth/bootstrap help             Full help')
 }
@@ -363,7 +367,7 @@ Add-agent options:
   --algorithm <alg>        Key algorithm
 
 Person server configuration (can be combined with any command):
-  --person-server <url>    Person server URL (alias: --ps)
+  --person-server [url]    Person server URL (alias: --ps; default: https://person.hello.coop)
   --local <name>           Local part of agent identifier (default: "local")
 
 Output:
@@ -375,14 +379,19 @@ Examples:
   npx @aauth/bootstrap generate --backend secure-enclave --agent https://me.github.io
   npx @aauth/bootstrap sign-token --agent https://me.github.io
   npx @aauth/bootstrap add-agent https://me.github.io
-  npx @aauth/bootstrap --ps <your-ps-url>
-  npx @aauth/bootstrap generate --agent https://me.github.io --ps <your-ps-url>
+  npx @aauth/bootstrap --ps                                 (defaults to https://person.hello.coop)
+  npx @aauth/bootstrap --ps https://person.example
+  npx @aauth/bootstrap generate --agent https://me.github.io --ps
   npx @aauth/bootstrap public-key --agent https://me.github.io`)
 }
 
 async function runBootstrapPS(flags: Record<string, string>) {
-  const personServerUrl = flags['person-server']
-  if (!personServerUrl) return
+  // The arg parser stores a value-less `--ps` as the string 'true'. Treat that
+  // (or an empty value) as "use the default Person Server" so `bootstrap --ps`
+  // works without typing the URL.
+  const psFlag = flags['person-server']
+  if (!psFlag) return
+  const personServerUrl = psFlag === 'true' ? DEFAULT_PERSON_SERVER : psFlag
 
   const urlError = validateUrl(personServerUrl)
   if (urlError) {

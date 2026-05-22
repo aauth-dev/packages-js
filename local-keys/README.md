@@ -4,7 +4,7 @@ Library for managing AAuth agent signing keys across hardware and software backe
 
 Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Protocol spec: [dickhardt/AAuth](https://github.com/dickhardt/AAuth).
 
-> **Looking for a CLI?** This package is a library. The CLI for setting up agent keys, configuring a person server, and publishing keys is [`@aauth/bootstrap`](../bootstrap). Run `npx @aauth/bootstrap --ps <your-ps-url>` to get started.
+> **Looking for a CLI?** This package is a library. The CLI for setting up agent keys, configuring a person server, and publishing keys is [`@aauth/bootstrap`](../bootstrap). Run `npx @aauth/bootstrap generate --agent <your-agent-url> --ps` to get started (`--ps` with no URL binds the default person server, person.hello.coop).
 
 ## Install
 
