@@ -23,7 +23,7 @@ describe('makeVerboseRenderer', () => {
     return lines.map((l) => JSON.parse(l) as Record<string, unknown>)
   }
 
-  it('maps phase start+done to a request then a response, correlated by step', () => {
+  it('maps phase start+done to a request then a response, with display step name', () => {
     const objs = collect([
       { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
       {
@@ -33,15 +33,33 @@ describe('makeVerboseRenderer', () => {
       },
     ])
     expect(objs).toHaveLength(2)
-    expect(objs[0]).toMatchObject({ type: 'request', step: 'signed_request', method: 'GET', url: 'https://x' })
+    // signed_request → display step resource_request (named by target, not "signed")
+    expect(objs[0]).toMatchObject({ type: 'request', step: 'resource_request', method: 'GET', url: 'https://x' })
     expect((objs[0].headers as Record<string, string>)['signature-key']).toContain('sig=jwt')
-    expect(objs[1]).toMatchObject({ type: 'response', step: 'signed_request', status: 401 })
+    expect(objs[1]).toMatchObject({ type: 'response', step: 'resource_request', status: 401 })
     expect((objs[1].headers as Record<string, string>)['aauth-requirement']).toBe('auth-token')
   })
 
-  it('renders info events with type:info', () => {
+  it('the initial call and its retry share step resource_request but differ in description', () => {
+    const initial = collect([
+      { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
+      { step: 'signed_request', phase: 'done', status: 401 },
+    ])
+    const retry = collect([
+      { step: 'retry_with_auth_token', phase: 'start', url: 'https://x', method: 'GET' },
+      { step: 'retry_with_auth_token', phase: 'done', status: 200 },
+    ])
+    expect(initial[0].step).toBe('resource_request')
+    expect(retry[0].step).toBe('resource_request')
+    expect(initial[0].description).not.toBe(retry[0].description)
+    // success response says what came back, not "printed to stdout" / the status code
+    expect(retry[1].description).toContain('Received')
+    expect(retry[1].description).not.toContain('200')
+  })
+
+  it('renders info events with type:info and the display step name', () => {
     const objs = collect([{ step: 'ps_consent_pending', phase: 'info' }])
-    expect(objs[0]).toMatchObject({ type: 'info', step: 'ps_consent_pending' })
+    expect(objs[0]).toMatchObject({ type: 'info', step: 'consent_required' })
     expect(typeof objs[0].description).toBe('string')
   })
 

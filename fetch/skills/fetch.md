@@ -268,6 +268,31 @@ Via JSON stdin:
 | `--non-interactive` | Fail if consent is needed |
 | `-v, --verbose` | Print every request/response on stderr as pretty JSON (type/step/description + real RFC 9421 headers) |
 
+## Verbose output (`-v`)
+
+Each `-v` event is `{ type, step, description, … }` on stderr (stdout stays clean
+for `jq`):
+
+- **`type`** — `request` | `response` | `info`.
+- **`step`** — which protocol step this is, named by target + purpose (a request
+  pairs with the response right after it). Vocabulary:
+
+| step | what it is |
+|------|------------|
+| `resource_request` | the call to the resource you asked for (initial with the agent token; again with the auth token after the flow) |
+| `challenge` | parsed the 401 — exchange the resource token for an auth token |
+| `authorize_request` | (R3) POST operations to the resource's authorize endpoint |
+| `ps_metadata` | discover the person server's endpoints |
+| `token_exchange` | trade the resource token for an auth token at the person server |
+| `consent_required` | the person must consent; the approval URL is opened |
+| `consent_prompt` | waiting for the person to approve |
+| `consent_poll` | poll for the consent result (repeats while waiting) |
+| `consent_granted` | the person approved |
+| `auth_token` | the auth token was received |
+
+- **`description`** — a one-line beat in the flow: a request states intent; a
+  response states what came back (never the bare status code).
+
 ## Error handling
 
 Errors are output as JSON to stderr:
@@ -275,11 +300,11 @@ Errors are output as JSON to stderr:
 {"error": "description of what went wrong"}
 ```
 
-When consent is needed, the interaction URL is surfaced on stderr (and opened in
-a browser unless `--no-browser`). With `-v`, it appears as a `ps_consent_pending`
-event:
+When consent is needed, the interaction URL is printed on stderr as a plain line
+(`Open https://… to approve`) and opened in a browser unless `--no-browser`. With
+`-v`, a `consent_required` event also appears in the stream:
 ```json
-{"type": "info", "step": "ps_consent_pending", "description": "Person consent required; opening the interaction URL to approve.", "interaction_url": "https://...?code=ABCD-1234"}
+{"type": "info", "step": "consent_required", "description": "Consent required — opening the approval URL for the person."}
 ```
 
 ## Environment variables

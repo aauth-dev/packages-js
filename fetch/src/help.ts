@@ -1,7 +1,7 @@
 export function topLevelHelp(version: string): string {
   return `DESCRIPTION
-  AAuth fetch v${version} — curl for agents. Make an authenticated HTTP request
-  that handles the AAuth challenge flow (401 → token exchange → consent → retry)
+  AAuth fetch v${version} — curl for agents. Make a signed, authenticated HTTP
+  request that handles the AAuth challenge flow (401 → token exchange → consent → retry)
   for you, then prints the response. Bare <url> is the full flow.
 
 USAGE
@@ -29,7 +29,6 @@ REQUEST
 
   --json
     Read the whole request (method/headers/body) from stdin as a JSON object.
-    (Input only — output is always JSON, so there's no output --json flag.)
 
 AAUTH
   --agent-provider <url>
