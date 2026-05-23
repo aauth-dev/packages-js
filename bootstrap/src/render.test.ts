@@ -64,6 +64,13 @@ describe('help text', () => {
       expect(COMMAND_HELP[cmd]).toContain('DESCRIPTION')
     }
   })
+
+  it('result-bearing commands include an EXAMPLE with a sample response', () => {
+    for (const cmd of ['list', 'create', 'delete', 'token', 'skill']) {
+      expect(COMMAND_HELP[cmd]).toContain('EXAMPLE')
+      expect(COMMAND_HELP[cmd]).toContain('$ npx @aauth/bootstrap')
+    }
+  })
 })
 
 describe('colorizeJson', () => {

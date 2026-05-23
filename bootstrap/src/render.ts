@@ -99,7 +99,26 @@ export const COMMAND_HELP: Record<string, string> = {
   keystores available on this machine.
 
 USAGE
-  npx @aauth/bootstrap list`,
+  npx @aauth/bootstrap list
+
+EXAMPLE
+  $ npx @aauth/bootstrap list
+  {
+    "keystores": [
+      { "keystore": "software", "description": "Software keys stored in OS keychain", "algorithms": ["EdDSA", "ES256"] }
+    ],
+    "agentProviders": [
+      {
+        "url": "https://descartes.github.io",
+        "agentId": "aauth:local@descartes.github.io",
+        "personServer": "https://person.hello.coop",
+        "keys": [
+          { "kid": "bd3f9c…", "keystore": "software",
+            "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "…", "alg": "EdDSA" } }
+        ]
+      }
+    ]
+  }`,
 
   create: `DESCRIPTION
   Register a new agent provider. One command does the whole setup:
@@ -119,14 +138,34 @@ FLAGS
     An algorithm the chosen keystore supports (see \`list\`); defaults to the keystore's default
 
   --person-server <url>
-    Person server to bind (default: person.hello.coop)`,
+    Person server to bind (default: person.hello.coop)
+
+EXAMPLE
+  $ npx @aauth/bootstrap create https://descartes.github.io
+  {
+    "agentProvider": "https://descartes.github.io",
+    "agentId": "aauth:local@descartes.github.io",
+    "personServer": "https://person.hello.coop",
+    "keys": [
+      { "kid": "bd3f9c…", "keystore": "software",
+        "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "…", "alg": "EdDSA",
+          "aauth": { "device": "mac-mini", "created": "2026-05-22" } } }
+    ]
+  }`,
 
   delete: `DESCRIPTION
   Delete an agent provider and its keys, including from hardware keystores.
   Fails if the agent provider doesn't exist.
 
 USAGE
-  npx @aauth/bootstrap delete <agent-provider-url>`,
+  npx @aauth/bootstrap delete <agent-provider-url>
+
+EXAMPLE
+  $ npx @aauth/bootstrap delete https://descartes.github.io
+  {
+    "deleted": "https://descartes.github.io",
+    "keysDeleted": 1
+  }`,
 
   token: `DESCRIPTION
   Generate an agent token — the credential an agent presents to make authenticated calls.
@@ -147,7 +186,14 @@ FLAGS
     Override just the local-part → aauth:<name>@<host>
 
   --lifetime <seconds>
-    Token lifetime (default: 3600)`,
+    Token lifetime (default: 3600)
+
+EXAMPLE
+  $ npx @aauth/bootstrap token
+  {
+    "signingKey": { "kty": "OKP", "crv": "Ed25519", "x": "…", "d": "…" },
+    "signatureKey": { "type": "jwt", "jwt": "eyJhbGci…" }
+  }`,
 
   skill: `DESCRIPTION
   Print agent setup guides — how to generate keys and publish your agent identity.
@@ -156,7 +202,19 @@ USAGE
   npx @aauth/bootstrap skill [name]
 
   No name   List available skills (markdown)
-  <name>    Print that skill's full instructions (markdown)`,
+  <name>    Print that skill's full instructions (markdown)
+
+EXAMPLE
+  $ npx @aauth/bootstrap skill
+  # AAuth bootstrap skills
+
+  ## setup
+  Set up an AAuth agent provider identity — generate a signing key, bind a
+  person server, and publish to a hosting platform
+
+  ## github-pages
+  Publish AAuth agent metadata and public keys to GitHub Pages (username.github.io)
+  …`,
 
   help: `DESCRIPTION
   Show help for a command.
