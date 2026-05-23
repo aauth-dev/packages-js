@@ -76,6 +76,9 @@ COMMANDS
       netlify
         Publish to Netlify
 
+      protocol
+        Fetch URL for the AAuth protocol spec
+
   list
     List agent providers, keys, and keystores
 
