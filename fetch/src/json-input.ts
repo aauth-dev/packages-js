@@ -7,12 +7,11 @@ export interface JsonRequest {
   body?: unknown
   authToken?: string
   signingKey?: JsonWebKey
-  agentUrl?: string
+  agentProvider?: string
   local?: string
   operations?: string
   scope?: string
   personServer?: string
-  authorize?: boolean
   agentOnly?: boolean
   loginHint?: string
   domainHint?: string
@@ -44,12 +43,11 @@ export function mergeJsonInput(args: FetchArgs, json: JsonRequest): FetchArgs {
     data: json.body !== undefined ? JSON.stringify(json.body) : args.data,
     authToken: json.authToken ?? args.authToken,
     signingKey: json.signingKey ? JSON.stringify(json.signingKey) : args.signingKey,
-    agentUrl: json.agentUrl ?? args.agentUrl,
+    agentProvider: json.agentProvider ?? args.agentProvider,
     local: json.local ?? args.local,
     operations: json.operations ?? args.operations,
     scope: json.scope ?? args.scope,
     personServer: json.personServer ?? args.personServer,
-    authorize: json.authorize ?? args.authorize,
     agentOnly: json.agentOnly ?? args.agentOnly,
     loginHint: json.loginHint ?? args.loginHint,
     domainHint: json.domainHint ?? args.domainHint,

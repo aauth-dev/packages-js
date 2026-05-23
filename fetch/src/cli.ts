@@ -3,14 +3,8 @@
 import { createRequire } from 'node:module'
 import { parseArgs } from './args.js'
 import { readJsonInput, mergeJsonInput } from './json-input.js'
-import { printSkill } from './skill.js'
-import { printGettingStarted } from './getting-started.js'
-
-if (process.argv.includes('--version')) {
-  const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
-  console.log(pkg.version)
-  process.exit(0)
-}
+import { listSkills, getSkill, renderSkillListMarkdown } from './skill.js'
+import { topLevelHelp, COMMAND_HELP } from './help.js'
 import {
   resolvePersonServer,
   buildGetKeyMaterial,
@@ -21,40 +15,70 @@ import {
   handleFullFlow,
 } from './handlers.js'
 
-async function run() {
+const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
+
+function fail(message: string): void {
+  console.error(JSON.stringify({ error: message }))
+  process.exitCode = 1
+}
+
+function cmdSkill(name?: string): void {
+  if (!name) {
+    console.log(renderSkillListMarkdown(listSkills()))
+    return
+  }
+  const skill = getSkill(name)
+  if (!skill) return fail(`Unknown skill: "${name}". Run \`skill\` to list available skills.`)
+  console.log(skill.body)
+}
+
+async function run(): Promise<void> {
   let args = parseArgs(process.argv)
 
-  // --skill: output LLM-readable guide and exit
-  if (args.skill) {
-    printSkill()
+  if (args.version) {
+    console.log(pkg.version)
     return
   }
 
-  // --json: merge stdin JSON with CLI args
+  // `skill [name]` — help for it, or print the skill(s).
+  if (args.command === 'skill') {
+    if (args.help) { console.log(COMMAND_HELP.skill); return }
+    cmdSkill(args.skillName)
+    return
+  }
+
+  // `--json`: merge a request spec from stdin.
   if (args.jsonInput) {
     const json = await readJsonInput()
     args = mergeJsonInput(args, json)
   }
 
-  if (!args.url) {
-    printGettingStarted()
+  // authorize command
+  if (args.command === 'authorize') {
+    if (args.help || !args.url) {
+      console.log(COMMAND_HELP.authorize)
+      if (!args.help && !args.url) process.exitCode = 1
+      return
+    }
+    const personServer = resolvePersonServer(args.agentProvider, args.personServer)
+    const getKeyMaterial = buildGetKeyMaterial(args)
+    await handleAuthorize({ ...args, url: args.url }, getKeyMaterial, personServer)
     return
   }
 
-  // Resolve person server URL from config if not provided
-  const personServer = resolvePersonServer(args.agentUrl, args.personServer)
+  // Bare invocation or --help → top-level help.
+  if (!args.url || args.help) {
+    console.log(topLevelHelp(pkg.version))
+    return
+  }
 
-  // Build key material function
+  // Default fetch (or its modifier modes).
+  const personServer = resolvePersonServer(args.agentProvider, args.personServer)
   const getKeyMaterial = buildGetKeyMaterial(args)
-
-  // Build request init
   const init = buildRequestInit(args)
+  const url = args.url
 
-  const url = args.url!
-
-  if (args.authorize) {
-    await handleAuthorize({ ...args, url }, getKeyMaterial, personServer)
-  } else if (args.authToken && args.signingKey) {
+  if (args.authToken && args.signingKey) {
     await handlePreAuthed({ ...args, url, authToken: args.authToken, signingKey: args.signingKey }, init)
   } else if (args.agentOnly) {
     await handleAgentOnly({ ...args, url }, init, getKeyMaterial)
@@ -64,6 +88,5 @@ async function run() {
 }
 
 run().catch((err: Error) => {
-  console.error(JSON.stringify({ error: err.message }))
-  process.exitCode = 1
+  fail(err.message)
 })

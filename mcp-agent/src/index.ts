@@ -19,6 +19,7 @@ export type {
   FetchLike,
   AAuthEvent,
   OnEvent,
+  CapturedSent,
 } from './types.js'
 export type { AAuthChallenge, RequirementLevel, RequireLevel, Capability, AAuthMission } from './aauth-header.js'
 export type { SignedFetchOptions } from './signed-fetch.js'

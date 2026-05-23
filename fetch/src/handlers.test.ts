@@ -49,7 +49,6 @@ import {
   handleFullFlow,
   buildRequestInit,
   resolvePersonServer,
-  headersToObject,
   tryParseJson,
 } from './handlers.js'
 import { readConfig, getAgentConfig } from '@aauth/local-keys'
@@ -80,13 +79,6 @@ function captureStderr(): { output: string[]; restore: () => void } {
 // --- Tests ---
 
 describe('utility functions', () => {
-  it('headersToObject converts Headers', () => {
-    const h = new Headers({ 'content-type': 'application/json', 'x-test': 'yes' })
-    const obj = headersToObject(h)
-    expect(obj['content-type']).toBe('application/json')
-    expect(obj['x-test']).toBe('yes')
-  })
-
   it('tryParseJson parses valid JSON', () => {
     expect(tryParseJson('{"a":1}')).toEqual({ a: 1 })
   })
@@ -186,19 +178,18 @@ describe('handleAgentOnly', () => {
       stdout.restore()
     }
 
-    expect(mockCreateSignedFetch).toHaveBeenCalledWith(fakeGetKeyMaterial)
+    expect(mockCreateSignedFetch).toHaveBeenCalledWith(fakeGetKeyMaterial, undefined)
     expect(mockSignedFetch).toHaveBeenCalledWith('https://resource.example/api', expect.any(Object))
     expect(stdout.output[0]).toContain('"data": "ok"')
   })
 
-  it('outputs verbose status and headers to stderr', async () => {
-    mockSignedFetch.mockResolvedValueOnce(new Response('ok', {
-      status: 200,
-      headers: { 'x-test': 'yes' },
-    }))
+  it('with -v, writes request/response events to stderr', async () => {
+    mockSignedFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
 
+    const lines: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((s: string) => { lines.push(String(s)); return true }) as typeof process.stderr.write
     const stdout = captureStdout()
-    const stderr = captureStderr()
     try {
       await handleAgentOnly(
         { url: 'https://resource.example/api', verbose: true },
@@ -206,13 +197,14 @@ describe('handleAgentOnly', () => {
         fakeGetKeyMaterial,
       )
     } finally {
+      process.stderr.write = origWrite
       stdout.restore()
-      stderr.restore()
     }
 
-    const info = JSON.parse(stderr.output[0])
-    expect(info.status).toBe(200)
-    expect(info.headers['x-test']).toBe('yes')
+    const joined = lines.join('')
+    expect(joined).toContain('"step": "signed_request"')
+    expect(joined).toContain('"type": "response"')
+    expect(joined).toContain('"status": 200')
   })
 })
 
