@@ -19,7 +19,7 @@ import {
   ensureAgentUrls,
   KeyDeletionUnsupportedError,
 } from '@aauth/local-keys'
-import type { KeyAlgorithm, KeyBackend, LocalKeyMeta } from '@aauth/local-keys'
+import type { LocalKeyMeta } from '@aauth/local-keys'
 import { bootstrapWithPS } from './bootstrap-ps.js'
 import { listSkills, getSkill } from './skills.js'
 import { parseArgs } from './args.js'
@@ -30,6 +30,12 @@ import {
   renderSkillListMarkdown,
   colorizeJson,
 } from './render.js'
+import {
+  resolveProvider,
+  resolveKeystoreAlgorithm,
+  resolveAgentId,
+  resolveLifetime,
+} from './resolve.js'
 
 /** A JWK is opaque here — we only pass it through to JSON output. */
 type Jwk = unknown
@@ -55,15 +61,9 @@ function fail(message: string): void {
 
 // === shared helpers ===
 
-/** Resolve the agent provider URL: explicit flag, else the sole configured one. */
-function resolveProvider(explicit?: string): { url?: string; error?: string } {
-  if (explicit) return { url: explicit }
-  const providers = listAgentProviders()
-  if (providers.length === 1) return { url: providers[0] }
-  if (providers.length === 0) {
-    return { error: 'No agent provider configured. Run `create <agent-provider-url>` first.' }
-  }
-  return { error: 'Multiple agent providers configured. Pass --agent-provider <url>.' }
+/** Read a flag's value as a string, or undefined if absent/boolean. */
+function flagStr(flags: Record<string, string | boolean>, key: string): string | undefined {
+  return typeof flags[key] === 'string' ? flags[key] as string : undefined
 }
 
 /** Best-effort public JWK for a configured key (software from keychain, hardware from the device). */
@@ -128,14 +128,9 @@ async function cmdCreate(positional: string[], flags: Record<string, string | bo
     return fail(`Agent provider already exists: ${url} (delete it first to re-create)`)
   }
 
-  const keystore = (typeof flags.keystore === 'string' ? flags.keystore : 'software') as KeyBackend
-  const algorithm = (typeof flags.algorithm === 'string'
-    ? flags.algorithm
-    : keystore === 'software' ? 'EdDSA' : 'ES256') as KeyAlgorithm
-  const personServer = typeof flags['person-server'] === 'string'
-    ? flags['person-server']
-    : DEFAULT_PERSON_SERVER
-  const local = typeof flags.local === 'string' ? flags.local : undefined
+  const { keystore, algorithm } = resolveKeystoreAlgorithm(flagStr(flags, 'keystore'), flagStr(flags, 'algorithm'))
+  const personServer = flagStr(flags, 'person-server') ?? DEFAULT_PERSON_SERVER
+  const local = flagStr(flags, 'local')
 
   const driver = getBackend(keystore)
   const deviceLabel = driver.getDeviceLabel()
@@ -212,23 +207,20 @@ async function cmdDelete(positional: string[]): Promise<void> {
 }
 
 async function cmdToken(flags: Record<string, string | boolean>): Promise<void> {
-  const { url, error } = resolveProvider(typeof flags['agent-provider'] === 'string' ? flags['agent-provider'] : undefined)
+  const { url, error } = resolveProvider(flagStr(flags, 'agent-provider'), listAgentProviders())
   if (error || !url) return fail(error ?? 'No agent provider configured.')
 
-  // Resolve agentId: explicit > --local + domain > config.
-  let agentId = typeof flags['agent-id'] === 'string' ? flags['agent-id'] : undefined
-  if (!agentId) {
-    if (typeof flags.local === 'string') {
-      agentId = `aauth:${flags.local}@${new URL(url).hostname}`
-    } else {
-      agentId = getAgentConfig(url)?.agentId
-    }
-  }
+  const agentId = resolveAgentId({
+    explicit: flagStr(flags, 'agent-id'),
+    local: flagStr(flags, 'local'),
+    host: new URL(url).hostname,
+    configAgentId: getAgentConfig(url)?.agentId,
+  })
   if (!agentId) {
     return fail(`No agent identifier for ${url}. Pass --agent-id, or run \`create\` to configure one.`)
   }
 
-  const lifetime = typeof flags.lifetime === 'string' ? parseInt(flags.lifetime, 10) : 3600
+  const lifetime = resolveLifetime(flagStr(flags, 'lifetime'))
   const result = await signAgentToken({ agentUrl: url, sub: agentId, lifetime })
   printResult(result)
 }
