@@ -44,17 +44,21 @@ function describe(step: string, kind: 'request' | 'response' | 'info', status?: 
     r3_authorize_request: 'POST the requested operations to the authorize endpoint, signed with the agent token.',
     ps_metadata_request: "Fetch the person server's metadata.",
     ps_token_request: "POST the resource token to the person server's token endpoint, signed with the agent token.",
+    consent_poll: 'Poll the person server for the consent result.',
   }
   const info: Record<string, string> = {
     challenge_received: 'Parsed the AAuth challenge; will exchange the resource token for an auth token.',
     ps_consent_pending: 'Person consent required; opening the interaction URL to approve.',
+    consent_prompt: 'Consent prompt opened; waiting for the person to approve.',
+    consent_resolved: 'Consent resolved by the person.',
     auth_token_received: 'Received the auth token from the person server.',
   }
   if (kind === 'request') return req[step] ?? `Request: ${step}.`
   if (kind === 'info') return info[step] ?? `${step}.`
   // response
   if (status === 401) return 'Resource replied 401 — an auth token is required.'
-  if (status === 200) return 'Resource returned 200.'
+  if (status === 202) return 'Person server needs consent (interaction required).'
+  if (status === 200) return 'Returned 200.'
   return status ? `Response: ${status}.` : 'Response.'
 }
 
