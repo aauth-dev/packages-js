@@ -68,12 +68,12 @@ When making multiple calls to the same resource, use the authorize-then-call pat
 
 For resources with standard 401 challenge (e.g., whoami with scopes):
 ```bash
-npx @aauth/fetch --authorize "https://whoami.aauth.dev?scope=email"
+npx @aauth/fetch authorize "https://whoami.aauth.dev?scope=email"
 ```
 
 For R3 resources (e.g., notes), POST to the authorize endpoint with operations:
 ```bash
-npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes,createNote
 ```
 
@@ -124,7 +124,7 @@ echo '{
 
 ### Token expiration
 
-Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `--authorize` step to get fresh tokens.
+Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `authorize` step to get fresh tokens.
 
 ## Agent-only mode
 
@@ -142,7 +142,7 @@ For resources that use R3 vocabularies (like OpenAPI-based APIs), you must speci
 
 ```bash
 # Authorize specific operations
-npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes,createNote,deleteNote
 
 # Then make calls with the returned tokens
@@ -175,7 +175,7 @@ Hints help the person server route authorization requests. They are optional and
 
 Example:
 ```bash
-npx @aauth/fetch --authorize https://resource.example \
+npx @aauth/fetch authorize https://resource.example \
   --login-hint user@acme.com \
   --tenant acme.com
 ```
@@ -195,7 +195,7 @@ Or via JSON stdin:
 The `--justification` flag provides a Markdown string explaining **why** the agent is requesting access. The person server presents this to the user during consent review.
 
 ```bash
-npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes \
   --justification "Read the user's notes to summarize action items from today's meeting"
 ```
@@ -234,20 +234,29 @@ Via JSON stdin:
 }
 ```
 
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `<url>` | Authenticated fetch — full flow (sign → 401 → token exchange → consent → retry) |
+| `authorize <url>` | Auth flow only; return auth token + signing key as JSON (no resource call). R3 via `--operations` |
+| `skill [name]` | Print agent skills as markdown (`fetch`, `protocol`) |
+| (bare) / `--help` | Top-level help |
+
 ## All flags
 
 | Flag | Description |
 |------|-------------|
-| `--authorize` | Auth flow only; return tokens + signing key as JSON |
 | `--agent-only` | Sign with agent token only; don't handle 401 |
-| `--json` | Read full request from stdin as JSON |
+| `--auth-token` / `--signing-key` | Use an existing auth token + signing key (skip the auth flow) |
+| `--json` | Read full request from stdin as JSON (input only) |
 | `-X, --method` | HTTP method (default: GET) |
-| `-d, --data` | Request body |
+| `-d, --data` | Request body (use `-` for stdin) |
 | `-H, --header` | Additional header (repeatable) |
-| `--agent-url` | Override agent URL |
+| `--agent-provider` | Agent provider to sign as (default: from config) |
 | `--local` | Local part of agent identifier (default: from config) |
 | `--scope` | Requested scopes |
-| `--operations` | R3 operationIds (comma-separated, with --authorize) |
+| `--operations` | R3 operationIds (comma-separated, with `authorize`) |
 | `--person-server` | Override person server URL |
 | `--login-hint` | Hint about who to authorize |
 | `--domain-hint` | Domain/org routing hint |
@@ -256,8 +265,7 @@ Via JSON stdin:
 | `--capabilities` | Agent capabilities (comma-separated) |
 | `--no-browser` | Don't open browser for consent |
 | `--non-interactive` | Fail if consent is needed |
-| `-v, --verbose` | Show status + headers on stderr |
-| `--debug` | Show all requests/responses with headers on stderr |
+| `-v, --verbose` | Print every request/response on stderr as pretty JSON (type/step/description + real RFC 9421 headers) |
 
 ## Error handling
 
@@ -266,16 +274,18 @@ Errors are output as JSON to stderr:
 {"error": "description of what went wrong"}
 ```
 
-When consent is needed, interaction info is output to stderr:
+When consent is needed, the interaction URL is surfaced on stderr (and opened in
+a browser unless `--no-browser`). With `-v`, it appears as a `ps_consent_pending`
+event:
 ```json
-{"interaction": {"url": "https://...", "code": "ABCD-1234"}}
+{"type": "info", "step": "ps_consent_pending", "description": "Person consent required; opening the interaction URL to approve.", "interaction_url": "https://...?code=ABCD-1234"}
 ```
 
 ## Environment variables
 
 | Variable | Equivalent flag |
 |----------|----------------|
-| `AAUTH_AGENT_URL` | `--agent-url` |
+| `AAUTH_AGENT_URL` | `--agent-provider` |
 | `AAUTH_LOCAL` | `--local` |
 | `AAUTH_AUTH_TOKEN` | `--auth-token` |
 | `AAUTH_SIGNING_KEY` | `--signing-key` |
