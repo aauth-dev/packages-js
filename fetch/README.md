@@ -9,14 +9,13 @@ Part of [aauth-dev/packages-js](https://github.com/aauth-dev/packages-js). Proto
 The agent must be bootstrapped before making authorized requests — it needs a signing key and a person server in config. Use [`@aauth/bootstrap`](../bootstrap):
 
 ```bash
-# Generate a key for your agent and bind the default person server (person.hello.coop)
-npx @aauth/bootstrap generate --agent <your-agent-url> --ps
+# Register an agent provider: generate a key, bind it, and bind the default
+# person server (person.hello.coop) — all in one command.
+npx @aauth/bootstrap create <your-agent-provider-url>
 
 # ...or point at a specific person server
-npx @aauth/bootstrap generate --agent <your-agent-url> --ps https://person.example
+npx @aauth/bootstrap create <your-agent-provider-url> --person-server https://person.example
 ```
-
-Once an agent is configured, you can re-bind the person server on its own with `npx @aauth/bootstrap --ps` (defaults to person.hello.coop).
 
 ## Quick Start
 
@@ -34,10 +33,10 @@ Capture an auth token once, then reuse it for subsequent calls.
 
 ```bash
 # 1. Authorize and capture tokens (writes JSON to stdout)
-npx @aauth/fetch --authorize "https://whoami.aauth.dev?scope=email"
+npx @aauth/fetch authorize "https://whoami.aauth.dev?scope=email"
 
 # For R3 resources, POST to the authorize endpoint with operations:
-npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes,createNote
 ```
 
@@ -46,47 +45,44 @@ Returns the auth token and ephemeral signing key. Save them and pass back in via
 ## Usage
 
 ```
-aauth-fetch [options] <url>
-
-Meta:
-  --skill                     Output LLM-readable usage guide
-
-Modes:
-  --authorize                 Auth only: return authToken + signingKey JSON
-  --agent-only                Sign with agent token only, don't handle 401
-  --operations <ops>          R3 operationIds (comma-separated, with --authorize)
-  --scope <scope>             Requested scopes
+npx @aauth/fetch <url> [flags]          # authenticated fetch (full flow)
+npx @aauth/fetch authorize <url> [flags] # auth flow only; print tokens for reuse
+npx @aauth/fetch skill [name]            # print agent skills (fetch, protocol)
 
 Request:
   -X, --method <method>       HTTP method (default: GET)
   -d, --data <body>           Request body (use - for stdin)
   -H, --header <header>       Additional header (repeatable)
-  --json                      Read full request from stdin as JSON
+  --json                      Read full request from stdin as JSON (input only)
 
 AAuth:
-  --agent-url <url>           Agent URL (default: from config)
+  --agent-provider <url>      Agent provider to sign as (default: from config)
   --local <name>              Local part of agent identifier (default: from config)
-  --auth-token <jwt>          Pre-existing auth token
-  --signing-key <jwk>         Ephemeral private key (with --auth-token)
   --person-server <url>       Override person server URL
 
-Hints & prompt:
-  --login-hint <hint>         Hint about who to authorize (user/account)
-  --domain-hint <domain>      Domain/org hint for identity provider routing
-  --tenant <tenant>           Tenant identifier for multi-tenant systems
-  --justification <text>      Markdown explaining why access is needed
+Modes (still return the resource response):
+  --agent-only                Sign with agent token only; don't handle 401
+  --auth-token <jwt> --signing-key <jwk>   Use an existing auth token + signing key
 
-Capabilities:
-  --capabilities <list>       Agent capabilities: interaction, clarification, payment
+Authorize (with the `authorize` command):
+  --operations <ops>          R3 operationIds (comma-separated)
+  --scope <scope>             Requested scopes
 
-Interaction:
-  --browser                   Force open browser for consent
-  --no-browser                Never open browser
+Hints / consent / capabilities:
+  --login-hint / --domain-hint / --tenant / --justification
+  --no-browser / --non-interactive
+  --capabilities <list>       interaction, clarification, payment
+
+Output:
+  -v, --verbose               Print every request/response on stderr as pretty
+                              JSON (type/step/description + real RFC 9421 headers).
+                              Result on stdout stays clean for `… | jq`.
 ```
 
 ## For AI Agents
 
-Run `npx @aauth/fetch --skill` to print a structured LLM-readable usage guide covering discovery, one-shot requests, the authorize-then-call workflow, and how to pipe JSON tokens between calls.
+Run `npx @aauth/fetch skill` to list the agent skills, then `skill fetch` for the
+usage guide or `skill protocol` for the spec URL.
 
 ## Related Packages
 

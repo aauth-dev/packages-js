@@ -13,14 +13,15 @@ Make HTTP requests to AAuth-protected APIs. Handles HTTP message signatures, age
 The agent must have a signing key and a person server configured before making authorized requests:
 
 ```bash
-# Generate a key for your agent and bind the default person server (person.hello.coop)
-npx @aauth/bootstrap generate --agent <your-agent-url> --ps
+# Register an agent provider: generate a key, bind it, and bind the default
+# person server (person.hello.coop) — all in one command.
+npx @aauth/bootstrap create <your-agent-provider-url>
 
 # ...or point at a specific person server
-npx @aauth/bootstrap generate --agent <your-agent-url> --ps https://person.example
+npx @aauth/bootstrap create <your-agent-provider-url> --person-server https://person.example
 ```
 
-`--ps` with no URL binds the default person server (`https://person.hello.coop`). This validates the PS metadata and stores the PS URL plus agent identifier (e.g., `aauth:local@yourdomain.com`) in `~/.aauth/config.json`. Person binding then happens lazily on the first authorized request. Once an agent exists, `npx @aauth/bootstrap --ps` re-binds its person server on its own.
+`create` validates the PS metadata and stores the PS URL plus agent identifier (e.g., `aauth:local@yourdomain.com`) in `~/.aauth/config.json`. Person binding then happens lazily on the first authorized request. See `npx @aauth/bootstrap` for the full setup flow.
 
 ## Discovery
 
