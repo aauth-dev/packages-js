@@ -100,7 +100,7 @@ function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; v
 // === authorize ===
 
 /**
- * `authorize`: drive the auth flow and return { authToken, signingKey } for
+ * `authorize`: drive the auth flow and return { auth_token, signingKey } for
  * reuse. With --operations, uses the R3 authorize endpoint; otherwise the 401
  * challenge flow.
  */
@@ -198,8 +198,8 @@ export async function handleAuthorize(
   })
 
   printResult({
-    authToken: result.authToken,
-    expiresIn: result.expiresIn,
+    auth_token: result.authToken,
+    expires_in: result.expiresIn,
     signingKey: keyMaterial.signingKey,
     response: { status: 200 },
   })

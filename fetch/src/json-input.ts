@@ -5,7 +5,9 @@ export interface JsonRequest {
   method?: string
   headers?: Record<string, string>
   body?: unknown
-  authToken?: string
+  // Spec-defined fields use the spec's snake_case names; our own artifacts
+  // (signingKey, agentProvider, personServer, agentOnly, local) stay camelCase.
+  auth_token?: string
   signingKey?: JsonWebKey
   agentProvider?: string
   local?: string
@@ -13,8 +15,8 @@ export interface JsonRequest {
   scope?: string
   personServer?: string
   agentOnly?: boolean
-  loginHint?: string
-  domainHint?: string
+  login_hint?: string
+  domain_hint?: string
   tenant?: string
   justification?: string
   capabilities?: string[]
@@ -41,7 +43,7 @@ export function mergeJsonInput(args: FetchArgs, json: JsonRequest): FetchArgs {
       ? Object.entries(json.headers).map(([k, v]) => `${k}: ${v}`)
       : args.headers,
     data: json.body !== undefined ? JSON.stringify(json.body) : args.data,
-    authToken: json.authToken ?? args.authToken,
+    authToken: json.auth_token ?? args.authToken,
     signingKey: json.signingKey ? JSON.stringify(json.signingKey) : args.signingKey,
     agentProvider: json.agentProvider ?? args.agentProvider,
     local: json.local ?? args.local,
@@ -49,8 +51,8 @@ export function mergeJsonInput(args: FetchArgs, json: JsonRequest): FetchArgs {
     scope: json.scope ?? args.scope,
     personServer: json.personServer ?? args.personServer,
     agentOnly: json.agentOnly ?? args.agentOnly,
-    loginHint: json.loginHint ?? args.loginHint,
-    domainHint: json.domainHint ?? args.domainHint,
+    loginHint: json.login_hint ?? args.loginHint,
+    domainHint: json.domain_hint ?? args.domainHint,
     tenant: json.tenant ?? args.tenant,
     justification: json.justification ?? args.justification,
     capabilities: json.capabilities ?? args.capabilities,

@@ -69,10 +69,10 @@ describe('mergeJsonInput', () => {
     expect(result.data).toBe('existing')
   })
 
-  it('overrides authToken from JSON', () => {
+  it('overrides authToken from JSON auth_token', () => {
     const result = mergeJsonInput(baseArgs(), {
       url: 'https://x.com',
-      authToken: 'eyJ.json.token',
+      auth_token: 'eyJ.json.token',
     })
     expect(result.authToken).toBe('eyJ.json.token')
   })

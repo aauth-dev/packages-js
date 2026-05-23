@@ -99,8 +99,8 @@ FLAGS
 EXAMPLE
   $ npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations listNotes,createNote
   {
-    "authToken": "eyJ…",
-    "expiresIn": 3600,
+    "auth_token": "eyJ…",
+    "expires_in": 3600,
     "signingKey": { "kty": "OKP", "crv": "Ed25519", "x": "…", "d": "…" },
     "response": { "status": 200 }
   }`,

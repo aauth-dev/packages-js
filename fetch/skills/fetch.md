@@ -81,8 +81,8 @@ npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
 Both return JSON with the auth token and ephemeral signing key:
 ```json
 {
-  "authToken": "eyJ...",
-  "expiresIn": 3600,
+  "auth_token": "eyJ...",
+  "expires_in": 3600,
   "signingKey": { "kty": "EC", "crv": "P-256", "d": "...", "x": "...", "y": "..." },
   "response": { "status": 200 }
 }
@@ -97,7 +97,7 @@ If the resource accepts an agent token directly (no auth needed), returns:
 }
 ```
 
-Save `authToken` and `signingKey` for subsequent calls. The `signingKey` is the ephemeral private key bound to the auth token — you must use the same key for all requests.
+Save `auth_token` and `signingKey` for subsequent calls. The `signingKey` is the ephemeral private key bound to the auth token — you must use the same key for all requests. (Spec-defined fields use the spec's snake_case names, e.g. `auth_token`/`expires_in`; our own artifacts like `signingKey` stay camelCase.)
 
 ### Step 2: Make calls with saved tokens
 
@@ -107,7 +107,7 @@ Pass tokens via JSON stdin (recommended — avoids exposing keys in process list
 echo '{
   "url": "https://notes.aauth.dev/notes",
   "method": "GET",
-  "authToken": "eyJ...",
+  "auth_token": "eyJ...",
   "signingKey": {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}
 }' | npx @aauth/fetch --json
 ```
@@ -117,8 +117,8 @@ Or for POST/PUT:
 echo '{
   "url": "https://notes.aauth.dev/notes",
   "method": "POST",
-  "body": {"title": "My Note", "body": "Content here"},
-  "authToken": "eyJ...",
+  "body": {"title": "My Note", "content": "Content here"},
+  "auth_token": "eyJ...",
   "signingKey": {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}
 }' | npx @aauth/fetch --json
 ```
@@ -147,7 +147,7 @@ npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes,createNote,deleteNote
 
 # Then make calls with the returned tokens
-echo '{"url":"https://notes.aauth.dev/notes","method":"GET","authToken":"...","signingKey":{...}}' \
+echo '{"url":"https://notes.aauth.dev/notes","method":"GET","auth_token":"...","signingKey":{...}}' \
   | npx @aauth/fetch --json
 ```
 
@@ -170,8 +170,8 @@ Hints help the person server route authorization requests. They are optional and
 
 | Flag | JSON field | Purpose |
 |------|-----------|---------|
-| `--login-hint <hint>` | `loginHint` | Hint about who to authorize — a user identifier, email, or account name. Helps the person server identify the correct user. |
-| `--domain-hint <domain>` | `domainHint` | Hints at which domain or organization the user belongs to. Used in enterprise/multi-tenant systems to route to the correct identity provider. |
+| `--login-hint <hint>` | `login_hint` | Hint about who to authorize — a user identifier, email, or account name. Helps the person server identify the correct user. |
+| `--domain-hint <domain>` | `domain_hint` | Hints at which domain or organization the user belongs to. Used in enterprise/multi-tenant systems to route to the correct identity provider. |
 | `--tenant <id>` | `tenant` | Tenant identifier for multi-tenant systems. Specifies which organization context should be used for authorization. |
 
 Example:
@@ -186,7 +186,7 @@ Or via JSON stdin:
 {
   "url": "https://resource.example",
   "authorize": true,
-  "loginHint": "user@acme.com",
+  "login_hint": "user@acme.com",
   "tenant": "acme.com"
 }
 ```

@@ -363,8 +363,8 @@ describe('handleAuthorize', () => {
     }
 
     const result = JSON.parse(stdout.output[0])
-    expect(result.authToken).toBe('eyJ.auth.result')
-    expect(result.expiresIn).toBe(3600)
+    expect(result.auth_token).toBe('eyJ.auth.result')
+    expect(result.expires_in).toBe(3600)
     expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
 
     expect(mockExchangeToken).toHaveBeenCalledWith(expect.objectContaining({
