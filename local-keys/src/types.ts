@@ -100,8 +100,12 @@ export interface AgentConfig {
 }
 
 export interface AAuthConfig {
-  /** agent provider URL → its config. (Renamed from `agents` in v1.) */
-  agentProviders: Record<string, AgentConfig>
+  /**
+   * agent-provider URL → its config. The on-disk key stays `agents` (the CLI
+   * surfaces these as "agent providers" in output/flags, but the stored config
+   * format is unchanged).
+   */
+  agents: Record<string, AgentConfig>
 }
 
 // === Keychain Types (existing, for software backend) ===

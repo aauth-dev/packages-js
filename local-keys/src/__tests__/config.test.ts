@@ -17,13 +17,13 @@ describe('Config', () => {
   })
 
   it('reads empty config when none exists', () => {
-    writeConfig({ agentProviders: {} })
+    writeConfig({ agents: {} })
     const config = readConfig()
-    expect(config.agentProviders).toEqual({})
+    expect(config.agents).toEqual({})
   })
 
   it('stores and retrieves agent config', () => {
-    writeConfig({ agentProviders: {} })
+    writeConfig({ agents: {} })
     addKeyToAgent('https://test.example', '2026-04-09_a3f', {
       backend: 'yubikey-piv',
       algorithm: 'ES256',
@@ -39,7 +39,7 @@ describe('Config', () => {
   })
 
   it('sets person server URL', () => {
-    writeConfig({ agentProviders: {} })
+    writeConfig({ agents: {} })
     setPersonServer('https://test.example', 'https://person.example')
 
     const ac = getAgentConfig('https://test.example')
@@ -47,7 +47,7 @@ describe('Config', () => {
   })
 
   it('supports multiple agents', () => {
-    writeConfig({ agentProviders: {} })
+    writeConfig({ agents: {} })
     addKeyToAgent('https://personal.example', 'kid1', {
       backend: 'secure-enclave',
       algorithm: 'ES256',
@@ -67,7 +67,7 @@ describe('Config', () => {
   })
 
   it('supports multiple keys per agent', () => {
-    writeConfig({ agentProviders: {} })
+    writeConfig({ agents: {} })
     addKeyToAgent('https://test.example', 'kid-yk', {
       backend: 'yubikey-piv',
       algorithm: 'ES256',
@@ -88,7 +88,7 @@ describe('Config', () => {
   })
 
   it('deletes an agent provider', () => {
-    writeConfig({ agentProviders: {} })
+    writeConfig({ agents: {} })
     addKeyToAgent('https://gone.example', 'kid1', {
       backend: 'software',
       algorithm: 'EdDSA',
@@ -104,19 +104,7 @@ describe('Config', () => {
   })
 
   it('deleteAgentProvider returns false for a missing provider', () => {
-    writeConfig({ agentProviders: {} })
+    writeConfig({ agents: {} })
     expect(deleteAgentProvider('https://nope.example')).toBe(false)
-  })
-
-  it('ignores a legacy `agents` key (no back-compat)', () => {
-    // v0 used `agents`; v1 reads only `agentProviders`. A stale `agents` key is
-    // dropped, not migrated.
-    writeConfig({ agentProviders: {} })
-    addKeyToAgent('https://kept.example', 'kid1', {
-      backend: 'software', algorithm: 'EdDSA', keyId: 'kid1', deviceLabel: 'm',
-    })
-    const config = readConfig()
-    expect(config.agentProviders['https://kept.example']).toBeDefined()
-    expect((config as Record<string, unknown>).agents).toBeUndefined()
   })
 })

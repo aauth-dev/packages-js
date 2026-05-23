@@ -14,10 +14,10 @@ export function readConfig(): AAuthConfig {
   try {
     const raw = readFileSync(CONFIG_FILE, 'utf-8')
     const parsed = JSON.parse(raw) as AAuthConfig
-    if (!parsed.agentProviders) parsed.agentProviders = {}
+    if (!parsed.agents) parsed.agents = {}
     return parsed
   } catch {
-    return { agentProviders: {} }
+    return { agents: {} }
   }
 }
 
@@ -28,54 +28,54 @@ export function writeConfig(config: AAuthConfig): void {
 
 export function getAgentConfig(agentUrl: string): AgentConfig | null {
   const config = readConfig()
-  return config.agentProviders[agentUrl] ?? null
+  return config.agents[agentUrl] ?? null
 }
 
 export function setAgentConfig(agentUrl: string, agentConfig: AgentConfig): void {
   const config = readConfig()
-  config.agentProviders[agentUrl] = agentConfig
+  config.agents[agentUrl] = agentConfig
   writeConfig(config)
 }
 
 export function addKeyToAgent(agentUrl: string, kid: string, meta: LocalKeyMeta): void {
   const config = readConfig()
-  if (!config.agentProviders[agentUrl]) {
-    config.agentProviders[agentUrl] = { keys: {} }
+  if (!config.agents[agentUrl]) {
+    config.agents[agentUrl] = { keys: {} }
   }
-  config.agentProviders[agentUrl].keys[kid] = meta
+  config.agents[agentUrl].keys[kid] = meta
   writeConfig(config)
 }
 
 export function setPersonServer(agentUrl: string, personServerUrl: string): void {
   const config = readConfig()
-  if (!config.agentProviders[agentUrl]) {
-    config.agentProviders[agentUrl] = { keys: {} }
+  if (!config.agents[agentUrl]) {
+    config.agents[agentUrl] = { keys: {} }
   }
-  config.agentProviders[agentUrl].personServerUrl = personServerUrl
+  config.agents[agentUrl].personServerUrl = personServerUrl
   writeConfig(config)
 }
 
 export function setHosting(agentUrl: string, hosting: AgentHosting): void {
   const config = readConfig()
-  if (!config.agentProviders[agentUrl]) {
-    config.agentProviders[agentUrl] = { keys: {} }
+  if (!config.agents[agentUrl]) {
+    config.agents[agentUrl] = { keys: {} }
   }
-  config.agentProviders[agentUrl].hosting = hosting
+  config.agents[agentUrl].hosting = hosting
   writeConfig(config)
 }
 
 /** Remove an agent provider (and its key bindings) from config. Returns true if it existed. */
 export function deleteAgentProvider(agentUrl: string): boolean {
   const config = readConfig()
-  if (!config.agentProviders[agentUrl]) return false
-  delete config.agentProviders[agentUrl]
+  if (!config.agents[agentUrl]) return false
+  delete config.agents[agentUrl]
   writeConfig(config)
   return true
 }
 
 export function listAgentProviders(): string[] {
   const config = readConfig()
-  return Object.keys(config.agentProviders)
+  return Object.keys(config.agents)
 }
 
 export function validateUrl(s: string): string | null {

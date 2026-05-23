@@ -36,7 +36,7 @@ vi.mock('@aauth/mcp-agent', () => ({
 
 vi.mock('@aauth/local-keys', () => ({
   createAgentToken: vi.fn(),
-  readConfig: vi.fn(() => ({ agentProviders: {} })),
+  readConfig: vi.fn(() => ({ agents: {} })),
   getAgentConfig: vi.fn(() => null),
 }))
 
@@ -151,7 +151,7 @@ describe('resolvePersonServer', () => {
 
   it('reads sole agent from config when no agentUrl', () => {
     vi.mocked(readConfig).mockReturnValueOnce({
-      agentProviders: {
+      agents: {
         'https://sole-agent.com': { personServerUrl: 'https://sole-ps.com', keys: {} },
       },
     })
@@ -160,7 +160,7 @@ describe('resolvePersonServer', () => {
 
   it('returns undefined when multiple agents and no agentUrl', () => {
     vi.mocked(readConfig).mockReturnValueOnce({
-      agentProviders: {
+      agents: {
         'https://a.com': { keys: {} },
         'https://b.com': { keys: {} },
       },

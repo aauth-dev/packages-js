@@ -9,7 +9,7 @@ export function printGettingStarted(): void {
   let configured = false
   try {
     const cfg = readConfig()
-    configured = Object.keys(cfg.agentProviders).length > 0
+    configured = Object.keys(cfg.agents).length > 0
   } catch { /* no config yet */ }
 
   console.log('@aauth/fetch — AAuth-authenticated HTTP requests')

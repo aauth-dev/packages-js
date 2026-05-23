@@ -39,7 +39,7 @@ function short(s: string | undefined, n = 24): string {
 function resolveAgentUrl(agentUrl?: string): string | undefined {
   if (agentUrl) return agentUrl
   const cfg = readConfig()
-  const entries = Object.entries(cfg.agentProviders)
+  const entries = Object.entries(cfg.agents)
   return entries.length > 0 ? entries[0][0] : undefined
 }
 
@@ -55,7 +55,7 @@ function renderAlreadySetUp(agentUrl?: string): string {
     return lines.join('\n')
   }
 
-  const cfg = readConfig().agentProviders[agentUrl]
+  const cfg = readConfig().agents[agentUrl]
   const keychain = readKeychain(agentUrl)
   const currentKid = keychain?.current
   const jwk = currentKid ? keychain?.keys[currentKid] as unknown as Record<string, unknown> : undefined
@@ -86,7 +86,7 @@ function renderThisCall(url: string, agentUrl?: string, personServer?: string): 
 
   agentUrl = resolveAgentUrl(agentUrl)
   if (!personServer && agentUrl) {
-    personServer = readConfig().agentProviders[agentUrl]?.personServerUrl
+    personServer = readConfig().agents[agentUrl]?.personServerUrl
   }
 
   const lines: string[] = []
