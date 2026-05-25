@@ -45,8 +45,8 @@ Returns the auth token and ephemeral signing key. Save them and pass back in via
 ## Usage
 
 ```
-npx @aauth/fetch <url> [flags]          # authenticated fetch (full flow)
-npx @aauth/fetch authorize <url> [flags] # auth flow only; print tokens for reuse
+npx @aauth/fetch <resource> [flags]          # authenticated fetch (full flow)
+npx @aauth/fetch authorize <resource> [flags] # auth flow only; print tokens for reuse
 npx @aauth/fetch skill                   # print the fetch guide (+ protocol spec URL)
 
 Request:

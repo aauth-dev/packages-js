@@ -239,8 +239,8 @@ Via JSON stdin:
 
 | Command | Description |
 |---------|-------------|
-| `<url>` | Authenticated fetch — full flow (sign → 401 → token exchange → consent → retry) |
-| `authorize <url>` | Auth flow only; return auth token + signing key as JSON (no resource call). R3 via `--operations` |
+| `<resource>` | Authenticated fetch — full flow (sign → 401 → token exchange → consent → retry) |
+| `authorize <resource>` | Auth flow only; return auth token + signing key as JSON (no resource call). R3 via `--operations` |
 | `skill` | Print this usage guide (markdown), plus the AAuth protocol spec URL to fetch yourself |
 | (bare) / `--help` | Top-level help |
 
