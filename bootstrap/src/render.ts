@@ -183,7 +183,9 @@ EXAMPLE
   token: `DESCRIPTION
   Generate an agent token — the credential an agent presents to make authenticated calls.
   With one agent provider configured it needs no arguments — the agent provider and
-  its agent-id come from config.
+  its agent-id come from config. Output is the agent token (\`signatureKey\`) plus
+  the ephemeral private key (\`signingKey\`) you sign requests with — the token's \`cnf\`
+  binds to its public half.
 
 USAGE
   npx @aauth/bootstrap token [flags]
