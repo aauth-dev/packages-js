@@ -33,6 +33,7 @@ export type {
   KeyBackendDriver,
   AAuthConfig,
   AgentConfig,
+  PersonServerMetadata,
   AgentHosting,
   LocalKeyMeta,
   AAuthPublicJwk,

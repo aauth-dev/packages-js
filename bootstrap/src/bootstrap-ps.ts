@@ -10,6 +10,7 @@ interface PSMetadata {
   issuer: string
   token_endpoint: string
   jwks_uri: string
+  authorization_endpoint?: string
   interaction_endpoint?: string
 }
 
@@ -53,10 +54,18 @@ export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void
 
   const agentId = `aauth:${local}@${new URL(agentUrl).hostname}`
   const existing = getAgentConfig(agentUrl)
+  // Persist the PS metadata we just fetched so fetch can skip the runtime
+  // /.well-known/aauth-person.json round-trip on every token exchange.
   setAgentConfig(agentUrl, {
     ...(existing ?? { keys: {} }),
     agentId,
     personServerUrl,
+    personServerMetadata: {
+      issuer: metadata.issuer,
+      token_endpoint: metadata.token_endpoint,
+      jwks_uri: metadata.jwks_uri,
+      ...(metadata.authorization_endpoint ? { authorization_endpoint: metadata.authorization_endpoint } : {}),
+    },
   })
 }
 

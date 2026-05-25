@@ -9,6 +9,7 @@ import { renderSkill } from './skill.js'
 import { topLevelHelp, COMMAND_HELP } from './help.js'
 import {
   resolvePersonServer,
+  resolvePersonServerMetadata,
   buildGetKeyMaterial,
   buildRequestInit,
   handleAuthorize,
@@ -58,8 +59,9 @@ export async function run(): Promise<void> {
       return
     }
     const personServer = resolvePersonServer(args.agentProvider, args.personServer)
+    const personServerMetadata = resolvePersonServerMetadata(args.agentProvider, args.personServer)
     const getKeyMaterial = buildGetKeyMaterial(args)
-    await handleAuthorize({ ...args, url: args.url }, getKeyMaterial, personServer)
+    await handleAuthorize({ ...args, url: args.url }, getKeyMaterial, personServer, personServerMetadata)
     return
   }
 
@@ -80,7 +82,8 @@ export async function run(): Promise<void> {
   } else if (args.agentOnly) {
     await handleAgentOnly({ ...args, url }, init, getKeyMaterial)
   } else {
-    await handleFullFlow({ ...args, url }, init, getKeyMaterial, personServer)
+    const personServerMetadata = resolvePersonServerMetadata(args.agentProvider, args.personServer)
+    await handleFullFlow({ ...args, url }, init, getKeyMaterial, personServer, personServerMetadata)
   }
 }
 

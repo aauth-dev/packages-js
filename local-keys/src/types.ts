@@ -87,10 +87,23 @@ export interface AgentHosting {
   repo?: string
 }
 
+/**
+ * Cached person-server metadata (from `{personServerUrl}/.well-known/aauth-person.json`),
+ * saved at bootstrap so fetch doesn't re-fetch it on every token exchange.
+ */
+export interface PersonServerMetadata {
+  issuer?: string
+  token_endpoint: string
+  jwks_uri?: string
+  authorization_endpoint?: string
+}
+
 export interface AgentConfig {
   /** Agent identifier, e.g. aauth:local@dickhardt.github.io */
   agentId?: string
   personServerUrl?: string
+  /** Cached PS metadata so fetch can skip the runtime /.well-known/aauth-person.json fetch */
+  personServerMetadata?: PersonServerMetadata
   /** The agent server metadata URL, e.g. https://me.github.io/.well-known/aauth-agent.json */
   agentServerUrl?: string
   /** Cached jwks_uri from the agent server metadata */

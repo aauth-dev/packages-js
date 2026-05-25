@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Mock the network-touching handlers so we test dispatch only (no consent/HTTP).
 vi.mock('./handlers.js', () => ({
   resolvePersonServer: vi.fn(() => 'https://ps.example'),
+  resolvePersonServerMetadata: vi.fn(() => undefined),
   buildGetKeyMaterial: vi.fn(() => async () => ({})),
   buildRequestInit: vi.fn(() => ({ method: 'GET', headers: new Headers() })),
   handleAuthorize: vi.fn(async () => {}),

@@ -5,7 +5,7 @@ import {
   parseAAuthHeader,
   exchangeToken,
 } from '@aauth/mcp-agent'
-import type { GetKeyMaterial, Capability, OnEvent, CapturedSent } from '@aauth/mcp-agent'
+import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/mcp-agent'
 import { createRequire } from 'node:module'
 import open from 'open'
 import { makeVerboseRenderer, prettyJson } from './render.js'
@@ -43,6 +43,26 @@ export function resolvePersonServer(agentProvider: string | undefined, override:
     return undefined
   }
   return getAgentConfig(agentProvider)?.personServerUrl
+}
+
+/**
+ * Cached PS metadata (saved at bootstrap) for the resolved agent, so the token
+ * exchange can skip the runtime /.well-known/aauth-person.json fetch. Returns
+ * undefined when --person-server overrides config (the cached metadata wouldn't
+ * match that ad-hoc PS) or when nothing's cached.
+ */
+export function resolvePersonServerMetadata(
+  agentProvider: string | undefined,
+  override: string | undefined,
+): AuthServerMetadata | undefined {
+  if (override) return undefined
+  if (!agentProvider) {
+    const config = readConfig()
+    const providers = Object.entries(config.agents)
+    if (providers.length === 1) return providers[0][1].personServerMetadata
+    return undefined
+  }
+  return getAgentConfig(agentProvider)?.personServerMetadata
 }
 
 export function buildGetKeyMaterial(args: { agentProvider?: string; local?: string }): GetKeyMaterial {
@@ -122,6 +142,7 @@ export async function handleAuthorize(
   },
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
+  personServerMetadata?: AuthServerMetadata,
 ): Promise<void> {
   const onEvent = verboseRenderer(args.verbose)
   const capabilities = args.capabilities as Capability[] | undefined
@@ -194,6 +215,7 @@ export async function handleAuthorize(
   const result = await exchangeToken({
     signedFetch,
     authServerUrl: personServer,
+    authServerMetadata: personServerMetadata,
     resourceToken,
     justification: args.justification,
     loginHint: args.loginHint,
@@ -267,6 +289,7 @@ export async function handleFullFlow(
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
+  personServerMetadata?: AuthServerMetadata,
 ): Promise<void> {
   const onEvent = verboseRenderer(args.verbose)
   const keyMaterial = await getKeyMaterial()
@@ -275,6 +298,7 @@ export async function handleFullFlow(
   const aAuthFetch = createAAuthFetch({
     getKeyMaterial: pinnedGetKeyMaterial,
     authServerUrl: personServer,
+    authServerMetadata: personServerMetadata,
     justification: args.justification,
     loginHint: args.loginHint,
     tenant: args.tenant,

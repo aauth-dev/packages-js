@@ -60,6 +60,18 @@ describe('bootstrapWithPS', () => {
     expect(agentConfig?.personServerUrl).toBe(PS_URL)
   })
 
+  it('persists the fetched PS metadata so fetch can skip the runtime fetch', async () => {
+    mockFetch.mockResolvedValueOnce(mockMetadataResponse(validMetadata))
+
+    await bootstrapWithPS({ agentUrl: AGENT_URL, personServerUrl: PS_URL })
+
+    expect(getAgentConfig(AGENT_URL)?.personServerMetadata).toEqual({
+      issuer: PS_URL,
+      token_endpoint: `${PS_URL}/aauth/token`,
+      jwks_uri: `${PS_URL}/.well-known/jwks.json`,
+    })
+  })
+
   it('uses the provided `local` value in agentId', async () => {
     mockFetch.mockResolvedValueOnce(mockMetadataResponse(validMetadata))
 

@@ -2,6 +2,7 @@ import { fetch as httpSigFetch } from '@hellocoop/httpsig'
 import { createSignedFetch } from './signed-fetch.js'
 import { parseAAuthHeader, buildCapabilitiesHeader, buildMissionHeader } from './aauth-header.js'
 import { exchangeToken } from './token-exchange.js'
+import type { AuthServerMetadata } from './token-exchange.js'
 import { pollDeferred } from './deferred.js'
 import { decodeJwtPayload } from './decode-jwt.js'
 import { summarizeResponseHeaders, decodeSignatureKey, captureSentFromHttpsig, peekResponseBody } from './log-helpers.js'
@@ -11,6 +12,8 @@ import type { Capability, AAuthMission } from './aauth-header.js'
 export interface AAuthFetchOptions {
   getKeyMaterial: GetKeyMaterial
   authServerUrl?: string
+  /** Cached auth-server metadata; when provided, token exchange skips the /.well-known fetch. */
+  authServerMetadata?: AuthServerMetadata
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
@@ -45,6 +48,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
   const {
     getKeyMaterial,
     authServerUrl: configuredAuthServer,
+    authServerMetadata,
     onInteraction,
     onClarification,
     onEvent,
@@ -154,6 +158,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         const result = await exchangeToken({
           signedFetch,
           authServerUrl,
+          authServerMetadata,
           resourceToken: challenge.resourceToken,
           justification,
           loginHint,

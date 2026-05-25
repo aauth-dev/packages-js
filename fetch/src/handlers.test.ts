@@ -49,6 +49,7 @@ import {
   handleFullFlow,
   buildRequestInit,
   resolvePersonServer,
+  resolvePersonServerMetadata,
   tryParseJson,
 } from './handlers.js'
 import { readConfig, getAgentConfig } from '@aauth/local-keys'
@@ -158,6 +159,27 @@ describe('resolvePersonServer', () => {
       },
     })
     expect(resolvePersonServer(undefined, undefined)).toBeUndefined()
+  })
+})
+
+describe('resolvePersonServerMetadata', () => {
+  beforeEach(() => vi.clearAllMocks())
+  const meta = { token_endpoint: 'https://ps.com/aauth/token', jwks_uri: 'https://ps.com/jwks' }
+
+  it('returns the cached metadata for the configured agent', () => {
+    vi.mocked(getAgentConfig).mockReturnValueOnce({ personServerMetadata: meta, keys: {} })
+    expect(resolvePersonServerMetadata('https://agent.com', undefined)).toEqual(meta)
+  })
+
+  it('returns undefined when --person-server overrides config (ad-hoc PS)', () => {
+    expect(resolvePersonServerMetadata('https://agent.com', 'https://override.com')).toBeUndefined()
+  })
+
+  it('reads the sole agent when no agentUrl', () => {
+    vi.mocked(readConfig).mockReturnValueOnce({
+      agents: { 'https://sole.com': { personServerMetadata: meta, keys: {} } },
+    })
+    expect(resolvePersonServerMetadata(undefined, undefined)).toEqual(meta)
   })
 })
 
@@ -290,6 +312,28 @@ describe('handleFullFlow', () => {
     expect(passedGetKM).not.toBe(fakeGetKeyMaterial)
     expect(await passedGetKM()).toBe(fakeKeyMaterial)
     expect(stdout.output[0]).toContain('"data": "full"')
+  })
+
+  it('passes cached PS metadata through to createAAuthFetch', async () => {
+    mockAAuthFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }))
+    const meta = { token_endpoint: 'https://ps.example.com/aauth/token' }
+
+    const stdout = captureStdout()
+    try {
+      await handleFullFlow(
+        { url: 'https://resource.example/api', nonInteractive: false, verbose: false },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+        meta,
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
+      authServerMetadata: meta,
+    }))
   })
 
   it('works without person server (identity-only resources)', async () => {

@@ -76,6 +76,29 @@ describe('exchangeToken', () => {
     })
   })
 
+  it('uses provided authServerMetadata and skips the /.well-known fetch', async () => {
+    // Only the token endpoint responds — no metadata GET should happen.
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      auth_token: 'eyJ.auth.token',
+      expires_in: 3600,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    const result = await exchangeToken({
+      signedFetch: mockFetch,
+      authServerUrl: 'https://auth.example',
+      authServerMetadata: { token_endpoint: 'https://auth.example/aauth/token' },
+      resourceToken: 'eyJ.resource.token',
+    })
+
+    expect(result).toEqual({ authToken: 'eyJ.auth.token', expiresIn: 3600 })
+    // The very first (and only) call is the token POST — no metadata GET.
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch).toHaveBeenNthCalledWith(1,
+      'https://auth.example/aauth/token',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
   it('202 flow — polls until token is received', async () => {
     // Metadata fetch
     mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(metadata), {
