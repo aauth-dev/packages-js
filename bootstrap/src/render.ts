@@ -42,6 +42,15 @@ export function shapeKeystores(backends: BackendInfo[]): KeystoreInfo[] {
 export const PROTOCOL_SPEC_URL =
   'https://raw.githubusercontent.com/dickhardt/AAuth/refs/heads/main/draft-hardt-oauth-aauth-protocol.md'
 
+/**
+ * The protocol-spec pointer, appended to *every* skill output (the list and each
+ * individual guide) so the agent always learns where the spec is — rather than it
+ * being a separate `protocol` skill it might never open.
+ */
+export function withProtocolSpec(body: string): string {
+  return `${body.replace(/\s+$/, '')}\n\n## AAuth protocol spec\nFetch this URL to read the full spec: ${PROTOCOL_SPEC_URL}`
+}
+
 /** Render the skill list as markdown (`#` title, `##` per skill) — agents parse this best. */
 export function renderSkillListMarkdown(skills: SkillSummary[]): string {
   const lines = ['# AAuth bootstrap skills', '']
@@ -51,10 +60,7 @@ export function renderSkillListMarkdown(skills: SkillSummary[]): string {
     lines.push('')
   }
   lines.push('Run `npx @aauth/bootstrap skill <name>` to print a guide.')
-  lines.push('')
-  lines.push('## AAuth protocol spec')
-  lines.push(`Fetch this URL to read the full spec: ${PROTOCOL_SPEC_URL}`)
-  return lines.join('\n')
+  return withProtocolSpec(lines.join('\n'))
 }
 
 export function topLevelHelp(version: string): string {

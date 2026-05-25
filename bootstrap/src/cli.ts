@@ -28,6 +28,7 @@ import {
   COMMAND_HELP,
   shapeKeystores,
   renderSkillListMarkdown,
+  withProtocolSpec,
   colorizeJson,
 } from './render.js'
 import {
@@ -232,7 +233,7 @@ function cmdSkill(name?: string): void {
   }
   const skill = getSkill(name)
   if (!skill) return fail(`Unknown skill: "${name}". Run \`skill\` to list available skills.`)
-  console.log(skill.body)
+  console.log(withProtocolSpec(skill.body))
 }
 
 function cmdHelp(command?: string): void {

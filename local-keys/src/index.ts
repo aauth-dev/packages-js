@@ -16,6 +16,13 @@ export {
   validateUrl,
   ensureAgentUrls,
 } from './config.js'
+export {
+  readCachedMetadata,
+  writeCachedMetadata,
+  evictCachedMetadata,
+  parseMaxAge,
+  PS_METADATA_FILE,
+} from './metadata-cache.js'
 export { resolveKey, checkKeyAvailability } from './resolve-key.js'
 export { machineLabel, yubikeyLabel } from './device-label.js'
 export { KeyDeletionUnsupportedError } from './types.js'
@@ -33,7 +40,6 @@ export type {
   KeyBackendDriver,
   AAuthConfig,
   AgentConfig,
-  PersonServerMetadata,
   AgentHosting,
   LocalKeyMeta,
   AAuthPublicJwk,

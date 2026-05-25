@@ -1,8 +1,12 @@
 export function topLevelHelp(version: string): string {
   return `DESCRIPTION
-  AAuth fetch v${version} — make a signed, authenticated HTTP
-  request that handles the AAuth challenge flow (401 → token exchange → consent → retry)
-  for you, then prints the resource's response.
+  AAuth fetch v${version} — make a signed, authenticated request to <resource> and
+  print its response. Runs the full AAuth flow adaptively: sign with the agent token
+  and send; on a 401/202 challenge, exchange the resource token for an auth token
+  (consent if needed) and retry; for a resource-managed (two-party) resource, carry
+  the opaque AAuth-Access token instead. Result on stdout is the response body
+  (pretty JSON when JSON, else raw); --with-token returns the reusable credential
+  alongside it.
 
 USAGE
   npx @aauth/fetch <resource> [flags]
@@ -45,12 +49,21 @@ AAUTH
   --person-server <url>
     Person server for token exchange (default: from config)
 
-MODE (modifiers — still return the resource response)
+MODE (modifiers)
   --agent-only
     Sign with the agent token and send; do not handle a 401 challenge.
 
   --auth-token <jwt>  --signing-key <jwk>
-    Use an existing auth token + signing key (skip the auth flow).
+    Use an existing auth token + signing key (skip the auth flow). Three-party reuse.
+
+  --access-token <token>
+    Reuse an opaque AAuth-Access token (two-party / resource-managed). Sent under
+    the AAuth scheme and bound to the request signature; no signing key needed.
+
+  --with-token
+    Return { auth_token, expires_in, signingKey, response } — and access_token in
+    two-party mode — instead of just the response body: the call plus the reusable
+    credential, so the next call can skip the consent round-trip (see EXAMPLES).
 
 HINTS (passed through the auth flow)
   --login-hint <hint>      Hint about who to authorize (user / account)
@@ -72,12 +85,23 @@ OUTPUT
     (request|response|info), "step" (pairs a request with its response), a
     "description", and method/url/status + the real RFC 9421 signed headers.
 
-EXAMPLE
+EXAMPLES
+  One-shot — run the full flow and print the response body:
+
   $ npx @aauth/fetch https://whoami.aauth.dev
   {
-    "sub": "aauth:local@descartes.github.io",
-    "scope": "openid profile"
-  }`
+    "sub": "aauth:local@me.github.io",
+    "ps": "https://person.hello.coop"
+  }
+
+  Reuse across calls — add --with-token to get the response AND the auth token in one
+  call, then export the token so later calls reuse it (no consent, no person-server
+  round-trip):
+
+  $ OUT=$(npx @aauth/fetch --with-token https://notes.aauth.dev/notes)
+  $ export AAUTH_AUTH_TOKEN=$(jq -r .auth_token  <<<"$OUT")
+  $ export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
+  $ npx @aauth/fetch https://notes.aauth.dev/notes      # reuses the saved token`
 }
 
 export const COMMAND_HELP: Record<string, string> = {
@@ -98,19 +122,20 @@ FLAGS
   (also accepts the AAUTH, HINTS, CONSENT, and CAPABILITIES flags)
 
 EXAMPLE
-  $ npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations listNotes,createNote
-  { "auth_token": "eyJ…", "expires_in": 3600, "signingKey": { … }, "response": { "status": 200 } }
-
-  Capture this and reuse it — authorize once (one consent), then make many calls.
-  Keep the tokens in your shell session:
+  Authorize once, capture the output, and export the token to call a protected resource:
 
   $ OUT=$(npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations listNotes,createNote)
   $ export AAUTH_AUTH_TOKEN=$(jq -r .auth_token  <<<"$OUT")
   $ export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
-  $ npx @aauth/fetch https://notes.aauth.dev/notes      # signs with the saved auth token
 
-  Reuse makes no person-server round-trip — just one signed request. The signing
-  key is emitted so it isn't re-minted; the same key must sign every reuse.`,
+  Next — call the protected resource with the saved credential. Each call is a
+  single signed request: no consent, no person-server round-trip.
+
+  $ npx @aauth/fetch https://notes.aauth.dev/notes
+  $ npx @aauth/fetch -X POST -d '{"title":"x","content":"y"}' https://notes.aauth.dev/notes
+
+  The ephemeral signing key is emitted so it isn't re-minted — the same key must
+  sign every reuse.`,
 
   skill: `DESCRIPTION
   Print the agent guide for using @aauth/fetch (markdown), plus a URL pointer to

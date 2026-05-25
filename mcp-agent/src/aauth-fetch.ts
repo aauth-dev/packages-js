@@ -16,6 +16,16 @@ export interface AAuthFetchOptions {
   authServerMetadata?: AuthServerMetadata
   /** Called with freshly-fetched metadata so the caller can persist it. */
   onMetadata?: (metadata: AuthServerMetadata) => void
+  /** Called with the auth token minted during a challenge exchange, so the caller
+   * can surface it as a reusable credential (e.g. `fetch --with-token`). */
+  onAuthToken?: (authToken: string, expiresIn: number) => void
+  /** Called with an opaque AAuth-Access token received from a resource (two-party
+   * mode), including rolling-refresh replacements, so the caller can surface it
+   * for reuse. */
+  onAccessToken?: (accessToken: string) => void
+  /** Seed an opaque AAuth-Access token (two-party mode) to send on the first
+   * request to a resource — the reuse counterpart of `onAccessToken`. */
+  accessToken?: string
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
@@ -52,6 +62,9 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     authServerUrl: configuredAuthServer,
     authServerMetadata,
     onMetadata,
+    onAuthToken,
+    onAccessToken,
+    accessToken: seedAccessToken,
     onInteraction,
     onClarification,
     onEvent,
@@ -80,6 +93,12 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     const urlStr = typeof url === 'string' ? url : url.toString()
     const resourceOrigin = new URL(urlStr).origin
 
+    // Seed a provided AAuth-Access token (two-party reuse) so the first request
+    // to this resource sends it. A token the resource later returns replaces it.
+    if (seedAccessToken && !accessCache.has(resourceOrigin)) {
+      accessCache.set(resourceOrigin, { token: seedAccessToken })
+    }
+
     // Check cache for a valid auth token for this resource
     const cached = findCachedToken(tokenCache, resourceOrigin)
     if (cached) {
@@ -87,7 +106,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       const response = await fetchWithAuthToken(url, init, cached.authToken, getKeyMaterial, onSigned)
       // If the cached token is rejected, fall through to challenge flow
       if (response.status !== 401) {
-        cacheAccessToken(accessCache, resourceOrigin, response)
+        cacheAccessToken(accessCache, resourceOrigin, response, onAccessToken)
         return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
       }
       // Cached token rejected — remove and proceed with fresh exchange
@@ -99,7 +118,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     if (cachedAccess) {
       const response = await fetchWithAccessToken(url, init, cachedAccess.token, getKeyMaterial, onSigned)
       if (response.status !== 401) {
-        cacheAccessToken(accessCache, resourceOrigin, response)
+        cacheAccessToken(accessCache, resourceOrigin, response, onAccessToken)
         return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
       }
       // Access token rejected — remove and proceed
@@ -132,7 +151,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
 
     // 200: success — check for AAuth-Access token
     if (response.status === 200) {
-      cacheAccessToken(accessCache, resourceOrigin, response)
+      cacheAccessToken(accessCache, resourceOrigin, response, onAccessToken)
       return response
     }
 
@@ -184,6 +203,8 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           expiresAt: Date.now() + result.expiresIn * 1000,
           authServer: authServerUrl,
         })
+        // Surface it as a reusable credential (e.g. `fetch --with-token`).
+        onAuthToken?.(result.authToken, result.expiresIn)
 
         // Retry with auth token
         onEvent?.({
@@ -202,7 +223,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           request_headers: sentTracker.latest?.headers,
           response: { headers: summarizeResponseHeaders(retryResponse.headers) },
         })
-        cacheAccessToken(accessCache, resourceOrigin, retryResponse)
+        cacheAccessToken(accessCache, resourceOrigin, retryResponse, onAccessToken)
         return handleResourceInteraction(retryResponse, signedFetch, onInteraction, onClarification)
       }
 
@@ -212,7 +233,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
 
     // 202 with interaction: resource-level interaction (two-party mode)
     const terminalResponse = await handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
-    cacheAccessToken(accessCache, resourceOrigin, terminalResponse)
+    cacheAccessToken(accessCache, resourceOrigin, terminalResponse, onAccessToken)
     return terminalResponse
   }
 }
@@ -335,13 +356,19 @@ async function fetchWithAccessToken(
 }
 
 /**
- * Cache an AAuth-Access token from a response if present.
- * A new AAuth-Access header replaces any previously cached token.
+ * Cache an AAuth-Access token from a response if present, and surface it via
+ * onAccessToken. A new AAuth-Access header replaces any previously cached token.
  */
-function cacheAccessToken(cache: Map<string, CachedAccess>, resourceOrigin: string, response: Response): void {
+function cacheAccessToken(
+  cache: Map<string, CachedAccess>,
+  resourceOrigin: string,
+  response: Response,
+  onAccessToken?: (accessToken: string) => void,
+): void {
   const accessToken = response.headers.get('aauth-access')
   if (accessToken) {
     cache.set(resourceOrigin, { token: accessToken })
+    onAccessToken?.(accessToken)
   }
 }
 

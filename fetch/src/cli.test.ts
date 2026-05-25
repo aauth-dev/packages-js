@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('./handlers.js', () => ({
   resolvePersonServer: vi.fn(() => 'https://ps.example'),
   resolvePersonServerMetadata: vi.fn(() => undefined),
+  savePersonServerMetadata: vi.fn(),
+  // Pass-through: invoke the flow once with the cached metadata (no self-heal in dispatch tests).
+  runWithMetadataSelfHeal: vi.fn((_ps, cached, run) => run(cached)),
   buildGetKeyMaterial: vi.fn(() => async () => ({})),
   buildRequestInit: vi.fn(() => ({ method: 'GET', headers: new Headers() })),
   handleAuthorize: vi.fn(async () => {}),

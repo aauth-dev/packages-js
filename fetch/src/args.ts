@@ -20,9 +20,13 @@ export interface FetchArgs {
   personServer?: string
   authToken?: string
   signingKey?: string
+  /** Opaque AAuth-Access token (two-party reuse) sent under the AAuth scheme. */
+  accessToken?: string
 
   // Mode (modifiers)
   agentOnly: boolean
+  /** --with-token: return { auth_token, expires_in, signingKey, response } instead of the raw body. */
+  withToken: boolean
 
   // Authorize
   operations?: string
@@ -57,6 +61,7 @@ const VALUE_FLAGS: Record<string, string> = {
   'person-server': 'personServer',
   'auth-token': 'authToken',
   'signing-key': 'signingKey',
+  'access-token': 'accessToken',
   operations: 'operations',
   scope: 'scope',
   'login-hint': 'loginHint',
@@ -73,6 +78,7 @@ export function parseArgs(argv: string[]): FetchArgs {
     headers: [],
     jsonInput: false,
     agentOnly: false,
+    withToken: false,
     nonInteractive: false,
     verbose: false,
     help: false,
@@ -95,6 +101,7 @@ export function parseArgs(argv: string[]): FetchArgs {
       // boolean flags
       if (key === 'verbose') { a.verbose = true; continue }
       if (key === 'agent-only') { a.agentOnly = true; continue }
+      if (key === 'with-token') { a.withToken = true; continue }
       if (key === 'json') { a.jsonInput = true; continue }
       if (key === 'no-browser') { a.browser = false; continue }
       if (key === 'non-interactive') { a.nonInteractive = true; continue }
@@ -132,6 +139,7 @@ export function parseArgs(argv: string[]): FetchArgs {
   a.personServer = a.personServer ?? process.env.AAUTH_PERSON_SERVER
   a.authToken = a.authToken ?? process.env.AAUTH_AUTH_TOKEN
   a.signingKey = a.signingKey ?? process.env.AAUTH_SIGNING_KEY
+  a.accessToken = a.accessToken ?? process.env.AAUTH_ACCESS_TOKEN
 
   return a
 }

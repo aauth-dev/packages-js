@@ -12,6 +12,7 @@ import {
   resolvePersonServer,
   resolvePersonServerMetadata,
   savePersonServerMetadata,
+  runWithMetadataSelfHeal,
   buildGetKeyMaterial,
   buildRequestInit,
   handleAuthorize,
@@ -68,10 +69,13 @@ export async function run(): Promise<void> {
       return
     }
     const personServer = resolvePersonServer(args.agentProvider, args.personServer)
-    const personServerMetadata = resolvePersonServerMetadata(args.agentProvider, args.personServer)
-    const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(args.agentProvider, args.personServer, m)
+    const cachedMetadata = resolvePersonServerMetadata(personServer)
+    const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(personServer, m)
     const getKeyMaterial = buildGetKeyMaterial(args)
-    await handleAuthorize({ ...args, url: args.url }, getKeyMaterial, personServer, personServerMetadata, onMetadata)
+    const url = args.url
+    await runWithMetadataSelfHeal(personServer, cachedMetadata, (metadata) =>
+      handleAuthorize({ ...args, url }, getKeyMaterial, personServer, metadata, onMetadata),
+    )
     return
   }
 
@@ -92,9 +96,11 @@ export async function run(): Promise<void> {
   } else if (args.agentOnly) {
     await handleAgentOnly({ ...args, url }, init, getKeyMaterial)
   } else {
-    const personServerMetadata = resolvePersonServerMetadata(args.agentProvider, args.personServer)
-    const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(args.agentProvider, args.personServer, m)
-    await handleFullFlow({ ...args, url }, init, getKeyMaterial, personServer, personServerMetadata, onMetadata)
+    const cachedMetadata = resolvePersonServerMetadata(personServer)
+    const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(personServer, m)
+    await runWithMetadataSelfHeal(personServer, cachedMetadata, (metadata) =>
+      handleFullFlow({ ...args, url }, init, getKeyMaterial, personServer, metadata, onMetadata),
+    )
   }
 }
 

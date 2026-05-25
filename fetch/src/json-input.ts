@@ -8,6 +8,7 @@ export interface JsonRequest {
   // Spec-defined fields use the spec's snake_case names; our own artifacts
   // (signingKey, agentProvider, personServer, agentOnly, local) stay camelCase.
   auth_token?: string
+  access_token?: string
   signingKey?: JsonWebKey
   agentProvider?: string
   local?: string
@@ -15,6 +16,7 @@ export interface JsonRequest {
   scope?: string
   personServer?: string
   agentOnly?: boolean
+  withToken?: boolean
   login_hint?: string
   domain_hint?: string
   tenant?: string
@@ -44,6 +46,7 @@ export function mergeJsonInput(args: FetchArgs, json: JsonRequest): FetchArgs {
       : args.headers,
     data: json.body !== undefined ? JSON.stringify(json.body) : args.data,
     authToken: json.auth_token ?? args.authToken,
+    accessToken: json.access_token ?? args.accessToken,
     signingKey: json.signingKey ? JSON.stringify(json.signingKey) : args.signingKey,
     agentProvider: json.agentProvider ?? args.agentProvider,
     local: json.local ?? args.local,
@@ -51,6 +54,7 @@ export function mergeJsonInput(args: FetchArgs, json: JsonRequest): FetchArgs {
     scope: json.scope ?? args.scope,
     personServer: json.personServer ?? args.personServer,
     agentOnly: json.agentOnly ?? args.agentOnly,
+    withToken: json.withToken ?? args.withToken,
     loginHint: json.login_hint ?? args.loginHint,
     domainHint: json.domain_hint ?? args.domainHint,
     tenant: json.tenant ?? args.tenant,

@@ -40,7 +40,19 @@ npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes,createNote
 ```
 
-Returns the auth token and ephemeral signing key. Save them and pass back in via JSON stdin to avoid exposing keys on the process command line.
+Returns the auth token and ephemeral signing key. Or capture the credential *with*
+the call using `--with-token`, then export it so later calls reuse it:
+
+```bash
+OUT=$(npx @aauth/fetch --with-token https://notes.aauth.dev/notes)
+export AAUTH_AUTH_TOKEN=$(jq -r .auth_token  <<<"$OUT")
+export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
+npx @aauth/fetch https://notes.aauth.dev/notes      # signs with the saved auth token
+```
+
+Tokens are never written to disk — you decide how to reuse them (export to env,
+pipe between commands). Only the public person-server metadata is cached, under
+`~/.aauth/cache/`.
 
 ## Usage
 
@@ -61,9 +73,13 @@ AAuth:
   --local <name>              Local part of agent identifier (default: from config)
   --person-server <url>       Override person server URL
 
-Modes (still return the resource response):
+Modes:
   --agent-only                Sign with agent token only; don't handle 401
-  --auth-token <jwt> --signing-key <jwk>   Use an existing auth token + signing key
+  --auth-token <jwt> --signing-key <jwk>   Use an existing auth token + signing key (three-party)
+  --access-token <token>      Reuse an opaque AAuth-Access token (two-party; no signing key)
+  --with-token                Return { auth_token, expires_in, signingKey, response }
+                              (and access_token in two-party mode) instead of just the
+                              body — the call + reusable credential
 
 Authorize (with the `authorize` command):
   --operations <ops>          R3 operationIds (comma-separated)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
-import { readConfig, writeConfig, getAgentConfig } from '@aauth/local-keys'
+import { readConfig, writeConfig, getAgentConfig, readCachedMetadata, evictCachedMetadata } from '@aauth/local-keys'
 import type { AAuthConfig } from '@aauth/local-keys'
 import { bootstrapWithPS } from './bootstrap-ps.js'
 
@@ -40,6 +40,8 @@ describe('bootstrapWithPS', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    // Drop the on-disk cache entry the bootstrap may have written (keyed by PS host).
+    evictCachedMetadata('ps.example')
   })
 
   it('fetches metadata from the correct well-known URL', async () => {
@@ -60,16 +62,14 @@ describe('bootstrapWithPS', () => {
     expect(agentConfig?.personServerUrl).toBe(PS_URL)
   })
 
-  it('persists the fetched PS metadata so fetch can skip the runtime fetch', async () => {
+  it('caches the fetched PS metadata (by PS host) so fetch can skip the runtime fetch', async () => {
     mockFetch.mockResolvedValueOnce(mockMetadataResponse(validMetadata))
 
     await bootstrapWithPS({ agentUrl: AGENT_URL, personServerUrl: PS_URL })
 
-    expect(getAgentConfig(AGENT_URL)?.personServerMetadata).toEqual({
-      issuer: PS_URL,
-      token_endpoint: `${PS_URL}/aauth/token`,
-      jwks_uri: `${PS_URL}/.well-known/jwks.json`,
-    })
+    // The full fetched doc is cached verbatim, keyed by the PS host — not in config.
+    expect(readCachedMetadata('ps.example')).toEqual(validMetadata)
+    expect(getAgentConfig(AGENT_URL)).not.toHaveProperty('personServerMetadata')
   })
 
   it('uses the provided `local` value in agentId', async () => {

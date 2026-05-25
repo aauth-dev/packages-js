@@ -7,7 +7,7 @@ const argv = (...rest: string[]) => ['node', 'aauth-fetch', ...rest]
 describe('parseArgs', () => {
   const originalEnv = { ...process.env }
   beforeEach(() => {
-    for (const k of ['AAUTH_AGENT_URL', 'AAUTH_LOCAL', 'AAUTH_AUTH_TOKEN', 'AAUTH_SIGNING_KEY', 'AAUTH_PERSON_SERVER']) {
+    for (const k of ['AAUTH_AGENT_URL', 'AAUTH_LOCAL', 'AAUTH_AUTH_TOKEN', 'AAUTH_SIGNING_KEY', 'AAUTH_ACCESS_TOKEN', 'AAUTH_PERSON_SERVER']) {
       delete process.env[k]
     }
   })
@@ -60,6 +60,14 @@ describe('parseArgs', () => {
   it('parses --local / --person-server / --auth-token / --signing-key', () => {
     const a = parseArgs(argv('https://x', '--local', 'claude', '--person-server', 'https://ps', '--auth-token', 'jwt', '--signing-key', '{}'))
     expect(a).toMatchObject({ local: 'claude', personServer: 'https://ps', authToken: 'jwt', signingKey: '{}' })
+  })
+
+  it('parses --access-token (flag and AAUTH_ACCESS_TOKEN env)', () => {
+    expect(parseArgs(argv('https://x', '--access-token', 'opaque-1')).accessToken).toBe('opaque-1')
+    process.env.AAUTH_ACCESS_TOKEN = 'opaque-env'
+    expect(parseArgs(argv('https://x')).accessToken).toBe('opaque-env')
+    // flag wins over env
+    expect(parseArgs(argv('https://x', '--access-token', 'opaque-flag')).accessToken).toBe('opaque-flag')
   })
 
   it('parses --agent-only', () => {

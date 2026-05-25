@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { KeyMaterial } from '@aauth/mcp-agent'
+import type { KeyMaterial, AAuthFetchOptions } from '@aauth/mcp-agent'
 
 // --- Mocks ---
 
@@ -15,7 +15,7 @@ const { mockCreateAAuthFetch, mockAAuthFetch } = vi.hoisted(() => {
   const mockAAuthFetch = vi.fn()
   return {
     mockAAuthFetch,
-    mockCreateAAuthFetch: vi.fn(() => mockAAuthFetch),
+    mockCreateAAuthFetch: vi.fn((_opts: AAuthFetchOptions) => mockAAuthFetch),
   }
 })
 
@@ -27,18 +27,30 @@ const { mockParseAAuthHeader } = vi.hoisted(() => ({
   mockParseAAuthHeader: vi.fn(),
 }))
 
+const { FakeTokenExchangeError } = vi.hoisted(() => ({
+  FakeTokenExchangeError: class extends Error {
+    constructor(public readonly status: number) {
+      super(`Token exchange failed with status ${status}`)
+      this.name = 'TokenExchangeError'
+    }
+  },
+}))
+
 vi.mock('@aauth/mcp-agent', () => ({
   createSignedFetch: mockCreateSignedFetch,
   createAAuthFetch: mockCreateAAuthFetch,
   exchangeToken: mockExchangeToken,
   parseAAuthHeader: mockParseAAuthHeader,
+  TokenExchangeError: FakeTokenExchangeError,
 }))
 
 vi.mock('@aauth/local-keys', () => ({
   createAgentToken: vi.fn(),
   readConfig: vi.fn(() => ({ agents: {} })),
   getAgentConfig: vi.fn(() => null),
-  setAgentConfig: vi.fn(),
+  readCachedMetadata: vi.fn(() => null),
+  writeCachedMetadata: vi.fn(),
+  evictCachedMetadata: vi.fn(),
 }))
 
 vi.mock('open', () => ({ default: vi.fn() }))
@@ -52,9 +64,11 @@ import {
   resolvePersonServer,
   resolvePersonServerMetadata,
   savePersonServerMetadata,
+  runWithMetadataSelfHeal,
   tryParseJson,
 } from './handlers.js'
-import { readConfig, getAgentConfig, setAgentConfig } from '@aauth/local-keys'
+import { readConfig, getAgentConfig, readCachedMetadata, writeCachedMetadata, evictCachedMetadata } from '@aauth/local-keys'
+import { TokenExchangeError } from '@aauth/mcp-agent'
 import open from 'open'
 
 // --- Helpers ---
@@ -168,20 +182,20 @@ describe('resolvePersonServerMetadata', () => {
   beforeEach(() => vi.clearAllMocks())
   const meta = { token_endpoint: 'https://ps.com/aauth/token', jwks_uri: 'https://ps.com/jwks' }
 
-  it('returns the cached metadata for the configured agent', () => {
-    vi.mocked(getAgentConfig).mockReturnValueOnce({ personServerMetadata: meta, keys: {} })
-    expect(resolvePersonServerMetadata('https://agent.com', undefined)).toEqual(meta)
+  it('returns the cached metadata for the PS host', () => {
+    vi.mocked(readCachedMetadata).mockReturnValueOnce(meta)
+    expect(resolvePersonServerMetadata('https://ps.com')).toEqual(meta)
+    expect(readCachedMetadata).toHaveBeenCalledWith('ps.com')
   })
 
-  it('returns undefined when --person-server overrides config (ad-hoc PS)', () => {
-    expect(resolvePersonServerMetadata('https://agent.com', 'https://override.com')).toBeUndefined()
+  it('returns undefined when nothing is cached (or it expired)', () => {
+    vi.mocked(readCachedMetadata).mockReturnValueOnce(null)
+    expect(resolvePersonServerMetadata('https://ps.com')).toBeUndefined()
   })
 
-  it('reads the sole agent when no agentUrl', () => {
-    vi.mocked(readConfig).mockReturnValueOnce({
-      agents: { 'https://sole.com': { personServerMetadata: meta, keys: {} } },
-    })
-    expect(resolvePersonServerMetadata(undefined, undefined)).toEqual(meta)
+  it('returns undefined (no cache lookup) when no person server is given', () => {
+    expect(resolvePersonServerMetadata(undefined)).toBeUndefined()
+    expect(readCachedMetadata).not.toHaveBeenCalled()
   })
 })
 
@@ -189,23 +203,74 @@ describe('savePersonServerMetadata', () => {
   beforeEach(() => vi.clearAllMocks())
   const meta = { token_endpoint: 'https://ps.com/aauth/token', jwks_uri: 'https://ps.com/jwks' }
 
-  it('writes the fetched metadata back to the agent config', () => {
-    vi.mocked(getAgentConfig).mockReturnValueOnce({ personServerUrl: 'https://ps.com', keys: {} })
-    savePersonServerMetadata('https://agent.com', undefined, meta)
-    expect(setAgentConfig).toHaveBeenCalledWith('https://agent.com', expect.objectContaining({
-      personServerMetadata: { token_endpoint: meta.token_endpoint, jwks_uri: meta.jwks_uri },
-    }))
+  it('writes the fetched metadata to the cache, keyed by PS host', () => {
+    savePersonServerMetadata('https://ps.com', meta)
+    expect(writeCachedMetadata).toHaveBeenCalledWith('ps.com', meta)
   })
 
-  it('is a no-op when --person-server overrides config (ad-hoc PS)', () => {
-    savePersonServerMetadata('https://agent.com', 'https://override.com', meta)
-    expect(setAgentConfig).not.toHaveBeenCalled()
+  it('is a no-op when no person server is given', () => {
+    savePersonServerMetadata(undefined, meta)
+    expect(writeCachedMetadata).not.toHaveBeenCalled()
+  })
+})
+
+describe('runWithMetadataSelfHeal', () => {
+  beforeEach(() => vi.clearAllMocks())
+  const meta = { token_endpoint: 'https://ps.com/aauth/token' }
+
+  it('passes the cached metadata through on success (no eviction)', async () => {
+    const run = vi.fn().mockResolvedValue(undefined)
+    await runWithMetadataSelfHeal('https://ps.com', meta, run)
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(run).toHaveBeenCalledWith(meta)
+    expect(evictCachedMetadata).not.toHaveBeenCalled()
   })
 
-  it('is a no-op when the agent cannot be resolved', () => {
-    vi.mocked(getAgentConfig).mockReturnValueOnce(null)
-    savePersonServerMetadata('https://agent.com', undefined, meta)
-    expect(setAgentConfig).not.toHaveBeenCalled()
+  it('evicts and retries once (fresh fetch) on a 404 from the cached endpoint', async () => {
+    const run = vi.fn()
+      .mockRejectedValueOnce(new TokenExchangeError(404))
+      .mockResolvedValueOnce(undefined)
+    await runWithMetadataSelfHeal('https://ps.com', meta, run)
+    expect(evictCachedMetadata).toHaveBeenCalledWith('ps.com')
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(run).toHaveBeenNthCalledWith(2, undefined) // retry forces a fresh fetch
+  })
+
+  it('self-heals on a network error (TypeError) reaching the cached endpoint', async () => {
+    const run = vi.fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(undefined)
+    await runWithMetadataSelfHeal('https://ps.com', meta, run)
+    expect(evictCachedMetadata).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('does NOT self-heal a 401 challenge (rethrows, no retry)', async () => {
+    const run = vi.fn().mockRejectedValue(new TokenExchangeError(401))
+    await expect(runWithMetadataSelfHeal('https://ps.com', meta, run)).rejects.toThrow()
+    expect(evictCachedMetadata).not.toHaveBeenCalled()
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT self-heal a 5xx (rethrows, no retry)', async () => {
+    const run = vi.fn().mockRejectedValue(new TokenExchangeError(503))
+    await expect(runWithMetadataSelfHeal('https://ps.com', meta, run)).rejects.toThrow()
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry when there was no cached metadata to blame', async () => {
+    const run = vi.fn().mockRejectedValue(new TokenExchangeError(404))
+    await expect(runWithMetadataSelfHeal('https://ps.com', undefined, run)).rejects.toThrow()
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(evictCachedMetadata).not.toHaveBeenCalled()
+  })
+
+  it('does not loop: a second stale failure on retry propagates', async () => {
+    const run = vi.fn().mockRejectedValue(new TokenExchangeError(404))
+    await expect(runWithMetadataSelfHeal('https://ps.com', meta, run)).rejects.toThrow()
+    // one eviction, exactly two attempts (original + single retry)
+    expect(evictCachedMetadata).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -381,6 +446,123 @@ describe('handleFullFlow', () => {
       authServerUrl: undefined,
     }))
   })
+
+  it('--with-token returns { auth_token, expires_in, signingKey, response }', async () => {
+    // Simulate an auth token being minted during the flow (resource challenged).
+    mockCreateAAuthFetch.mockImplementationOnce((opts: { onAuthToken?: (t: string, e: number) => void }) => {
+      opts.onAuthToken?.('eyJ.minted.token', 3600)
+      return mockAAuthFetch
+    })
+    mockAAuthFetch.mockResolvedValueOnce(new Response('{"data":"secret"}', { status: 200 }))
+
+    const stdout = captureStdout()
+    try {
+      await handleFullFlow(
+        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, withToken: true },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    const result = JSON.parse(stdout.output[0])
+    expect(result.auth_token).toBe('eyJ.minted.token')
+    expect(result.expires_in).toBe(3600)
+    expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
+    expect(result.response).toEqual({ status: 200, body: { data: 'secret' } })
+    // The onAuthToken callback was wired in.
+    expect(typeof mockCreateAAuthFetch.mock.calls[0][0].onAuthToken).toBe('function')
+  })
+
+  it('--with-token omits auth_token when none was minted (agent-token 200)', async () => {
+    mockAAuthFetch.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))
+
+    const stdout = captureStdout()
+    try {
+      await handleFullFlow(
+        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, withToken: true },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    const result = JSON.parse(stdout.output[0])
+    expect(result.auth_token).toBeUndefined()
+    expect(result.expires_in).toBeUndefined()
+    expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
+    expect(result.response.status).toBe(200)
+  })
+
+  it('default (no --with-token) prints the raw resource body', async () => {
+    mockAAuthFetch.mockResolvedValueOnce(new Response('{"data":"full"}', { status: 200 }))
+
+    const stdout = captureStdout()
+    try {
+      await handleFullFlow(
+        { url: 'https://resource.example/api', nonInteractive: false, verbose: false },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    // Raw body, not wrapped in a { response } object.
+    expect(stdout.output[0]).toContain('"data": "full"')
+    expect(stdout.output[0]).not.toContain('signingKey')
+  })
+
+  it('--with-token includes access_token in two-party mode', async () => {
+    // Simulate a resource handing back an opaque AAuth-Access token.
+    mockCreateAAuthFetch.mockImplementationOnce((opts) => {
+      opts.onAccessToken?.('opaque-xyz')
+      return mockAAuthFetch
+    })
+    mockAAuthFetch.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))
+
+    const stdout = captureStdout()
+    try {
+      await handleFullFlow(
+        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, withToken: true },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        undefined,
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    const result = JSON.parse(stdout.output[0])
+    expect(result.access_token).toBe('opaque-xyz')
+    expect(result.auth_token).toBeUndefined()
+    expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
+  })
+
+  it('--access-token seeds the opaque token into createAAuthFetch', async () => {
+    mockAAuthFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    const stdout = captureStdout()
+    try {
+      await handleFullFlow(
+        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, accessToken: 'reuse-me' },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        undefined,
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: 'reuse-me',
+    }))
+  })
 })
 
 describe('handleAuthorize', () => {
@@ -405,6 +587,29 @@ describe('handleAuthorize', () => {
     expect(result.signatureKey).toEqual(fakeKeyMaterial.signatureKey)
     expect(result.response.status).toBe(200)
     expect(result.response.body).toEqual({ identity: 'me' })
+    expect(result.access_token).toBeUndefined() // no AAuth-Access header → no field
+  })
+
+  it('surfaces access_token from a two-party 200 (AAuth-Access header)', async () => {
+    mockSignedFetch.mockResolvedValueOnce(new Response('{"data":1}', {
+      status: 200,
+      headers: { 'aauth-access': 'opaque-aaa' },
+    }))
+
+    const stdout = captureStdout()
+    try {
+      await handleAuthorize(
+        { url: 'https://resource.example', nonInteractive: false, verbose: false },
+        fakeGetKeyMaterial,
+        undefined,
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    const result = JSON.parse(stdout.output[0])
+    expect(result.access_token).toBe('opaque-aaa')
+    expect(result.response.status).toBe(200)
   })
 
   it('exchanges token on 401 challenge and returns authToken + signingKey', async () => {

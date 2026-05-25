@@ -1,4 +1,4 @@
-import { setAgentConfig, getAgentConfig } from '@aauth/local-keys'
+import { setAgentConfig, getAgentConfig, writeCachedMetadata, parseMaxAge } from '@aauth/local-keys'
 
 export interface BootstrapPSOptions {
   agentUrl: string
@@ -25,6 +25,8 @@ interface PSMetadata {
  * This function:
  * 1. Fetches and validates PS metadata
  * 2. Persists agentId + personServerUrl to ~/.aauth/config.json
+ * 3. Caches the fetched PS metadata (public) to ~/.aauth/cache/ so fetch can
+ *    skip the runtime /.well-known/aauth-person.json round-trip until it expires
  *
  * No network registration call is made; signAgentToken reads personServerUrl
  * from config and includes it in the `ps` claim of every minted agent_token.
@@ -32,7 +34,7 @@ interface PSMetadata {
 export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void> {
   const { agentUrl, personServerUrl, local = 'local' } = options
 
-  const metadata = await fetchPSMetadata(personServerUrl)
+  const { metadata, cacheControl } = await fetchPSMetadata(personServerUrl)
 
   if (!metadata.issuer) {
     throw new Error('PS metadata missing required field: issuer')
@@ -54,26 +56,30 @@ export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void
 
   const agentId = `aauth:${local}@${new URL(agentUrl).hostname}`
   const existing = getAgentConfig(agentUrl)
-  // Persist the PS metadata we just fetched so fetch can skip the runtime
-  // /.well-known/aauth-person.json round-trip on every token exchange.
   setAgentConfig(agentUrl, {
     ...(existing ?? { keys: {} }),
     agentId,
     personServerUrl,
-    personServerMetadata: {
-      issuer: metadata.issuer,
-      token_endpoint: metadata.token_endpoint,
-      jwks_uri: metadata.jwks_uri,
-      ...(metadata.authorization_endpoint ? { authorization_endpoint: metadata.authorization_endpoint } : {}),
-    },
   })
+
+  // Cache the PS metadata we just fetched (public, not a secret) so fetch can
+  // skip the runtime /.well-known/aauth-person.json round-trip. Honour the
+  // server's Cache-Control: max-age if it sent one, else the cache's default TTL.
+  writeCachedMetadata(
+    new URL(personServerUrl).hostname,
+    metadata,
+    parseMaxAge(cacheControl),
+  )
 }
 
-async function fetchPSMetadata(personServerUrl: string): Promise<PSMetadata> {
+async function fetchPSMetadata(
+  personServerUrl: string,
+): Promise<{ metadata: PSMetadata; cacheControl: string | null }> {
   const url = `${personServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
   const response = await fetch(url)
   if (!response.ok) {
     throw new Error(`Failed to fetch PS metadata at ${url}: ${response.status}`)
   }
-  return await response.json() as PSMetadata
+  const metadata = await response.json() as PSMetadata
+  return { metadata, cacheControl: response.headers.get('cache-control') }
 }

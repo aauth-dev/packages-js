@@ -3,6 +3,7 @@ import type { BackendInfo } from '@aauth/local-keys'
 import {
   shapeKeystores,
   renderSkillListMarkdown,
+  withProtocolSpec,
   topLevelHelp,
   COMMAND_HELP,
   colorizeJson,
@@ -50,6 +51,18 @@ describe('renderSkillListMarkdown', () => {
     const md = renderSkillListMarkdown(skills)
     expect(md).toContain('## AAuth protocol spec')
     expect(md).toContain('draft-hardt-oauth-aauth-protocol.md')
+  })
+})
+
+describe('withProtocolSpec', () => {
+  it('appends the spec-URL footer to a skill guide body (every skill carries it)', () => {
+    const out = withProtocolSpec('# setup\n\nDo the thing.\n')
+    expect(out).toContain('# setup')
+    expect(out).toContain('Do the thing.')
+    expect(out).toContain('## AAuth protocol spec')
+    expect(out).toContain('draft-hardt-oauth-aauth-protocol.md')
+    // footer comes after the body, with one blank line between
+    expect(out).toMatch(/Do the thing\.\n\n## AAuth protocol spec\n/)
   })
 })
 

@@ -63,56 +63,69 @@ npx @aauth/fetch "https://whoami.aauth.dev?scope=email+profile"
 
 ## Multi-call workflow (recommended for APIs)
 
-When making multiple calls to the same resource, use the authorize-then-call pattern to avoid repeating the auth flow.
+When making multiple calls to the same resource, authorize once (one consent) and
+reuse the returned `auth_token` + `signingKey` so later calls skip the
+person-server round-trip. Two ways to capture the credential:
 
-### Step 1: Authorize and capture tokens
+- **`authorize <resource>`** — runs the auth flow only and returns the credential (no resource call).
+- **`--with-token`** on a normal fetch — makes the call *and* returns the credential alongside the response.
 
-For resources with standard 401 challenge (e.g., whoami with scopes):
-```bash
-npx @aauth/fetch authorize "https://whoami.aauth.dev?scope=email"
-```
+### Step 1: Authorize once and capture
 
-For R3 resources (e.g., notes), POST to the authorize endpoint with operations:
-```bash
-npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
-  --operations listNotes,createNote
-```
-
-Both return JSON with the auth token and ephemeral signing key:
-```json
-{
-  "auth_token": "eyJ...",
-  "expires_in": 3600,
-  "signingKey": { "kty": "EC", "crv": "P-256", "d": "...", "x": "...", "y": "..." },
-  "response": { "status": 200 }
-}
-```
-
-If the resource accepts an agent token directly (no auth needed), returns:
-```json
-{
-  "signingKey": { "kty": "EC", "crv": "P-256", "d": "...", "x": "...", "y": "..." },
-  "signatureKey": { "type": "jwt", "jwt": "eyJ..." },
-  "response": { "status": 200, "body": { ... } }
-}
-```
-
-Save `auth_token` and `signingKey` for subsequent calls. The `signingKey` is the ephemeral private key bound to the auth token — you must use the same key for all requests. (Spec-defined fields use the spec's snake_case names, e.g. `auth_token`/`expires_in`; our own artifacts like `signingKey` stay camelCase.)
-
-### Step 2: Make calls with saved tokens
-
-Pass tokens via JSON stdin (recommended — avoids exposing keys in process list):
+Run `authorize` **once**, capturing stdout — don't print it and then run it again to
+capture (each run re-mints the token and may re-prompt for consent). The captured
+`$OUT` holds `{ auth_token, expires_in, signingKey, response }`:
 
 ```bash
-echo '{
-  "url": "https://notes.aauth.dev/notes",
-  "method": "GET",
-  "auth_token": "eyJ...",
-  "signingKey": {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}
-}' | npx @aauth/fetch --json
+OUT=$(npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations listNotes,createNote)
 ```
 
-Or for POST/PUT:
+- For a standard 401-challenge resource (e.g. whoami with scopes), pass the resource
+  URL instead: `OUT=$(npx @aauth/fetch authorize "https://whoami.aauth.dev?scope=email")`.
+- Or capture *with* the call in one shot via `--with-token` (makes the request AND
+  returns the credential): `OUT=$(npx @aauth/fetch --with-token https://notes.aauth.dev/notes)`.
+
+If the resource accepts the agent token directly (no auth needed), the output has
+`signingKey` + `signatureKey` + a filled-in `response` instead of an `auth_token`.
+(Spec-defined fields use snake_case — `auth_token`/`expires_in`; our own artifacts like
+`signingKey` stay camelCase.)
+
+### Step 2: Reuse the captured token
+
+**Why:** authorizing runs the consent flow. Do it once, then reuse the `auth_token`
++ `signingKey` so every later call is a single signed request — no consent, no
+person-server round-trip. The token is **never written to disk**; you reuse it.
+
+**Important for agents:** a command can't set its parent shell's environment. So
+you (the caller) capture the output and reuse it — build a **shell script or a
+connected sequence of commands/pipes** that runs Step 1 and Step 2 in order,
+passing the captured value forward. Below, `$OUT` holds the Step 1 output. Three
+ways to reuse it — pick one:
+
+**A. Export to the environment (recommended).** fetch auto-reads `AAUTH_AUTH_TOKEN`
+and `AAUTH_SIGNING_KEY`, so later calls pick the token up with no extra flags:
+
+```bash
+export AAUTH_AUTH_TOKEN=$(jq -r .auth_token  <<<"$OUT")   # $OUT captured in Step 1
+export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
+
+# Next — call the protected resource. Each call is one signed request: no consent,
+# no person-server round-trip.
+npx @aauth/fetch https://notes.aauth.dev/notes
+npx @aauth/fetch -X POST -d '{"title":"hi"}' https://notes.aauth.dev/notes
+```
+
+**B. Pass as flags explicitly** on the next call:
+
+```bash
+npx @aauth/fetch \
+  --auth-token  "$(jq -r .auth_token  <<<"$OUT")" \
+  --signing-key "$(jq -c .signingKey <<<"$OUT")" \
+  https://notes.aauth.dev/notes
+```
+
+**C. Pass via JSON stdin** (keeps keys out of the process list / argv):
+
 ```bash
 echo '{
   "url": "https://notes.aauth.dev/notes",
@@ -123,9 +136,30 @@ echo '{
 }' | npx @aauth/fetch --json
 ```
 
+In all three, `signingKey` is the ephemeral private key bound to the auth token —
+you **must** use the same key on every reuse (it isn't re-minted).
+
+### Two-party (resource-managed) reuse
+
+Some resources manage authorization themselves instead of delegating to a person
+server. After authorizing, they hand back an **opaque `AAuth-Access` token** (in the
+`access_token` field of `authorize` / `--with-token` output). Reuse it with
+`--access-token` — it's sent under the `AAuth` scheme and bound to the request
+signature, so **no signing key is needed** (your agent identity from config signs it):
+
+```bash
+OUT=$(npx @aauth/fetch --with-token https://resource.example/api)
+export AAUTH_ACCESS_TOKEN=$(jq -r .access_token <<<"$OUT")   # or pass --access-token "$TOKEN"
+npx @aauth/fetch https://resource.example/api               # reuses the opaque token
+```
+
+The resource may return a new `AAuth-Access` token on any response (rolling refresh);
+`--with-token` surfaces the latest one. Unlike the three-party auth token, this token
+is opaque and resource-specific — only send it back to the resource that issued it.
+
 ### Token expiration
 
-Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `authorize` step to get fresh tokens.
+Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `authorize` step (or `--with-token`) to get fresh tokens.
 
 ## Agent-only mode
 
@@ -249,7 +283,9 @@ Via JSON stdin:
 | Flag | Description |
 |------|-------------|
 | `--agent-only` | Sign with agent token only; don't handle 401 |
-| `--auth-token` / `--signing-key` | Use an existing auth token + signing key (skip the auth flow) |
+| `--auth-token` / `--signing-key` | Use an existing auth token + signing key (skip the auth flow) — three-party reuse |
+| `--access-token` | Reuse an opaque AAuth-Access token (two-party / resource-managed); no signing key needed |
+| `--with-token` | Return `{ auth_token, expires_in, signingKey, response }` (and `access_token` in two-party mode) instead of just the body — the call plus the reusable credential |
 | `--json` | Read full request from stdin as JSON (input only) |
 | `-X, --method` | HTTP method (default: GET) |
 | `-d, --data` | Request body (use `-` for stdin) |
@@ -317,4 +353,18 @@ scannable QR code — open the link or scan it from your phone. With `-v`, a
 | `AAUTH_LOCAL` | `--local` |
 | `AAUTH_AUTH_TOKEN` | `--auth-token` |
 | `AAUTH_SIGNING_KEY` | `--signing-key` |
+| `AAUTH_ACCESS_TOKEN` | `--access-token` |
 | `AAUTH_PERSON_SERVER` | `--person-server` |
+
+## Caching
+
+- **Tokens are never cached to disk.** The `auth_token` and any access token are
+  output (with `authorize` / `--with-token`) for you to reuse as you see fit —
+  there is no automatic on-disk token reuse. See "Step 2: Reuse the captured token".
+- **Person-server metadata is cached** (it's public, not a secret) under
+  `~/.aauth/cache/<host>/aauth-person.json`, with expiry tracked in
+  `~/.aauth/cache/index.json`. `bootstrap` seeds it (a one-time setup step), but the
+  cache is then read, refreshed, and self-healed by `fetch` on use — honoring the
+  server's `Cache-Control: max-age` (default ~1 day). This lets the token exchange
+  skip the `/.well-known/aauth-person.json` round-trip. If a cached endpoint goes
+  stale (404/410 or unreachable), fetch evicts it and refetches once automatically.

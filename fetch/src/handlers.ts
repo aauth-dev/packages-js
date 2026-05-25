@@ -1,9 +1,17 @@
-import { createAgentToken, readConfig, getAgentConfig, setAgentConfig } from '@aauth/local-keys'
+import {
+  createAgentToken,
+  readConfig,
+  getAgentConfig,
+  readCachedMetadata,
+  writeCachedMetadata,
+  evictCachedMetadata,
+} from '@aauth/local-keys'
 import {
   createAAuthFetch,
   createSignedFetch,
   parseAAuthHeader,
   exchangeToken,
+  TokenExchangeError,
 } from '@aauth/mcp-agent'
 import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/mcp-agent'
 import { createRequire } from 'node:module'
@@ -45,52 +53,72 @@ export function resolvePersonServer(agentProvider: string | undefined, override:
   return getAgentConfig(agentProvider)?.personServerUrl
 }
 
-/**
- * Cached PS metadata (saved at bootstrap) for the resolved agent, so the token
- * exchange can skip the runtime /.well-known/aauth-person.json fetch. Returns
- * undefined when --person-server overrides config (the cached metadata wouldn't
- * match that ad-hoc PS) or when nothing's cached.
- */
-export function resolvePersonServerMetadata(
-  agentProvider: string | undefined,
-  override: string | undefined,
-): AuthServerMetadata | undefined {
-  if (override) return undefined
-  if (!agentProvider) {
-    const config = readConfig()
-    const providers = Object.entries(config.agents)
-    if (providers.length === 1) return providers[0][1].personServerMetadata
-    return undefined
-  }
-  return getAgentConfig(agentProvider)?.personServerMetadata
+/** Cache-key host for a resolved person-server URL, or undefined if unusable. */
+function personServerHost(personServer: string | undefined): string | undefined {
+  if (!personServer) return undefined
+  try { return new URL(personServer).hostname } catch { return undefined }
 }
 
 /**
- * Persist freshly-fetched PS metadata back to config so the next call skips the
- * fetch (self-heals agents bootstrapped before metadata caching existed). No-op
- * when --person-server overrides config (ad-hoc PS) or the agent can't be resolved.
+ * Cached PS metadata (keyed by person-server host) so the token exchange can skip
+ * the runtime /.well-known/aauth-person.json fetch. Saved at bootstrap and
+ * refreshed by {@link savePersonServerMetadata}. Returns undefined when nothing's
+ * cached or the cached entry has expired.
+ */
+export function resolvePersonServerMetadata(
+  personServer: string | undefined,
+): AuthServerMetadata | undefined {
+  const host = personServerHost(personServer)
+  if (!host) return undefined
+  return (readCachedMetadata(host) as AuthServerMetadata | null) ?? undefined
+}
+
+/**
+ * Persist freshly-fetched PS metadata to the on-disk cache (keyed by PS host) so
+ * the next call skips the fetch. This is the token exchange's onMetadata
+ * callback; no Cache-Control is available here, so the cache applies its default
+ * TTL. No-op when the PS host can't be derived.
  */
 export function savePersonServerMetadata(
-  agentProvider: string | undefined,
-  override: string | undefined,
+  personServer: string | undefined,
   metadata: AuthServerMetadata,
 ): void {
-  if (override) return
-  let key = agentProvider
-  if (!key) {
-    const providers = Object.keys(readConfig().agents)
-    if (providers.length !== 1) return
-    key = providers[0]
+  const host = personServerHost(personServer)
+  if (!host) return
+  writeCachedMetadata(host, metadata)
+}
+
+/**
+ * A failure that suggests the cached PS endpoint is stale (moved or gone): a
+ * 404/410 from the token endpoint, or a network/DNS error reaching it. NOT a 401
+ * (the normal auth-token challenge) or a 5xx (transient server error).
+ */
+function isStaleEndpointError(err: unknown): boolean {
+  if (err instanceof TokenExchangeError) return err.status === 404 || err.status === 410
+  // fetch() rejects with a TypeError on DNS/connection failures.
+  return err instanceof TypeError
+}
+
+/**
+ * Run a metadata-dependent flow, self-healing a stale PS-metadata cache. If the
+ * call fails because the cached endpoint is gone (see {@link isStaleEndpointError})
+ * AND we were using cached metadata, evict it and retry ONCE with no cached
+ * metadata — which forces a fresh /.well-known fetch and re-save. Bounded to a
+ * single retry, so it never loops; all other errors propagate unchanged.
+ */
+export async function runWithMetadataSelfHeal(
+  personServer: string | undefined,
+  cachedMetadata: AuthServerMetadata | undefined,
+  run: (metadata: AuthServerMetadata | undefined) => Promise<void>,
+): Promise<void> {
+  try {
+    await run(cachedMetadata)
+  } catch (err) {
+    if (!cachedMetadata || !isStaleEndpointError(err)) throw err
+    const host = personServerHost(personServer)
+    if (host) evictCachedMetadata(host)
+    await run(undefined)
   }
-  const cfg = getAgentConfig(key)
-  if (!cfg) return
-  setAgentConfig(key, {
-    ...cfg,
-    personServerMetadata: {
-      token_endpoint: metadata.token_endpoint,
-      ...(metadata.jwks_uri ? { jwks_uri: metadata.jwks_uri } : {}),
-    },
-  })
 }
 
 export function buildGetKeyMaterial(args: { agentProvider?: string; local?: string }): GetKeyMaterial {
@@ -217,7 +245,11 @@ export async function handleAuthorize(
 
     if (response.status === 200) {
       const b = await response.text()
+      // Two-party: the resource may hand back an opaque AAuth-Access token to
+      // reuse (via --access-token) on subsequent calls.
+      const accessToken = response.headers.get('aauth-access') ?? undefined
       return printResult({
+        ...(accessToken ? { access_token: accessToken } : {}),
         signingKey: keyMaterial.signingKey,
         signatureKey: keyMaterial.signatureKey,
         response: { status: 200, body: tryParseJson(b) },
@@ -314,7 +346,7 @@ export async function handleFullFlow(
   args: {
     url: string; agentProvider?: string; browser?: boolean; nonInteractive: boolean; verbose: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
-    capabilities?: string[];
+    capabilities?: string[]; withToken?: boolean; accessToken?: string;
   },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
@@ -326,11 +358,25 @@ export async function handleFullFlow(
   const keyMaterial = await getKeyMaterial()
   const pinnedGetKeyMaterial: GetKeyMaterial = async () => keyMaterial
 
+  // --with-token: capture the credentials surfaced during the flow so we can
+  // return them (alongside the response) for reuse — the three-party auth token,
+  // and/or a two-party opaque AAuth-Access token.
+  let minted: { authToken: string; expiresIn: number } | undefined
+  let accessToken: string | undefined = args.accessToken
+
   const aAuthFetch = createAAuthFetch({
     getKeyMaterial: pinnedGetKeyMaterial,
     authServerUrl: personServer,
     authServerMetadata: personServerMetadata,
     onMetadata,
+    // --access-token: reuse a previously-issued opaque token on this call.
+    accessToken: args.accessToken,
+    onAuthToken: args.withToken
+      ? (authToken, expiresIn) => { minted = { authToken, expiresIn } }
+      : undefined,
+    onAccessToken: args.withToken
+      ? (token) => { accessToken = token }
+      : undefined,
     justification: args.justification,
     loginHint: args.loginHint,
     tenant: args.tenant,
@@ -341,6 +387,23 @@ export async function handleFullFlow(
   })
 
   const response = await aAuthFetch(args.url, init)
+
+  if (args.withToken) {
+    // Combined object: the reusable credential(s) + the resource response in one
+    // call. auth_token/expires_in appear only when an auth token was minted (the
+    // resource issued a three-party challenge); access_token appears in two-party
+    // mode; an agent-token-only 200 has neither.
+    const body = await response.text()
+    const parsed = tryParseJson(body)
+    printResult({
+      ...(minted ? { auth_token: minted.authToken, expires_in: minted.expiresIn } : {}),
+      ...(accessToken ? { access_token: accessToken } : {}),
+      signingKey: keyMaterial.signingKey,
+      response: { status: response.status, body: parsed === undefined ? body : parsed },
+    })
+    return
+  }
+
   await outputResponse(response)
 }
 
