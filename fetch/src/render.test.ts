@@ -71,6 +71,62 @@ describe('makeVerboseRenderer', () => {
     ])
     for (const o of objs) expect(o.description).toBeTruthy()
   })
+
+  // Locks the whole vocabulary: a full default-flow consent trace maps each
+  // internal step to its display name + description. If any wording or name
+  // drifts, this snapshot fails.
+  it('maps a full consent trace to the display vocabulary', () => {
+    const objs = collect([
+      { step: 'signed_request', phase: 'start', url: 'https://r', method: 'GET' },
+      { step: 'signed_request', phase: 'done', status: 401 },
+      { step: 'challenge_received', phase: 'info', requirement: 'auth-token' },
+      { step: 'ps_metadata_request', phase: 'start', url: 'https://ps/.well-known' },
+      { step: 'ps_metadata_request', phase: 'done', status: 200 },
+      { step: 'ps_token_request', phase: 'start', url: 'https://ps/token' },
+      { step: 'ps_token_request', phase: 'done', status: 202 },
+      { step: 'ps_consent_pending', phase: 'info' },
+      { step: 'consent_prompt', phase: 'info' },
+      { step: 'consent_poll', phase: 'start', url: 'https://ps/pending' },
+      { step: 'consent_poll', phase: 'done', status: 200 },
+      { step: 'consent_resolved', phase: 'info' },
+      { step: 'auth_token_received', phase: 'info' },
+      { step: 'retry_with_auth_token', phase: 'start', url: 'https://r', method: 'GET' },
+      { step: 'retry_with_auth_token', phase: 'done', status: 200 },
+    ])
+    expect(objs.map((o) => [o.type, o.step, o.description])).toEqual([
+      ['request', 'resource_request', 'Call the resource with your agent token — no person authorization yet.'],
+      ['response', 'resource_request', 'The resource needs a person-authorized token — returns a challenge to exchange.'],
+      ['info', 'challenge', 'Parsed it — exchange the resource token for an auth token.'],
+      ['request', 'ps_metadata', 'Ask your person server for its endpoints.'],
+      ['response', 'ps_metadata', "Received the person server's endpoints."],
+      ['request', 'token_exchange', 'Send the resource token to the person server to mint an auth token.'],
+      ['response', 'token_exchange', 'Consent required before an auth token is issued.'],
+      ['info', 'consent_required', 'Consent required — opening the approval URL for the person.'],
+      ['info', 'consent_prompt', 'Waiting for the person to approve…'],
+      ['request', 'consent_poll', 'Check whether the person has approved yet.'],
+      ['response', 'consent_poll', 'Not yet — still waiting.'],
+      ['info', 'consent_granted', 'The person approved.'],
+      ['info', 'auth_token', 'Auth token received.'],
+      ['request', 'resource_request', 'Call the resource again, now with the person-authorized auth token.'],
+      ['response', 'resource_request', "Received the resource's response."],
+    ])
+  })
+
+  // The R3 entry step + the token_exchange 200 (consent already on file) branch.
+  it('maps the R3 authorize_request entry and the cached-consent token_exchange', () => {
+    const objs = collect([
+      { step: 'r3_authorize_request', phase: 'start', url: 'https://r/authorize', method: 'POST' },
+      { step: 'r3_authorize_request', phase: 'done', status: 200 },
+      { step: 'ps_token_request', phase: 'start', url: 'https://ps/token' },
+      { step: 'ps_token_request', phase: 'done', status: 200 },
+    ])
+    expect(objs.map((o) => [o.type, o.step, o.description])).toEqual([
+      ['request', 'authorize_request', "POST the requested operations to the resource's authorize endpoint, signed with your agent token."],
+      ['response', 'authorize_request', 'Received a resource token scoped to those operations.'],
+      ['request', 'token_exchange', 'Send the resource token to the person server to mint an auth token.'],
+      ['response', 'token_exchange', 'Received the auth token — consent was already on file.'],
+    ])
+  })
 })
 
 describe('renderSkillListMarkdown', () => {

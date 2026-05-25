@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'node:module'
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { parseArgs } from './args.js'
 import { readJsonInput, mergeJsonInput } from './json-input.js'
 import { listSkills, getSkill, renderSkillListMarkdown } from './skill.js'
@@ -32,7 +34,7 @@ function cmdSkill(name?: string): void {
   console.log(skill.body)
 }
 
-async function run(): Promise<void> {
+export async function run(): Promise<void> {
   let args = parseArgs(process.argv)
 
   if (args.version) {
@@ -87,6 +89,17 @@ async function run(): Promise<void> {
   }
 }
 
-run().catch((err: Error) => {
-  fail(err.message)
-})
+/** True when this module is the process entrypoint (not imported by a test). */
+function isEntrypoint(): boolean {
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+
+if (isEntrypoint()) {
+  run().catch((err: Error) => {
+    fail(err.message)
+  })
+}

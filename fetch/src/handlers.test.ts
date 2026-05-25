@@ -507,4 +507,83 @@ describe('handleAuthorize', () => {
     const km = await pinnedFn()
     expect(km).toBe(fakeKeyMaterial)
   })
+
+  // --- R3 (--operations) branch ---
+
+  it('R3: POSTs operations to the authorize endpoint and exchanges the resource token', async () => {
+    mockSignedFetch.mockResolvedValueOnce(new Response('{"resource_token":"rt_r3"}', { status: 200 }))
+    mockExchangeToken.mockResolvedValueOnce({ authToken: 'eyJ.r3.auth', expiresIn: 1800 })
+
+    const stdout = captureStdout()
+    try {
+      await handleAuthorize(
+        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes, createNote', nonInteractive: false, verbose: false },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    // POSTed an R3 body with the requested operationIds
+    const [calledUrl, init] = mockSignedFetch.mock.calls[0]
+    expect(calledUrl).toBe('https://notes.aauth.dev/authorize')
+    expect((init as RequestInit).method).toBe('POST')
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.r3_operations.vocabulary).toBe('urn:aauth:vocabulary:openapi')
+    expect(body.r3_operations.operations).toEqual([{ operationId: 'listNotes' }, { operationId: 'createNote' }])
+
+    // exchanged the resource token from the authorize response
+    expect(mockExchangeToken).toHaveBeenCalledWith(expect.objectContaining({
+      authServerUrl: 'https://ps.example.com',
+      resourceToken: 'rt_r3',
+    }))
+
+    const result = JSON.parse(stdout.output[0])
+    expect(result.auth_token).toBe('eyJ.r3.auth')
+    expect(result.expires_in).toBe(1800)
+    expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
+  })
+
+  it('R3: errors when the authorize endpoint returns non-200', async () => {
+    mockSignedFetch.mockResolvedValueOnce(new Response('{"error":"forbidden"}', { status: 403 }))
+
+    const stderr = captureStderr()
+    const origExitCode = process.exitCode
+    try {
+      await handleAuthorize(
+        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes', nonInteractive: false, verbose: false },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+      )
+    } finally {
+      stderr.restore()
+    }
+
+    expect(stderr.output[0]).toContain('Authorize endpoint returned status 403')
+    expect(mockExchangeToken).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(1)
+    process.exitCode = origExitCode
+  })
+
+  it('R3: errors when the authorize response has no resource_token', async () => {
+    mockSignedFetch.mockResolvedValueOnce(new Response('{"not_a_token":1}', { status: 200 }))
+
+    const stderr = captureStderr()
+    const origExitCode = process.exitCode
+    try {
+      await handleAuthorize(
+        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes', nonInteractive: false, verbose: false },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+      )
+    } finally {
+      stderr.restore()
+    }
+
+    expect(stderr.output[0]).toContain('missing resource_token')
+    expect(mockExchangeToken).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(1)
+    process.exitCode = origExitCode
+  })
 })
