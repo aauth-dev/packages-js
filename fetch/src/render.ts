@@ -91,6 +91,10 @@ const STEPS: Record<string, StepSpec> = {
     req: 'Ask your person server for its endpoints.',
     res: "Received the person server's endpoints.",
   },
+  ps_metadata_cached: {
+    display: 'ps_metadata',
+    info: "Read the person server's endpoints from config — no fetch needed.",
+  },
   ps_token_request: {
     display: 'token_exchange',
     req: 'Send the resource token to the person server to mint an auth token.',

@@ -38,6 +38,7 @@ vi.mock('@aauth/local-keys', () => ({
   createAgentToken: vi.fn(),
   readConfig: vi.fn(() => ({ agents: {} })),
   getAgentConfig: vi.fn(() => null),
+  setAgentConfig: vi.fn(),
 }))
 
 vi.mock('open', () => ({ default: vi.fn() }))
@@ -50,9 +51,10 @@ import {
   buildRequestInit,
   resolvePersonServer,
   resolvePersonServerMetadata,
+  savePersonServerMetadata,
   tryParseJson,
 } from './handlers.js'
-import { readConfig, getAgentConfig } from '@aauth/local-keys'
+import { readConfig, getAgentConfig, setAgentConfig } from '@aauth/local-keys'
 import open from 'open'
 
 // --- Helpers ---
@@ -180,6 +182,30 @@ describe('resolvePersonServerMetadata', () => {
       agents: { 'https://sole.com': { personServerMetadata: meta, keys: {} } },
     })
     expect(resolvePersonServerMetadata(undefined, undefined)).toEqual(meta)
+  })
+})
+
+describe('savePersonServerMetadata', () => {
+  beforeEach(() => vi.clearAllMocks())
+  const meta = { token_endpoint: 'https://ps.com/aauth/token', jwks_uri: 'https://ps.com/jwks' }
+
+  it('writes the fetched metadata back to the agent config', () => {
+    vi.mocked(getAgentConfig).mockReturnValueOnce({ personServerUrl: 'https://ps.com', keys: {} })
+    savePersonServerMetadata('https://agent.com', undefined, meta)
+    expect(setAgentConfig).toHaveBeenCalledWith('https://agent.com', expect.objectContaining({
+      personServerMetadata: { token_endpoint: meta.token_endpoint, jwks_uri: meta.jwks_uri },
+    }))
+  })
+
+  it('is a no-op when --person-server overrides config (ad-hoc PS)', () => {
+    savePersonServerMetadata('https://agent.com', 'https://override.com', meta)
+    expect(setAgentConfig).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op when the agent cannot be resolved', () => {
+    vi.mocked(getAgentConfig).mockReturnValueOnce(null)
+    savePersonServerMetadata('https://agent.com', undefined, meta)
+    expect(setAgentConfig).not.toHaveBeenCalled()
   })
 })
 

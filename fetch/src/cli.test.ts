@@ -110,6 +110,22 @@ describe('cli dispatch', () => {
     noHandlerCalled()
   })
 
+  it('help <command> prints that command help (subcommand form)', async () => {
+    setArgv('help', 'authorize')
+    await run()
+    expect(out.join('\n')).toContain('authorize')
+    expect(out.join('\n')).toContain('--operations')
+    noHandlerCalled()
+  })
+
+  it('help (no topic) prints top-level help', async () => {
+    setArgv('help')
+    await run()
+    expect(out.join('\n')).toContain('DESCRIPTION')
+    expect(out.join('\n')).toContain('USAGE')
+    noHandlerCalled()
+  })
+
   it('bare <url> dispatches to the full flow', async () => {
     setArgv('https://api.example')
     await run()

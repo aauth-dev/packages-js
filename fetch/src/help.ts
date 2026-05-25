@@ -2,21 +2,25 @@ export function topLevelHelp(version: string): string {
   return `DESCRIPTION
   AAuth fetch v${version} — make a signed, authenticated HTTP
   request that handles the AAuth challenge flow (401 → token exchange → consent → retry)
-  for you, then prints the response. Bare <resource> is the full flow.
+  for you, then prints the resource's response.
 
 USAGE
   npx @aauth/fetch <resource> [flags]
   npx @aauth/fetch authorize <resource> [flags]
   npx @aauth/fetch skill
+  npx @aauth/fetch help [command]
 
 COMMANDS
   authorize <resource>
     Run the auth flow only and print tokens for reuse — no resource call.
-    See \`npx @aauth/fetch authorize --help\`.
+    See \`npx @aauth/fetch help authorize\`.
 
   skill
     Print the agent guide for using fetch (markdown), plus the AAuth protocol
     spec URL to fetch yourself.
+
+  help [command]
+    Show help for a command.
 
 REQUEST
   -X, --method <method>

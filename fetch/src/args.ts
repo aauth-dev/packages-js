@@ -1,10 +1,12 @@
 export interface FetchArgs {
-  /** Subcommand: 'authorize' | 'skill'. Undefined = default fetch (or help if no url). */
-  command?: 'authorize' | 'skill'
+  /** Subcommand: 'authorize' | 'skill' | 'help'. Undefined = default fetch (or help if no url). */
+  command?: 'authorize' | 'skill' | 'help'
   /** Target URL (default fetch / authorize). */
   url?: string
   /** Skill name (skill command). */
   skillName?: string
+  /** Command to show help for (`help <topic>`). */
+  helpTopic?: string
 
   // Request
   method: string
@@ -117,6 +119,9 @@ export function parseArgs(argv: string[]): FetchArgs {
   } else if (positional[0] === 'skill') {
     a.command = 'skill'
     a.skillName = positional[1]
+  } else if (positional[0] === 'help') {
+    a.command = 'help'
+    a.helpTopic = positional[1]
   } else {
     a.url = positional[0]
   }

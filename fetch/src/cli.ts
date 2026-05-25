@@ -3,6 +3,7 @@
 import { createRequire } from 'node:module'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import type { AuthServerMetadata } from '@aauth/mcp-agent'
 import { parseArgs } from './args.js'
 import { readJsonInput, mergeJsonInput } from './json-input.js'
 import { renderSkill } from './skill.js'
@@ -10,6 +11,7 @@ import { topLevelHelp, COMMAND_HELP } from './help.js'
 import {
   resolvePersonServer,
   resolvePersonServerMetadata,
+  savePersonServerMetadata,
   buildGetKeyMaterial,
   buildRequestInit,
   handleAuthorize,
@@ -38,6 +40,13 @@ export async function run(): Promise<void> {
     return
   }
 
+  // `help [command]` — documented way to get help (--help is a silent alias).
+  if (args.command === 'help') {
+    const topic = args.helpTopic
+    console.log(topic && COMMAND_HELP[topic] ? COMMAND_HELP[topic] : topLevelHelp(pkg.version))
+    return
+  }
+
   // `skill` — help for it, or print the single guide (+ protocol URL).
   if (args.command === 'skill') {
     if (args.help) { console.log(COMMAND_HELP.skill); return }
@@ -60,8 +69,9 @@ export async function run(): Promise<void> {
     }
     const personServer = resolvePersonServer(args.agentProvider, args.personServer)
     const personServerMetadata = resolvePersonServerMetadata(args.agentProvider, args.personServer)
+    const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(args.agentProvider, args.personServer, m)
     const getKeyMaterial = buildGetKeyMaterial(args)
-    await handleAuthorize({ ...args, url: args.url }, getKeyMaterial, personServer, personServerMetadata)
+    await handleAuthorize({ ...args, url: args.url }, getKeyMaterial, personServer, personServerMetadata, onMetadata)
     return
   }
 
@@ -83,7 +93,8 @@ export async function run(): Promise<void> {
     await handleAgentOnly({ ...args, url }, init, getKeyMaterial)
   } else {
     const personServerMetadata = resolvePersonServerMetadata(args.agentProvider, args.personServer)
-    await handleFullFlow({ ...args, url }, init, getKeyMaterial, personServer, personServerMetadata)
+    const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(args.agentProvider, args.personServer, m)
+    await handleFullFlow({ ...args, url }, init, getKeyMaterial, personServer, personServerMetadata, onMetadata)
   }
 }
 

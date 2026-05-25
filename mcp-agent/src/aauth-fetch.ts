@@ -14,6 +14,8 @@ export interface AAuthFetchOptions {
   authServerUrl?: string
   /** Cached auth-server metadata; when provided, token exchange skips the /.well-known fetch. */
   authServerMetadata?: AuthServerMetadata
+  /** Called with freshly-fetched metadata so the caller can persist it. */
+  onMetadata?: (metadata: AuthServerMetadata) => void
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
@@ -49,6 +51,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     getKeyMaterial,
     authServerUrl: configuredAuthServer,
     authServerMetadata,
+    onMetadata,
     onInteraction,
     onClarification,
     onEvent,
@@ -159,6 +162,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           signedFetch,
           authServerUrl,
           authServerMetadata,
+          onMetadata,
           resourceToken: challenge.resourceToken,
           justification,
           loginHint,

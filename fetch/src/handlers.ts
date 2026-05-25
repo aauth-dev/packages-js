@@ -1,4 +1,4 @@
-import { createAgentToken, readConfig, getAgentConfig } from '@aauth/local-keys'
+import { createAgentToken, readConfig, getAgentConfig, setAgentConfig } from '@aauth/local-keys'
 import {
   createAAuthFetch,
   createSignedFetch,
@@ -63,6 +63,34 @@ export function resolvePersonServerMetadata(
     return undefined
   }
   return getAgentConfig(agentProvider)?.personServerMetadata
+}
+
+/**
+ * Persist freshly-fetched PS metadata back to config so the next call skips the
+ * fetch (self-heals agents bootstrapped before metadata caching existed). No-op
+ * when --person-server overrides config (ad-hoc PS) or the agent can't be resolved.
+ */
+export function savePersonServerMetadata(
+  agentProvider: string | undefined,
+  override: string | undefined,
+  metadata: AuthServerMetadata,
+): void {
+  if (override) return
+  let key = agentProvider
+  if (!key) {
+    const providers = Object.keys(readConfig().agents)
+    if (providers.length !== 1) return
+    key = providers[0]
+  }
+  const cfg = getAgentConfig(key)
+  if (!cfg) return
+  setAgentConfig(key, {
+    ...cfg,
+    personServerMetadata: {
+      token_endpoint: metadata.token_endpoint,
+      ...(metadata.jwks_uri ? { jwks_uri: metadata.jwks_uri } : {}),
+    },
+  })
 }
 
 export function buildGetKeyMaterial(args: { agentProvider?: string; local?: string }): GetKeyMaterial {
@@ -143,6 +171,7 @@ export async function handleAuthorize(
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
   personServerMetadata?: AuthServerMetadata,
+  onMetadata?: (m: AuthServerMetadata) => void,
 ): Promise<void> {
   const onEvent = verboseRenderer(args.verbose)
   const capabilities = args.capabilities as Capability[] | undefined
@@ -216,6 +245,7 @@ export async function handleAuthorize(
     signedFetch,
     authServerUrl: personServer,
     authServerMetadata: personServerMetadata,
+    onMetadata,
     resourceToken,
     justification: args.justification,
     loginHint: args.loginHint,
@@ -290,6 +320,7 @@ export async function handleFullFlow(
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
   personServerMetadata?: AuthServerMetadata,
+  onMetadata?: (m: AuthServerMetadata) => void,
 ): Promise<void> {
   const onEvent = verboseRenderer(args.verbose)
   const keyMaterial = await getKeyMaterial()
@@ -299,6 +330,7 @@ export async function handleFullFlow(
     getKeyMaterial: pinnedGetKeyMaterial,
     authServerUrl: personServer,
     authServerMetadata: personServerMetadata,
+    onMetadata,
     justification: args.justification,
     loginHint: args.loginHint,
     tenant: args.tenant,

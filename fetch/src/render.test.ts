@@ -72,6 +72,12 @@ describe('makeVerboseRenderer', () => {
     expect(typeof objs[0].description).toBe('string')
   })
 
+  it('cached PS metadata renders as a ps_metadata info event (no request/response)', () => {
+    const objs = collect([{ step: 'ps_metadata_cached', phase: 'info' }])
+    expect(objs[0]).toMatchObject({ type: 'info', step: 'ps_metadata' })
+    expect(objs[0].description).toContain('from config')
+  })
+
   it('every event object carries a description', () => {
     const objs = collect([
       { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
