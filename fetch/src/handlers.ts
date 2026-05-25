@@ -224,9 +224,10 @@ export async function handlePreAuthed(
   })
   const sent: { latest?: CapturedSent } = {}
   const signedFetch = createSignedFetch(getKeyMaterial, onEvent ? { onSigned: (s) => { sent.latest = s } } : undefined)
-  onEvent?.({ step: 'signed_request', phase: 'start', url: args.url, method: (init.method as string) ?? 'GET' })
+  // Carries the auth token, not the agent token — emit the auth-token step.
+  onEvent?.({ step: 'auth_token_request', phase: 'start', url: args.url, method: (init.method as string) ?? 'GET' })
   const response = await signedFetch(args.url, init)
-  onEvent?.({ step: 'signed_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, response: { headers: respHeaders(response.headers) } })
+  onEvent?.({ step: 'auth_token_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, response: { headers: respHeaders(response.headers) } })
   await outputResponse(response)
 }
 

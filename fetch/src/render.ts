@@ -56,17 +56,25 @@ interface StepSpec {
 }
 
 const STEPS: Record<string, StepSpec> = {
+  // The two resource calls are named by the token they carry (not by position):
+  // the agent-token call may get a 401; the auth-token call is the authorized one.
   signed_request: {
-    display: 'resource_request',
-    req: 'Call the resource with your agent token — no person authorization yet.',
+    display: 'agent_token_request',
+    req: 'Call the resource with your agent token — self-asserted identity, no person authorization yet.',
     res: (s) =>
       s === 401
         ? 'The resource needs a person-authorized token — returns a challenge to exchange.'
         : "Received the resource's response.",
   },
   retry_with_auth_token: {
-    display: 'resource_request',
-    req: 'Call the resource again, now with the person-authorized auth token.',
+    display: 'auth_token_request',
+    req: 'Call the resource with the person-authorized auth token.',
+    res: "Received the resource's response.",
+  },
+  // Pre-authed reuse (--auth-token/--signing-key): also an auth-token call.
+  auth_token_request: {
+    display: 'auth_token_request',
+    req: 'Call the resource with the person-authorized auth token.',
     res: "Received the resource's response.",
   },
   r3_authorize_request: {

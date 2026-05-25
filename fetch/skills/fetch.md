@@ -274,12 +274,13 @@ Each `-v` event is `{ type, step, description, … }` on stderr (stdout stays cl
 for `jq`):
 
 - **`type`** — `request` | `response` | `info`.
-- **`step`** — which protocol step this is, named by target + purpose (a request
-  pairs with the response right after it). Vocabulary:
+- **`step`** — which protocol step this is, named by what it targets / the token
+  it carries (a request pairs with the response right after it). Vocabulary:
 
 | step | what it is |
 |------|------------|
-| `resource_request` | the call to the resource you asked for (initial with the agent token; again with the auth token after the flow) |
+| `agent_token_request` | the call to the resource signed with your agent token (may get a 401 challenge) |
+| `auth_token_request` | the call to the resource signed with the person-authorized auth token (the retry, or a pre-authed reuse) |
 | `challenge` | parsed the 401 — exchange the resource token for an auth token |
 | `authorize_request` | (R3) POST operations to the resource's authorize endpoint |
 | `ps_metadata` | discover the person server's endpoints |

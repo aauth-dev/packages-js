@@ -33,28 +33,37 @@ describe('makeVerboseRenderer', () => {
       },
     ])
     expect(objs).toHaveLength(2)
-    // signed_request → display step resource_request (named by target, not "signed")
-    expect(objs[0]).toMatchObject({ type: 'request', step: 'resource_request', method: 'GET', url: 'https://x' })
+    // signed_request → display step agent_token_request (named by the token it carries)
+    expect(objs[0]).toMatchObject({ type: 'request', step: 'agent_token_request', method: 'GET', url: 'https://x' })
     expect((objs[0].headers as Record<string, string>)['signature-key']).toContain('sig=jwt')
-    expect(objs[1]).toMatchObject({ type: 'response', step: 'resource_request', status: 401 })
+    expect(objs[1]).toMatchObject({ type: 'response', step: 'agent_token_request', status: 401 })
     expect((objs[1].headers as Record<string, string>)['aauth-requirement']).toBe('auth-token')
   })
 
-  it('the initial call and its retry share step resource_request but differ in description', () => {
-    const initial = collect([
+  it('names the two resource calls by token: agent_token_request vs auth_token_request', () => {
+    const agentCall = collect([
       { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
       { step: 'signed_request', phase: 'done', status: 401 },
     ])
-    const retry = collect([
+    const authCall = collect([
       { step: 'retry_with_auth_token', phase: 'start', url: 'https://x', method: 'GET' },
       { step: 'retry_with_auth_token', phase: 'done', status: 200 },
     ])
-    expect(initial[0].step).toBe('resource_request')
-    expect(retry[0].step).toBe('resource_request')
-    expect(initial[0].description).not.toBe(retry[0].description)
+    expect(agentCall[0].step).toBe('agent_token_request')
+    expect(authCall[0].step).toBe('auth_token_request')
+    expect(agentCall[0].description).not.toBe(authCall[0].description)
     // success response says what came back, not "printed to stdout" / the status code
-    expect(retry[1].description).toContain('Received')
-    expect(retry[1].description).not.toContain('200')
+    expect(authCall[1].description).toContain('Received')
+    expect(authCall[1].description).not.toContain('200')
+  })
+
+  it('pre-authed reuse also displays as auth_token_request', () => {
+    const objs = collect([
+      { step: 'auth_token_request', phase: 'start', url: 'https://x', method: 'GET' },
+      { step: 'auth_token_request', phase: 'done', status: 200 },
+    ])
+    expect(objs[0]).toMatchObject({ type: 'request', step: 'auth_token_request' })
+    expect(objs[1].description).toContain('Received')
   })
 
   it('renders info events with type:info and the display step name', () => {
@@ -94,8 +103,8 @@ describe('makeVerboseRenderer', () => {
       { step: 'retry_with_auth_token', phase: 'done', status: 200 },
     ])
     expect(objs.map((o) => [o.type, o.step, o.description])).toEqual([
-      ['request', 'resource_request', 'Call the resource with your agent token — no person authorization yet.'],
-      ['response', 'resource_request', 'The resource needs a person-authorized token — returns a challenge to exchange.'],
+      ['request', 'agent_token_request', 'Call the resource with your agent token — self-asserted identity, no person authorization yet.'],
+      ['response', 'agent_token_request', 'The resource needs a person-authorized token — returns a challenge to exchange.'],
       ['info', 'challenge', 'Parsed it — exchange the resource token for an auth token.'],
       ['request', 'ps_metadata', 'Ask your person server for its endpoints.'],
       ['response', 'ps_metadata', "Received the person server's endpoints."],
@@ -107,8 +116,8 @@ describe('makeVerboseRenderer', () => {
       ['response', 'consent_poll', 'Not yet — still waiting.'],
       ['info', 'consent_granted', 'The person approved.'],
       ['info', 'auth_token', 'Auth token received.'],
-      ['request', 'resource_request', 'Call the resource again, now with the person-authorized auth token.'],
-      ['response', 'resource_request', "Received the resource's response."],
+      ['request', 'auth_token_request', 'Call the resource with the person-authorized auth token.'],
+      ['response', 'auth_token_request', "Received the resource's response."],
     ])
   })
 

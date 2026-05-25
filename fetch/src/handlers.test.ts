@@ -202,7 +202,7 @@ describe('handleAgentOnly', () => {
     }
 
     const joined = lines.join('')
-    expect(joined).toContain('"step": "resource_request"')
+    expect(joined).toContain('"step": "agent_token_request"')
     expect(joined).toContain('"type": "response"')
     expect(joined).toContain('"status": 200')
   })
