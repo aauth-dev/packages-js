@@ -301,9 +301,10 @@ Errors are output as JSON to stderr:
 {"error": "description of what went wrong"}
 ```
 
-When consent is needed, the interaction URL is printed on stderr as a plain line
-(`Open https://… to approve`) and opened in a browser unless `--no-browser`. With
-`-v`, a `consent_required` event also appears in the stream:
+When consent is needed, a browser opens at the approval URL by default. With
+`--no-browser`, the URL is printed on stderr (`Approve at: https://…`) along with a
+scannable QR code — open the link or scan it from your phone. With `-v`, a
+`consent_required` event also appears in the stream:
 ```json
 {"type": "info", "step": "consent_required", "description": "Consent required — opening the approval URL for the person."}
 ```

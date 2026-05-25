@@ -6,8 +6,13 @@ import {
   exchangeToken,
 } from '@aauth/mcp-agent'
 import type { GetKeyMaterial, Capability, OnEvent, CapturedSent } from '@aauth/mcp-agent'
+import { createRequire } from 'node:module'
 import open from 'open'
 import { makeVerboseRenderer, prettyJson } from './render.js'
+
+// qrcode-terminal is CommonJS — load it via require to get module.exports reliably.
+const require = createRequire(import.meta.url)
+type QrModule = { generate: (input: string, opts: { small?: boolean }, cb: (out: string) => void) => void }
 
 const STDOUT_TTY = process.stdout.isTTY === true
 const STDERR_TTY = process.stderr.isTTY === true
@@ -89,11 +94,15 @@ function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; v
     if (args.nonInteractive) {
       throw new Error(`Consent required but --non-interactive set. URL: ${url}`)
     }
-    if (!args.verbose) {
-      // Without -v, the consent URL isn't in the event stream — surface it.
-      process.stderr.write(`Open ${url} in your browser to approve (code: ${code}).\n`)
+    if (shouldOpenBrowser) {
+      if (!args.verbose) process.stderr.write(`Opening ${url} to approve (code: ${code}).\n`)
+      open(url)
+      return
     }
-    if (shouldOpenBrowser) open(url)
+    // --no-browser: surface the URL and a scannable QR (open the link, or scan it).
+    process.stderr.write(`Approve at: ${url}\n`)
+    const qrcode = require('qrcode-terminal') as QrModule
+    qrcode.generate(url, { small: true }, (qr) => process.stderr.write(`${qr}\n`))
   }
 }
 

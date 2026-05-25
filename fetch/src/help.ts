@@ -55,7 +55,7 @@ HINTS (passed through the auth flow)
 
 CONSENT (when the person must approve)
   --justification <md>     Markdown shown at the consent prompt
-  --no-browser             Don't open a browser — print the approval URL to open yourself
+  --no-browser             Don't open a browser — print the approval URL + a QR to scan
   --non-interactive        Don't prompt at all — fail if consent is required
 
 CAPABILITIES
