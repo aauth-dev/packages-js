@@ -1,4 +1,4 @@
-import { fetch as httpSigFetch } from '@hellocoop/httpsig'
+import { fetch as httpSigFetch, DEFAULT_COMPONENTS_GET, DEFAULT_COMPONENTS_BODY } from '@hellocoop/httpsig'
 import { createSignedFetch } from './signed-fetch.js'
 import { parseAAuthHeader, buildCapabilitiesHeader, buildMissionHeader } from './aauth-header.js'
 import { exchangeToken } from './token-exchange.js'
@@ -304,7 +304,12 @@ async function fetchWithAccessToken(
 ): Promise<Response> {
   const { signingKey, signatureKey } = await getKeyMaterial()
   const headers = new Headers(init?.headers)
-  headers.set('authorization', `Bearer ${accessToken}`)
+  // Spec (#aauth-access): the opaque token goes back under the "AAuth" auth
+  // scheme, and `authorization` MUST be in the signature's covered components so
+  // the token is bound to this signature — not replayable as a bearer token.
+  headers.set('authorization', `AAuth ${accessToken}`)
+  const base = init?.body != null ? DEFAULT_COMPONENTS_BODY : DEFAULT_COMPONENTS_GET
+  const components = [...base.filter((c) => c !== 'signature-key'), 'authorization', 'signature-key']
   const httpSigKey = signatureKey.type === 'jkt-jwt'
     ? { type: 'jwt' as const, jwt: signatureKey.jwt }
     : signatureKey
@@ -314,6 +319,7 @@ async function fetchWithAccessToken(
       headers,
       signingKey,
       signatureKey: httpSigKey,
+      components,
       returnSent: true,
     })
     onSigned(captureSentFromHttpsig(sent))
@@ -324,6 +330,7 @@ async function fetchWithAccessToken(
     headers,
     signingKey,
     signatureKey: httpSigKey,
+    components,
   })
 }
 
