@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { colorizeJson, prettyJson, makeVerboseRenderer } from './render.js'
-import { renderSkillListMarkdown } from './skill.js'
+import { renderSkill } from './skill.js'
 import type { AAuthEvent } from '@aauth/mcp-agent'
 
 describe('colorizeJson / prettyJson', () => {
@@ -138,19 +138,12 @@ describe('makeVerboseRenderer', () => {
   })
 })
 
-describe('renderSkillListMarkdown', () => {
-  it('renders ## headings per skill (markdown, not JSON)', () => {
-    const md = renderSkillListMarkdown([
-      { name: 'fetch', description: 'How to use fetch' },
-    ])
-    expect(md).toContain('# AAuth fetch skills')
-    expect(md).toContain('## fetch')
-    expect(md.trimStart().startsWith('[')).toBe(false)
-  })
-
-  it('folds the protocol spec URL into the list (no separate protocol skill)', () => {
-    const md = renderSkillListMarkdown([{ name: 'fetch', description: 'How to use fetch' }])
+describe('renderSkill', () => {
+  it('prints the fetch guide and folds in the protocol spec URL', () => {
+    const md = renderSkill()
+    expect(md).toContain('@aauth/fetch') // the guide
     expect(md).toContain('## AAuth protocol spec')
     expect(md).toContain('draft-hardt-oauth-aauth-protocol.md')
+    expect(md.trimStart().startsWith('[')).toBe(false) // markdown, not JSON
   })
 })

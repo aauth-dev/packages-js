@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from './args.js'
 import { readJsonInput, mergeJsonInput } from './json-input.js'
-import { listSkills, getSkill, renderSkillListMarkdown } from './skill.js'
+import { renderSkill } from './skill.js'
 import { topLevelHelp, COMMAND_HELP } from './help.js'
 import {
   resolvePersonServer,
@@ -24,14 +24,9 @@ function fail(message: string): void {
   process.exitCode = 1
 }
 
-function cmdSkill(name?: string): void {
-  if (!name) {
-    console.log(renderSkillListMarkdown(listSkills()))
-    return
-  }
-  const skill = getSkill(name)
-  if (!skill) return fail(`Unknown skill: "${name}". Run \`skill\` to list available skills.`)
-  console.log(skill.body)
+function cmdSkill(): void {
+  // One skill: the fetch guide + the protocol spec URL. No name/selection.
+  console.log(renderSkill())
 }
 
 export async function run(): Promise<void> {
@@ -42,10 +37,10 @@ export async function run(): Promise<void> {
     return
   }
 
-  // `skill [name]` — help for it, or print the skill(s).
+  // `skill` — help for it, or print the single guide (+ protocol URL).
   if (args.command === 'skill') {
     if (args.help) { console.log(COMMAND_HELP.skill); return }
-    cmdSkill(args.skillName)
+    cmdSkill()
     return
   }
 

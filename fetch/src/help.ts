@@ -1,21 +1,22 @@
 export function topLevelHelp(version: string): string {
   return `DESCRIPTION
-  AAuth fetch v${version} — curl for agents. Make a signed, authenticated HTTP
+  AAuth fetch v${version} — make a signed, authenticated HTTP
   request that handles the AAuth challenge flow (401 → token exchange → consent → retry)
   for you, then prints the response. Bare <url> is the full flow.
 
 USAGE
   npx @aauth/fetch <url> [flags]
   npx @aauth/fetch authorize <url> [flags]
-  npx @aauth/fetch skill [name]
+  npx @aauth/fetch skill
 
 COMMANDS
   authorize <url>
     Run the auth flow only and print tokens for reuse — no resource call.
     See \`npx @aauth/fetch authorize --help\`.
 
-  skill [name]
-    Print agent skills (markdown). No name lists them; <name> prints one.
+  skill
+    Print the agent guide for using fetch (markdown), plus the AAuth protocol
+    spec URL to fetch yourself.
 
 REQUEST
   -X, --method <method>
@@ -52,10 +53,10 @@ HINTS (passed through the auth flow)
   --domain-hint <domain>   Domain/org hint for identity-provider routing
   --tenant <id>            Tenant identifier for multi-tenant systems
 
-CONSENT
+CONSENT (when the person must approve)
   --justification <md>     Markdown shown at the consent prompt
-  --no-browser             Don't open a browser for consent
-  --non-interactive        Fail instead of prompting for consent
+  --no-browser             Don't open a browser — print the approval URL to open yourself
+  --non-interactive        Don't prompt at all — fail if consent is required
 
 CAPABILITIES
   --capabilities <list>    Agent capabilities — interaction, clarification,
@@ -72,10 +73,7 @@ EXAMPLE
   {
     "sub": "aauth:local@descartes.github.io",
     "scope": "openid profile"
-  }
-
-  Add -v to also stream every request/response (with real signed headers) on
-  stderr — the result on stdout stays clean for \`… | jq\`.`
+  }`
 }
 
 export const COMMAND_HELP: Record<string, string> = {
@@ -111,15 +109,9 @@ EXAMPLE
   key is emitted so it isn't re-minted; the same key must sign every reuse.`,
 
   skill: `DESCRIPTION
-  Print agent skills as markdown. The bare list also includes a URL pointer to
-  the AAuth protocol spec (fetch it yourself).
+  Print the agent guide for using @aauth/fetch (markdown), plus a URL pointer to
+  the AAuth protocol spec to fetch yourself. There is one guide — no name needed.
 
 USAGE
-  npx @aauth/fetch skill [name]
-
-  No name   List available skills + the protocol spec URL (markdown)
-  <name>    Print that skill's full instructions (markdown)
-
-SKILLS
-  fetch       How to use @aauth/fetch to make AAuth-authenticated requests`,
+  npx @aauth/fetch skill`,
 }

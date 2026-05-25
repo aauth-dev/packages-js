@@ -241,7 +241,7 @@ Via JSON stdin:
 |---------|-------------|
 | `<url>` | Authenticated fetch — full flow (sign → 401 → token exchange → consent → retry) |
 | `authorize <url>` | Auth flow only; return auth token + signing key as JSON (no resource call). R3 via `--operations` |
-| `skill [name]` | Print agent skills as markdown. The bare list also includes the AAuth protocol spec URL to fetch yourself |
+| `skill` | Print this usage guide (markdown), plus the AAuth protocol spec URL to fetch yourself |
 | (bare) / `--help` | Top-level help |
 
 ## All flags
