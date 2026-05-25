@@ -45,6 +45,12 @@ describe('renderSkillListMarkdown', () => {
   it('points at `skill <name>`', () => {
     expect(renderSkillListMarkdown(skills)).toContain('skill <name>')
   })
+
+  it('folds the protocol spec URL into the list (no separate protocol skill)', () => {
+    const md = renderSkillListMarkdown(skills)
+    expect(md).toContain('## AAuth protocol spec')
+    expect(md).toContain('draft-hardt-oauth-aauth-protocol.md')
+  })
 })
 
 describe('help text', () => {

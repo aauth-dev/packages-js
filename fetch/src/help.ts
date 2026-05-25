@@ -97,24 +97,29 @@ FLAGS
 
 EXAMPLE
   $ npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations listNotes,createNote
-  {
-    "auth_token": "eyJ…",
-    "expires_in": 3600,
-    "signingKey": { "kty": "OKP", "crv": "Ed25519", "x": "…", "d": "…" },
-    "response": { "status": 200 }
-  }`,
+  { "auth_token": "eyJ…", "expires_in": 3600, "signingKey": { … }, "response": { "status": 200 } }
+
+  Capture this and reuse it — authorize once (one consent), then make many calls.
+  Keep the tokens in your shell session:
+
+  $ OUT=$(npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations listNotes,createNote)
+  $ export AAUTH_AUTH_TOKEN=$(jq -r .auth_token  <<<"$OUT")
+  $ export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
+  $ npx @aauth/fetch https://notes.aauth.dev/notes      # signs with the saved auth token
+
+  Reuse makes no person-server round-trip — just one signed request. The signing
+  key is emitted so it isn't re-minted; the same key must sign every reuse.`,
 
   skill: `DESCRIPTION
-  Print agent skills as markdown — how to use fetch, plus a pointer to the AAuth
-  protocol spec.
+  Print agent skills as markdown. The bare list also includes a URL pointer to
+  the AAuth protocol spec (fetch it yourself).
 
 USAGE
   npx @aauth/fetch skill [name]
 
-  No name   List available skills (markdown)
+  No name   List available skills + the protocol spec URL (markdown)
   <name>    Print that skill's full instructions (markdown)
 
 SKILLS
-  fetch       How to use @aauth/fetch to make AAuth-authenticated requests
-  protocol    Fetch URL for the AAuth protocol spec`,
+  fetch       How to use @aauth/fetch to make AAuth-authenticated requests`,
 }

@@ -133,11 +133,15 @@ describe('renderSkillListMarkdown', () => {
   it('renders ## headings per skill (markdown, not JSON)', () => {
     const md = renderSkillListMarkdown([
       { name: 'fetch', description: 'How to use fetch' },
-      { name: 'protocol', description: 'The AAuth protocol spec' },
     ])
     expect(md).toContain('# AAuth fetch skills')
     expect(md).toContain('## fetch')
-    expect(md).toContain('## protocol')
     expect(md.trimStart().startsWith('[')).toBe(false)
+  })
+
+  it('folds the protocol spec URL into the list (no separate protocol skill)', () => {
+    const md = renderSkillListMarkdown([{ name: 'fetch', description: 'How to use fetch' }])
+    expect(md).toContain('## AAuth protocol spec')
+    expect(md).toContain('draft-hardt-oauth-aauth-protocol.md')
   })
 })

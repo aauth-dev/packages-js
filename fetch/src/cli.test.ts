@@ -84,18 +84,29 @@ describe('cli dispatch', () => {
     noHandlerCalled()
   })
 
-  it('skill (no name) lists skills as markdown', async () => {
+  it('skill (no name) lists skills and folds in the protocol spec URL', async () => {
     setArgv('skill')
     await run()
-    expect(out.join('\n')).toContain('# AAuth fetch skills')
-    expect(out.join('\n')).toContain('## fetch')
+    const md = out.join('\n')
+    expect(md).toContain('# AAuth fetch skills')
+    expect(md).toContain('## fetch')
+    expect(md).toContain('## AAuth protocol spec')
+    expect(md).toContain('draft-hardt-oauth-aauth-protocol.md')
     noHandlerCalled()
   })
 
   it('skill <name> prints that skill body', async () => {
+    setArgv('skill', 'fetch')
+    await run()
+    expect(out.join('\n')).toContain('@aauth/fetch')
+    noHandlerCalled()
+  })
+
+  it('skill protocol is no longer a skill (folded into the list) → unknown', async () => {
     setArgv('skill', 'protocol')
     await run()
-    expect(out.join('\n')).toContain('AAuth protocol specification')
+    expect(err.join('\n')).toContain('Unknown skill')
+    expect(process.exitCode).toBe(1)
     noHandlerCalled()
   })
 

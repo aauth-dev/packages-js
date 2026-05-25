@@ -47,7 +47,7 @@ Returns the auth token and ephemeral signing key. Save them and pass back in via
 ```
 npx @aauth/fetch <url> [flags]          # authenticated fetch (full flow)
 npx @aauth/fetch authorize <url> [flags] # auth flow only; print tokens for reuse
-npx @aauth/fetch skill [name]            # print agent skills (fetch, protocol)
+npx @aauth/fetch skill [name]            # print agent skills (+ protocol spec URL)
 
 Request:
   -X, --method <method>       HTTP method (default: GET)
@@ -81,8 +81,8 @@ Output:
 
 ## For AI Agents
 
-Run `npx @aauth/fetch skill` to list the agent skills, then `skill fetch` for the
-usage guide or `skill protocol` for the spec URL.
+Run `npx @aauth/fetch skill` to list the agent skills (the list also includes the
+AAuth protocol spec URL to fetch yourself), then `skill fetch` for the usage guide.
 
 ## Related Packages
 

@@ -38,6 +38,10 @@ export function shapeKeystores(backends: BackendInfo[]): KeystoreInfo[] {
   }))
 }
 
+/** The AAuth protocol spec — a URL the agent fetches itself (nothing bundled). */
+export const PROTOCOL_SPEC_URL =
+  'https://raw.githubusercontent.com/dickhardt/AAuth/refs/heads/main/draft-hardt-oauth-aauth-protocol.md'
+
 /** Render the skill list as markdown (`#` title, `##` per skill) — agents parse this best. */
 export function renderSkillListMarkdown(skills: SkillSummary[]): string {
   const lines = ['# AAuth bootstrap skills', '']
@@ -47,6 +51,9 @@ export function renderSkillListMarkdown(skills: SkillSummary[]): string {
     lines.push('')
   }
   lines.push('Run `npx @aauth/bootstrap skill <name>` to print a guide.')
+  lines.push('')
+  lines.push('## AAuth protocol spec')
+  lines.push(`Fetch this URL to read the full spec: ${PROTOCOL_SPEC_URL}`)
   return lines.join('\n')
 }
 
@@ -75,9 +82,6 @@ COMMANDS
 
       netlify
         Publish to Netlify
-
-      protocol
-        Fetch URL for the AAuth protocol spec
 
   list
     List agent providers, keys, and keystores
