@@ -246,10 +246,10 @@ export async function handleAuthorize(
     if (response.status === 200) {
       const b = await response.text()
       // Two-party: the resource may hand back an opaque AAuth-Access token to
-      // reuse (via --access-token) on subsequent calls.
-      const accessToken = response.headers.get('aauth-access') ?? undefined
+      // reuse (via --opaque-token) on subsequent calls.
+      const opaqueToken = response.headers.get('aauth-access') ?? undefined
       return printResult({
-        ...(accessToken ? { access_token: accessToken } : {}),
+        ...(opaqueToken ? { opaque_token: opaqueToken } : {}),
         signingKey: keyMaterial.signingKey,
         signatureKey: keyMaterial.signatureKey,
         response: { status: 200, body: tryParseJson(b) },
@@ -346,7 +346,7 @@ export async function handleFullFlow(
   args: {
     url: string; agentProvider?: string; browser?: boolean; nonInteractive: boolean; verbose: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
-    capabilities?: string[]; withToken?: boolean; accessToken?: string;
+    capabilities?: string[]; withToken?: boolean; opaqueToken?: string;
   },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
@@ -362,20 +362,20 @@ export async function handleFullFlow(
   // return them (alongside the response) for reuse — the three-party auth token,
   // and/or a two-party opaque AAuth-Access token.
   let minted: { authToken: string; expiresIn: number } | undefined
-  let accessToken: string | undefined = args.accessToken
+  let opaqueToken: string | undefined = args.opaqueToken
 
   const aAuthFetch = createAAuthFetch({
     getKeyMaterial: pinnedGetKeyMaterial,
     authServerUrl: personServer,
     authServerMetadata: personServerMetadata,
     onMetadata,
-    // --access-token: reuse a previously-issued opaque token on this call.
-    accessToken: args.accessToken,
+    // --opaque-token: reuse a previously-issued opaque token on this call.
+    opaqueToken: args.opaqueToken,
     onAuthToken: args.withToken
       ? (authToken, expiresIn) => { minted = { authToken, expiresIn } }
       : undefined,
-    onAccessToken: args.withToken
-      ? (token) => { accessToken = token }
+    onOpaqueToken: args.withToken
+      ? (token) => { opaqueToken = token }
       : undefined,
     justification: args.justification,
     loginHint: args.loginHint,
@@ -391,13 +391,13 @@ export async function handleFullFlow(
   if (args.withToken) {
     // Combined object: the reusable credential(s) + the resource response in one
     // call. auth_token/expires_in appear only when an auth token was minted (the
-    // resource issued a three-party challenge); access_token appears in two-party
+    // resource issued a three-party challenge); opaque_token appears in two-party
     // mode; an agent-token-only 200 has neither.
     const body = await response.text()
     const parsed = tryParseJson(body)
     printResult({
       ...(minted ? { auth_token: minted.authToken, expires_in: minted.expiresIn } : {}),
-      ...(accessToken ? { access_token: accessToken } : {}),
+      ...(opaqueToken ? { opaque_token: opaqueToken } : {}),
       signingKey: keyMaterial.signingKey,
       response: { status: response.status, body: parsed === undefined ? body : parsed },
     })

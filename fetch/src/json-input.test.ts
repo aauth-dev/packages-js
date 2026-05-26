@@ -77,12 +77,12 @@ describe('mergeJsonInput', () => {
     expect(result.authToken).toBe('eyJ.json.token')
   })
 
-  it('overrides accessToken from JSON access_token', () => {
+  it('overrides opaqueToken from JSON opaque_token', () => {
     const result = mergeJsonInput(baseArgs(), {
       url: 'https://x.com',
-      access_token: 'opaque.json.token',
+      opaque_token: 'opaque.json.token',
     })
-    expect(result.accessToken).toBe('opaque.json.token')
+    expect(result.opaqueToken).toBe('opaque.json.token')
   })
 
   it('stringifies signingKey object from JSON', () => {

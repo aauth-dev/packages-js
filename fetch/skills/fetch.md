@@ -143,13 +143,13 @@ you **must** use the same key on every reuse (it isn't re-minted).
 
 Some resources manage authorization themselves instead of delegating to a person
 server. After authorizing, they hand back an **opaque `AAuth-Access` token** (in the
-`access_token` field of `authorize` / `--with-token` output). Reuse it with
-`--access-token` — it's sent under the `AAuth` scheme and bound to the request
+`opaque_token` field of `authorize` / `--with-token` output). Reuse it with
+`--opaque-token` — it's sent under the `AAuth` scheme and bound to the request
 signature, so **no signing key is needed** (your agent identity from config signs it):
 
 ```bash
 OUT=$(npx @aauth/fetch --with-token https://resource.example/api)
-export AAUTH_ACCESS_TOKEN=$(jq -r .access_token <<<"$OUT")   # or pass --access-token "$TOKEN"
+export AAUTH_OPAQUE_TOKEN=$(jq -r .opaque_token <<<"$OUT")   # or pass --opaque-token "$TOKEN"
 npx @aauth/fetch https://resource.example/api               # reuses the opaque token
 ```
 
@@ -284,8 +284,8 @@ Via JSON stdin:
 |------|-------------|
 | `--agent-only` | Sign with agent token only; don't handle 401 |
 | `--auth-token` / `--signing-key` | Use an existing auth token + signing key (skip the auth flow) — three-party reuse |
-| `--access-token` | Reuse an opaque AAuth-Access token (two-party / resource-managed); no signing key needed |
-| `--with-token` | Return `{ auth_token, expires_in, signingKey, response }` (and `access_token` in two-party mode) instead of just the body — the call plus the reusable credential |
+| `--opaque-token` | Reuse an opaque AAuth-Access token (two-party / resource-managed); no signing key needed |
+| `--with-token` | Return `{ auth_token, expires_in, signingKey, response }` (and `opaque_token` in two-party mode) instead of just the body — the call plus the reusable credential |
 | `--json` | Read full request from stdin as JSON (input only) |
 | `-X, --method` | HTTP method (default: GET) |
 | `-d, --data` | Request body (use `-` for stdin) |
@@ -353,7 +353,7 @@ scannable QR code — open the link or scan it from your phone. With `-v`, a
 | `AAUTH_LOCAL` | `--local` |
 | `AAUTH_AUTH_TOKEN` | `--auth-token` |
 | `AAUTH_SIGNING_KEY` | `--signing-key` |
-| `AAUTH_ACCESS_TOKEN` | `--access-token` |
+| `AAUTH_OPAQUE_TOKEN` | `--opaque-token` |
 | `AAUTH_PERSON_SERVER` | `--person-server` |
 
 ## Caching

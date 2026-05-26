@@ -56,12 +56,12 @@ MODE (modifiers)
   --auth-token <jwt>  --signing-key <jwk>
     Use an existing auth token + signing key (skip the auth flow). Three-party reuse.
 
-  --access-token <token>
+  --opaque-token <token>
     Reuse an opaque AAuth-Access token (two-party / resource-managed). Sent under
     the AAuth scheme and bound to the request signature; no signing key needed.
 
   --with-token
-    Return { auth_token, expires_in, signingKey, response } — and access_token in
+    Return { auth_token, expires_in, signingKey, response } — and opaque_token in
     two-party mode — instead of just the response body: the call plus the reusable
     credential, so the next call can skip the consent round-trip (see EXAMPLES).
 

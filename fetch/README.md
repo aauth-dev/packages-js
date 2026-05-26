@@ -76,9 +76,9 @@ AAuth:
 Modes:
   --agent-only                Sign with agent token only; don't handle 401
   --auth-token <jwt> --signing-key <jwk>   Use an existing auth token + signing key (three-party)
-  --access-token <token>      Reuse an opaque AAuth-Access token (two-party; no signing key)
+  --opaque-token <token>      Reuse an opaque AAuth-Access token (two-party; no signing key)
   --with-token                Return { auth_token, expires_in, signingKey, response }
-                              (and access_token in two-party mode) instead of just the
+                              (and opaque_token in two-party mode) instead of just the
                               body — the call + reusable credential
 
 Authorize (with the `authorize` command):

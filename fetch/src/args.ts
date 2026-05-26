@@ -21,7 +21,7 @@ export interface FetchArgs {
   authToken?: string
   signingKey?: string
   /** Opaque AAuth-Access token (two-party reuse) sent under the AAuth scheme. */
-  accessToken?: string
+  opaqueToken?: string
 
   // Mode (modifiers)
   agentOnly: boolean
@@ -61,7 +61,7 @@ const VALUE_FLAGS: Record<string, string> = {
   'person-server': 'personServer',
   'auth-token': 'authToken',
   'signing-key': 'signingKey',
-  'access-token': 'accessToken',
+  'opaque-token': 'opaqueToken',
   operations: 'operations',
   scope: 'scope',
   'login-hint': 'loginHint',
@@ -139,7 +139,7 @@ export function parseArgs(argv: string[]): FetchArgs {
   a.personServer = a.personServer ?? process.env.AAUTH_PERSON_SERVER
   a.authToken = a.authToken ?? process.env.AAUTH_AUTH_TOKEN
   a.signingKey = a.signingKey ?? process.env.AAUTH_SIGNING_KEY
-  a.accessToken = a.accessToken ?? process.env.AAUTH_ACCESS_TOKEN
+  a.opaqueToken = a.opaqueToken ?? process.env.AAUTH_OPAQUE_TOKEN
 
   return a
 }

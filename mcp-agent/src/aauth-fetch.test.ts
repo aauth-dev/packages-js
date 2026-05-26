@@ -211,23 +211,23 @@ describe('createAAuthFetch', () => {
     expect(secondCall[1].components).toContain('authorization')
   })
 
-  it('fires onAccessToken when a resource returns an AAuth-Access token', async () => {
+  it('fires onOpaqueToken when a resource returns an AAuth-Access token', async () => {
     mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', {
       status: 200,
       headers: { 'aauth-access': 'fresh-opaque-token' },
     }))
 
-    const onAccessToken = vi.fn()
-    const fetch = createAAuthFetch({ getKeyMaterial, onAccessToken })
+    const onOpaqueToken = vi.fn()
+    const fetch = createAAuthFetch({ getKeyMaterial, onOpaqueToken })
     await fetch('https://resource.example/api')
 
-    expect(onAccessToken).toHaveBeenCalledWith('fresh-opaque-token')
+    expect(onOpaqueToken).toHaveBeenCalledWith('fresh-opaque-token')
   })
 
-  it('sends a seeded accessToken on the first request (two-party reuse)', async () => {
+  it('sends a seeded opaqueToken on the first request (two-party reuse)', async () => {
     mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
 
-    const fetch = createAAuthFetch({ getKeyMaterial, accessToken: 'seeded-token' })
+    const fetch = createAAuthFetch({ getKeyMaterial, opaqueToken: 'seeded-token' })
     await fetch('https://resource.example/api')
 
     // The very first call carries the seeded token, bound to the signature.

@@ -22,10 +22,10 @@ export interface AAuthFetchOptions {
   /** Called with an opaque AAuth-Access token received from a resource (two-party
    * mode), including rolling-refresh replacements, so the caller can surface it
    * for reuse. */
-  onAccessToken?: (accessToken: string) => void
+  onOpaqueToken?: (opaqueToken: string) => void
   /** Seed an opaque AAuth-Access token (two-party mode) to send on the first
-   * request to a resource — the reuse counterpart of `onAccessToken`. */
-  accessToken?: string
+   * request to a resource — the reuse counterpart of `onOpaqueToken`. */
+  opaqueToken?: string
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
@@ -44,7 +44,7 @@ interface CachedToken {
   authServer: string
 }
 
-interface CachedAccess {
+interface CachedOpaque {
   token: string
 }
 
@@ -63,8 +63,8 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     authServerMetadata,
     onMetadata,
     onAuthToken,
-    onAccessToken,
-    accessToken: seedAccessToken,
+    onOpaqueToken,
+    opaqueToken: seedOpaqueToken,
     onInteraction,
     onClarification,
     onEvent,
@@ -87,7 +87,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
 
   const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, mission, onSigned })
   const tokenCache = new Map<string, CachedToken>()
-  const accessCache = new Map<string, CachedAccess>()
+  const opaqueCache = new Map<string, CachedOpaque>()
 
   return async (url: string | URL, init?: RequestInit): Promise<Response> => {
     const urlStr = typeof url === 'string' ? url : url.toString()
@@ -95,8 +95,8 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
 
     // Seed a provided AAuth-Access token (two-party reuse) so the first request
     // to this resource sends it. A token the resource later returns replaces it.
-    if (seedAccessToken && !accessCache.has(resourceOrigin)) {
-      accessCache.set(resourceOrigin, { token: seedAccessToken })
+    if (seedOpaqueToken && !opaqueCache.has(resourceOrigin)) {
+      opaqueCache.set(resourceOrigin, { token: seedOpaqueToken })
     }
 
     // Check cache for a valid auth token for this resource
@@ -106,7 +106,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       const response = await fetchWithAuthToken(url, init, cached.authToken, getKeyMaterial, onSigned)
       // If the cached token is rejected, fall through to challenge flow
       if (response.status !== 401) {
-        cacheAccessToken(accessCache, resourceOrigin, response, onAccessToken)
+        cacheOpaqueToken(opaqueCache, resourceOrigin, response, onOpaqueToken)
         return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
       }
       // Cached token rejected — remove and proceed with fresh exchange
@@ -114,15 +114,15 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     }
 
     // Check cache for an opaque AAuth-Access token (two-party mode)
-    const cachedAccess = accessCache.get(resourceOrigin)
-    if (cachedAccess) {
-      const response = await fetchWithAccessToken(url, init, cachedAccess.token, getKeyMaterial, onSigned)
+    const cachedOpaque = opaqueCache.get(resourceOrigin)
+    if (cachedOpaque) {
+      const response = await fetchWithOpaqueToken(url, init, cachedOpaque.token, getKeyMaterial, onSigned)
       if (response.status !== 401) {
-        cacheAccessToken(accessCache, resourceOrigin, response, onAccessToken)
+        cacheOpaqueToken(opaqueCache, resourceOrigin, response, onOpaqueToken)
         return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
       }
       // Access token rejected — remove and proceed
-      accessCache.delete(resourceOrigin)
+      opaqueCache.delete(resourceOrigin)
     }
 
     // Send signed request (no auth token)
@@ -151,7 +151,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
 
     // 200: success — check for AAuth-Access token
     if (response.status === 200) {
-      cacheAccessToken(accessCache, resourceOrigin, response, onAccessToken)
+      cacheOpaqueToken(opaqueCache, resourceOrigin, response, onOpaqueToken)
       return response
     }
 
@@ -223,7 +223,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           request_headers: sentTracker.latest?.headers,
           response: { headers: summarizeResponseHeaders(retryResponse.headers) },
         })
-        cacheAccessToken(accessCache, resourceOrigin, retryResponse, onAccessToken)
+        cacheOpaqueToken(opaqueCache, resourceOrigin, retryResponse, onOpaqueToken)
         return handleResourceInteraction(retryResponse, signedFetch, onInteraction, onClarification)
       }
 
@@ -233,7 +233,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
 
     // 202 with interaction: resource-level interaction (two-party mode)
     const terminalResponse = await handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
-    cacheAccessToken(accessCache, resourceOrigin, terminalResponse, onAccessToken)
+    cacheOpaqueToken(opaqueCache, resourceOrigin, terminalResponse, onOpaqueToken)
     return terminalResponse
   }
 }
@@ -316,10 +316,10 @@ async function fetchWithAuthToken(
  * Send a signed request with an opaque AAuth-Access token in the Authorization header.
  * The agent signs the request (including the authorization header) with its agent token.
  */
-async function fetchWithAccessToken(
+async function fetchWithOpaqueToken(
   url: string | URL,
   init: RequestInit | undefined,
-  accessToken: string,
+  opaqueToken: string,
   getKeyMaterial: GetKeyMaterial,
   onSigned?: (sent: CapturedSent) => void,
 ): Promise<Response> {
@@ -328,7 +328,7 @@ async function fetchWithAccessToken(
   // Spec (#aauth-access): the opaque token goes back under the "AAuth" auth
   // scheme, and `authorization` MUST be in the signature's covered components so
   // the token is bound to this signature — not replayable as a bearer token.
-  headers.set('authorization', `AAuth ${accessToken}`)
+  headers.set('authorization', `AAuth ${opaqueToken}`)
   const base = init?.body != null ? DEFAULT_COMPONENTS_BODY : DEFAULT_COMPONENTS_GET
   const components = [...base.filter((c) => c !== 'signature-key'), 'authorization', 'signature-key']
   const httpSigKey = signatureKey.type === 'jkt-jwt'
@@ -357,18 +357,18 @@ async function fetchWithAccessToken(
 
 /**
  * Cache an AAuth-Access token from a response if present, and surface it via
- * onAccessToken. A new AAuth-Access header replaces any previously cached token.
+ * onOpaqueToken. A new AAuth-Access header replaces any previously cached token.
  */
-function cacheAccessToken(
-  cache: Map<string, CachedAccess>,
+function cacheOpaqueToken(
+  cache: Map<string, CachedOpaque>,
   resourceOrigin: string,
   response: Response,
-  onAccessToken?: (accessToken: string) => void,
+  onOpaqueToken?: (opaqueToken: string) => void,
 ): void {
-  const accessToken = response.headers.get('aauth-access')
-  if (accessToken) {
-    cache.set(resourceOrigin, { token: accessToken })
-    onAccessToken?.(accessToken)
+  const opaqueToken = response.headers.get('aauth-access')
+  if (opaqueToken) {
+    cache.set(resourceOrigin, { token: opaqueToken })
+    onOpaqueToken?.(opaqueToken)
   }
 }
 

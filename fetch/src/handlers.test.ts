@@ -518,10 +518,10 @@ describe('handleFullFlow', () => {
     expect(stdout.output[0]).not.toContain('signingKey')
   })
 
-  it('--with-token includes access_token in two-party mode', async () => {
+  it('--with-token includes opaque_token in two-party mode', async () => {
     // Simulate a resource handing back an opaque AAuth-Access token.
     mockCreateAAuthFetch.mockImplementationOnce((opts) => {
-      opts.onAccessToken?.('opaque-xyz')
+      opts.onOpaqueToken?.('opaque-xyz')
       return mockAAuthFetch
     })
     mockAAuthFetch.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))
@@ -539,18 +539,18 @@ describe('handleFullFlow', () => {
     }
 
     const result = JSON.parse(stdout.output[0])
-    expect(result.access_token).toBe('opaque-xyz')
+    expect(result.opaque_token).toBe('opaque-xyz')
     expect(result.auth_token).toBeUndefined()
     expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
   })
 
-  it('--access-token seeds the opaque token into createAAuthFetch', async () => {
+  it('--opaque-token seeds the opaque token into createAAuthFetch', async () => {
     mockAAuthFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
 
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, accessToken: 'reuse-me' },
+        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, opaqueToken: 'reuse-me' },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         undefined,
@@ -560,7 +560,7 @@ describe('handleFullFlow', () => {
     }
 
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
-      accessToken: 'reuse-me',
+      opaqueToken: 'reuse-me',
     }))
   })
 })
@@ -587,10 +587,10 @@ describe('handleAuthorize', () => {
     expect(result.signatureKey).toEqual(fakeKeyMaterial.signatureKey)
     expect(result.response.status).toBe(200)
     expect(result.response.body).toEqual({ identity: 'me' })
-    expect(result.access_token).toBeUndefined() // no AAuth-Access header → no field
+    expect(result.opaque_token).toBeUndefined() // no AAuth-Access header → no field
   })
 
-  it('surfaces access_token from a two-party 200 (AAuth-Access header)', async () => {
+  it('surfaces opaque_token from a two-party 200 (AAuth-Access header)', async () => {
     mockSignedFetch.mockResolvedValueOnce(new Response('{"data":1}', {
       status: 200,
       headers: { 'aauth-access': 'opaque-aaa' },
@@ -608,7 +608,7 @@ describe('handleAuthorize', () => {
     }
 
     const result = JSON.parse(stdout.output[0])
-    expect(result.access_token).toBe('opaque-aaa')
+    expect(result.opaque_token).toBe('opaque-aaa')
     expect(result.response.status).toBe(200)
   })
 
