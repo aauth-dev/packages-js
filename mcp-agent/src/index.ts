@@ -19,9 +19,10 @@ export type {
   FetchLike,
   AAuthEvent,
   OnEvent,
+  CapturedSent,
 } from './types.js'
 export type { AAuthChallenge, RequirementLevel, RequireLevel, Capability, AAuthMission } from './aauth-header.js'
 export type { SignedFetchOptions } from './signed-fetch.js'
 export type { DeferredOptions, DeferredResult, AAuthError } from './deferred.js'
-export type { TokenExchangeOptions, TokenExchangeResult } from './token-exchange.js'
+export type { TokenExchangeOptions, TokenExchangeResult, AuthServerMetadata } from './token-exchange.js'
 export type { AAuthFetchOptions } from './aauth-fetch.js'

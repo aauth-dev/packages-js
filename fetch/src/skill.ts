@@ -3,22 +3,29 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const skillFile = join(__dirname, '..', 'skills', 'fetch.md')
+const skillsDir = join(__dirname, '..', 'skills')
 
-export function printSkill(): void {
+/** The AAuth protocol spec — a URL the agent fetches itself (nothing bundled). */
+export const PROTOCOL_SPEC_URL =
+  'https://raw.githubusercontent.com/dickhardt/AAuth/refs/heads/main/draft-hardt-oauth-aauth-protocol.md'
+
+function stripFrontMatter(content: string): string {
+  if (!content.startsWith('---\n')) return content.trim()
+  const end = content.indexOf('\n---\n', 4)
+  return end === -1 ? content.trim() : content.slice(end + 5).trim()
+}
+
+/**
+ * The single fetch skill: the usage guide, plus a pointer to the AAuth protocol
+ * spec (a URL to fetch yourself — nothing bundled). There is no skill selection;
+ * `skill` prints this.
+ */
+export function renderSkill(): string {
+  let guide = '# @aauth/fetch'
   try {
-    const content = readFileSync(skillFile, 'utf-8')
-    // Strip front matter
-    if (content.startsWith('---\n')) {
-      const end = content.indexOf('\n---\n', 4)
-      if (end !== -1) {
-        console.log(content.slice(end + 5).trim())
-        return
-      }
-    }
-    console.log(content)
+    guide = stripFrontMatter(readFileSync(join(skillsDir, 'fetch.md'), 'utf-8'))
   } catch {
-    console.error(JSON.stringify({ error: 'Skill file not found' }))
-    process.exitCode = 1
+    // fall back to the heading if the bundled guide is missing
   }
+  return `${guide}\n\n## AAuth protocol spec\n\nFetch this URL to read the full spec:\n${PROTOCOL_SPEC_URL}\n`
 }

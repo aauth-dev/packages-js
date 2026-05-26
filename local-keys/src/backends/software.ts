@@ -1,6 +1,6 @@
 import { generateKeyPair, exportJWK } from 'jose'
 import type { JWK } from 'jose'
-import { readKeychain, writeKeychain, listAgentUrls } from '../keychain.js'
+import { readKeychain, writeKeychain, deleteKeychain, listAgentUrls } from '../keychain.js'
 import { machineLabel } from '../device-label.js'
 import type {
   BackendInfo,
@@ -111,5 +111,23 @@ export const softwareBackend: KeyBackendDriver = {
 
   getDeviceLabel(): string {
     return machineLabel()
+  },
+
+  async deleteKey(keyId: string): Promise<void> {
+    // Software keys live in the OS keychain, grouped per agent URL. Find the
+    // entry holding this kid, remove it, and drop the whole entry if it's now empty.
+    for (const url of listAgentUrls()) {
+      const data = readKeychain(url)
+      if (!data?.keys[keyId]) continue
+      delete data.keys[keyId]
+      const remaining = Object.keys(data.keys)
+      if (remaining.length === 0) {
+        deleteKeychain(url)
+      } else {
+        if (data.current === keyId) data.current = remaining[0]
+        writeKeychain(url, data)
+      }
+      return
+    }
   },
 }

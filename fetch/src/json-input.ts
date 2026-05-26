@@ -5,17 +5,20 @@ export interface JsonRequest {
   method?: string
   headers?: Record<string, string>
   body?: unknown
-  authToken?: string
+  // Spec-defined fields use the spec's snake_case names; our own artifacts
+  // (signingKey, agentProvider, personServer, agentOnly, local) stay camelCase.
+  auth_token?: string
+  opaque_token?: string
   signingKey?: JsonWebKey
-  agentUrl?: string
+  agentProvider?: string
   local?: string
   operations?: string
   scope?: string
   personServer?: string
-  authorize?: boolean
   agentOnly?: boolean
-  loginHint?: string
-  domainHint?: string
+  withToken?: boolean
+  login_hint?: string
+  domain_hint?: string
   tenant?: string
   justification?: string
   capabilities?: string[]
@@ -42,17 +45,18 @@ export function mergeJsonInput(args: FetchArgs, json: JsonRequest): FetchArgs {
       ? Object.entries(json.headers).map(([k, v]) => `${k}: ${v}`)
       : args.headers,
     data: json.body !== undefined ? JSON.stringify(json.body) : args.data,
-    authToken: json.authToken ?? args.authToken,
+    authToken: json.auth_token ?? args.authToken,
+    opaqueToken: json.opaque_token ?? args.opaqueToken,
     signingKey: json.signingKey ? JSON.stringify(json.signingKey) : args.signingKey,
-    agentUrl: json.agentUrl ?? args.agentUrl,
+    agentProvider: json.agentProvider ?? args.agentProvider,
     local: json.local ?? args.local,
     operations: json.operations ?? args.operations,
     scope: json.scope ?? args.scope,
     personServer: json.personServer ?? args.personServer,
-    authorize: json.authorize ?? args.authorize,
     agentOnly: json.agentOnly ?? args.agentOnly,
-    loginHint: json.loginHint ?? args.loginHint,
-    domainHint: json.domainHint ?? args.domainHint,
+    withToken: json.withToken ?? args.withToken,
+    loginHint: json.login_hint ?? args.loginHint,
+    domainHint: json.domain_hint ?? args.domainHint,
     tenant: json.tenant ?? args.tenant,
     justification: json.justification ?? args.justification,
     capabilities: json.capabilities ?? args.capabilities,

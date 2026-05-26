@@ -14,7 +14,6 @@ export function readConfig(): AAuthConfig {
   try {
     const raw = readFileSync(CONFIG_FILE, 'utf-8')
     const parsed = JSON.parse(raw) as AAuthConfig
-    // Ensure agents map exists
     if (!parsed.agents) parsed.agents = {}
     return parsed
   } catch {
@@ -65,7 +64,16 @@ export function setHosting(agentUrl: string, hosting: AgentHosting): void {
   writeConfig(config)
 }
 
-export function listConfiguredAgents(): string[] {
+/** Remove an agent provider (and its key bindings) from config. Returns true if it existed. */
+export function deleteAgentProvider(agentUrl: string): boolean {
+  const config = readConfig()
+  if (!config.agents[agentUrl]) return false
+  delete config.agents[agentUrl]
+  writeConfig(config)
+  return true
+}
+
+export function listAgentProviders(): string[] {
   const config = readConfig()
   return Object.keys(config.agents)
 }

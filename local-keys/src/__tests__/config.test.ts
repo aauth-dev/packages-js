@@ -5,7 +5,8 @@ import {
   getAgentConfig,
   addKeyToAgent,
   setPersonServer,
-  listConfiguredAgents,
+  listAgentProviders,
+  deleteAgentProvider,
 } from '../config.js'
 
 describe('Config', () => {
@@ -60,7 +61,7 @@ describe('Config', () => {
       deviceLabel: 'yubikey-5c-0775',
     })
 
-    const agents = listConfiguredAgents()
+    const agents = listAgentProviders()
     expect(agents).toContain('https://personal.example')
     expect(agents).toContain('https://work.example')
   })
@@ -84,5 +85,26 @@ describe('Config', () => {
     expect(Object.keys(ac!.keys)).toHaveLength(2)
     expect(ac!.keys['kid-yk'].backend).toBe('yubikey-piv')
     expect(ac!.keys['kid-se'].backend).toBe('secure-enclave')
+  })
+
+  it('deletes an agent provider', () => {
+    writeConfig({ agents: {} })
+    addKeyToAgent('https://gone.example', 'kid1', {
+      backend: 'software',
+      algorithm: 'EdDSA',
+      keyId: 'kid1',
+      deviceLabel: 'macbook-pro',
+    })
+    expect(getAgentConfig('https://gone.example')).not.toBeNull()
+
+    const removed = deleteAgentProvider('https://gone.example')
+    expect(removed).toBe(true)
+    expect(getAgentConfig('https://gone.example')).toBeNull()
+    expect(listAgentProviders()).not.toContain('https://gone.example')
+  })
+
+  it('deleteAgentProvider returns false for a missing provider', () => {
+    writeConfig({ agents: {} })
+    expect(deleteAgentProvider('https://nope.example')).toBe(false)
   })
 })

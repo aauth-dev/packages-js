@@ -76,6 +76,70 @@ describe('exchangeToken', () => {
     })
   })
 
+  it('uses provided authServerMetadata and skips the /.well-known fetch', async () => {
+    // Only the token endpoint responds — no metadata GET should happen.
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      auth_token: 'eyJ.auth.token',
+      expires_in: 3600,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    const result = await exchangeToken({
+      signedFetch: mockFetch,
+      authServerUrl: 'https://auth.example',
+      authServerMetadata: { token_endpoint: 'https://auth.example/aauth/token' },
+      resourceToken: 'eyJ.resource.token',
+    })
+
+    expect(result).toEqual({ authToken: 'eyJ.auth.token', expiresIn: 3600 })
+    // The very first (and only) call is the token POST — no metadata GET.
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch).toHaveBeenNthCalledWith(1,
+      'https://auth.example/aauth/token',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('cached metadata emits a ps_metadata_cached info event and does not call onMetadata', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      auth_token: 'eyJ.auth.token', expires_in: 3600,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const onEvent = vi.fn()
+    const onMetadata = vi.fn()
+
+    await exchangeToken({
+      signedFetch: mockFetch,
+      authServerUrl: 'https://auth.example',
+      authServerMetadata: { token_endpoint: 'https://auth.example/aauth/token' },
+      resourceToken: 'rt',
+      onEvent,
+      onMetadata,
+    })
+
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ step: 'ps_metadata_cached', phase: 'info' }))
+    expect(onMetadata).not.toHaveBeenCalled()
+  })
+
+  it('fresh fetch hands the metadata to onMetadata so the caller can persist it', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(metadata), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }))
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      auth_token: 'eyJ.auth.token', expires_in: 3600,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const onMetadata = vi.fn()
+
+    await exchangeToken({
+      signedFetch: mockFetch,
+      authServerUrl: 'https://auth.example',
+      resourceToken: 'rt',
+      onMetadata,
+    })
+
+    expect(onMetadata).toHaveBeenCalledWith(expect.objectContaining({
+      token_endpoint: 'https://auth.example/aauth/token',
+    }))
+  })
+
   it('202 flow — polls until token is received', async () => {
     // Metadata fetch
     mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(metadata), {

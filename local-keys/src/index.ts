@@ -1,4 +1,4 @@
-export { readKeychain, writeKeychain, listAgentUrls } from './keychain.js'
+export { readKeychain, writeKeychain, deleteKeychain, listAgentUrls } from './keychain.js'
 export { generateKey, generateKid, toPublicJwk } from './keygen.js'
 export { signAgentToken } from './agent-token.js'
 export { createAgentToken } from './create-agent-token.js'
@@ -11,12 +11,21 @@ export {
   addKeyToAgent,
   setPersonServer,
   setHosting,
-  listConfiguredAgents,
+  deleteAgentProvider,
+  listAgentProviders,
   validateUrl,
   ensureAgentUrls,
 } from './config.js'
+export {
+  readCachedMetadata,
+  writeCachedMetadata,
+  evictCachedMetadata,
+  parseMaxAge,
+  PS_METADATA_FILE,
+} from './metadata-cache.js'
 export { resolveKey, checkKeyAvailability } from './resolve-key.js'
 export { machineLabel, yubikeyLabel } from './device-label.js'
+export { KeyDeletionUnsupportedError } from './types.js'
 export type {
   KeychainData,
   GeneratedKeyPair,

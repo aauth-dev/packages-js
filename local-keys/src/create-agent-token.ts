@@ -1,5 +1,5 @@
 import { signAgentToken } from './agent-token.js'
-import { listConfiguredAgents, getAgentConfig } from './config.js'
+import { listAgentProviders, getAgentConfig } from './config.js'
 import { listAgentUrls } from './keychain.js'
 import type { CreateAgentTokenOptions, AgentTokenResult } from './types.js'
 
@@ -26,7 +26,7 @@ export async function createAgentToken(
 
   // Default agentUrl from config or keychain
   if (!agentUrl) {
-    const configured = listConfiguredAgents()
+    const configured = listAgentProviders()
     if (configured.length > 0) {
       agentUrl = configured[0]
     } else {
@@ -36,7 +36,7 @@ export async function createAgentToken(
       } else {
         throw new Error(
           'No agent URL provided and none configured. ' +
-          "Run 'npx @aauth/bootstrap generate --agent <url>' to set one up.",
+          "Run 'npx @aauth/bootstrap create <agent-provider-url>' to set one up.",
         )
       }
     }
@@ -53,7 +53,7 @@ export async function createAgentToken(
       if (!agentId) {
         throw new Error(
           `No agent identifier configured for ${agentUrl}. ` +
-          "Run 'npx @aauth/bootstrap --ps <person-server>' to configure one.",
+          "Run 'npx @aauth/bootstrap create <agent-provider-url>' to configure one.",
         )
       }
     }

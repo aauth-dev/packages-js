@@ -13,14 +13,15 @@ Make HTTP requests to AAuth-protected APIs. Handles HTTP message signatures, age
 The agent must have a signing key and a person server configured before making authorized requests:
 
 ```bash
-# Generate a key for your agent and bind the default person server (person.hello.coop)
-npx @aauth/bootstrap generate --agent <your-agent-url> --ps
+# Register an agent provider: generate a key, bind it, and bind the default
+# person server (person.hello.coop) — all in one command.
+npx @aauth/bootstrap create <your-agent-provider-url>
 
 # ...or point at a specific person server
-npx @aauth/bootstrap generate --agent <your-agent-url> --ps https://person.example
+npx @aauth/bootstrap create <your-agent-provider-url> --person-server https://person.example
 ```
 
-`--ps` with no URL binds the default person server (`https://person.hello.coop`). This validates the PS metadata and stores the PS URL plus agent identifier (e.g., `aauth:local@yourdomain.com`) in `~/.aauth/config.json`. Person binding then happens lazily on the first authorized request. Once an agent exists, `npx @aauth/bootstrap --ps` re-binds its person server on its own.
+`create` validates the PS metadata and stores the PS URL plus agent identifier (e.g., `aauth:local@yourdomain.com`) in `~/.aauth/config.json`. Person binding then happens lazily on the first authorized request. See `npx @aauth/bootstrap` for the full setup flow.
 
 ## Discovery
 
@@ -62,69 +63,113 @@ npx @aauth/fetch "https://whoami.aauth.dev?scope=email+profile"
 
 ## Multi-call workflow (recommended for APIs)
 
-When making multiple calls to the same resource, use the authorize-then-call pattern to avoid repeating the auth flow.
+When making multiple calls to the same resource, authorize once (one consent) and
+reuse the returned `auth_token` + `signingKey` so later calls skip the
+person-server round-trip. Two ways to capture the credential:
 
-### Step 1: Authorize and capture tokens
+- **`authorize <resource>`** — runs the auth flow only and returns the credential (no resource call).
+- **`--with-token`** on a normal fetch — makes the call *and* returns the credential alongside the response.
 
-For resources with standard 401 challenge (e.g., whoami with scopes):
-```bash
-npx @aauth/fetch --authorize "https://whoami.aauth.dev?scope=email"
-```
+### Step 1: Authorize once and capture
 
-For R3 resources (e.g., notes), POST to the authorize endpoint with operations:
-```bash
-npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
-  --operations listNotes,createNote
-```
-
-Both return JSON with the auth token and ephemeral signing key:
-```json
-{
-  "authToken": "eyJ...",
-  "expiresIn": 3600,
-  "signingKey": { "kty": "EC", "crv": "P-256", "d": "...", "x": "...", "y": "..." },
-  "response": { "status": 200 }
-}
-```
-
-If the resource accepts an agent token directly (no auth needed), returns:
-```json
-{
-  "signingKey": { "kty": "EC", "crv": "P-256", "d": "...", "x": "...", "y": "..." },
-  "signatureKey": { "type": "jwt", "jwt": "eyJ..." },
-  "response": { "status": 200, "body": { ... } }
-}
-```
-
-Save `authToken` and `signingKey` for subsequent calls. The `signingKey` is the ephemeral private key bound to the auth token — you must use the same key for all requests.
-
-### Step 2: Make calls with saved tokens
-
-Pass tokens via JSON stdin (recommended — avoids exposing keys in process list):
+Run `authorize` **once**, capturing stdout — don't print it and then run it again to
+capture (each run re-mints the token and may re-prompt for consent). `$OUT` then
+holds the reusable credential:
 
 ```bash
-echo '{
-  "url": "https://notes.aauth.dev/notes",
-  "method": "GET",
-  "authToken": "eyJ...",
-  "signingKey": {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}
-}' | npx @aauth/fetch --json
+OUT=$(npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations listNotes,createNote)
 ```
 
-Or for POST/PUT:
+- For a standard 401-challenge resource (e.g. whoami with scopes), pass the resource
+  URL instead: `OUT=$(npx @aauth/fetch authorize "https://whoami.aauth.dev?scope=email")`.
+- Or capture *with* the call in one shot via `--with-token` (makes the request AND
+  returns the credential): `OUT=$(npx @aauth/fetch --with-token https://notes.aauth.dev/notes)`.
+
+**Output shape — fields appear only when relevant:**
+- Three-party (PS-asserted): `{ auth_token, expires_in, signingKey, response? }`. `response` is the resource body (omitted by `authorize` since it makes no resource call); `signingKey` is the ephemeral private key the auth_token is `cnf`-bound to — needed on every reuse.
+- Two-party (resource-managed): `{ opaque_token, response? }`. **No `signingKey`** — the opaque token binds per-request to the agent identity, so reuse only needs the token.
+- Agent-token-only 200 (resource accepted the agent token directly): `{ signingKey, signatureKey, response }` — both emitted so you can reuse that exact agent token without re-minting.
+
+(Spec-defined fields use snake_case — `auth_token`/`expires_in`/`opaque_token`; our own artifacts like `signingKey`/`signatureKey` stay camelCase.)
+
+### Step 2: Reuse the captured token
+
+**Why:** authorizing runs the consent flow. Do it once, then reuse the `auth_token`
++ `signingKey` so every later call is a single signed request — no consent, no
+person-server round-trip. The token is **never written to disk**; you reuse it.
+
+**Important for agents:** a command can't set its parent shell's environment. So
+you (the caller) capture the output and reuse it — build a **shell script or a
+connected sequence of commands/pipes** that runs Step 1 and Step 2 in order,
+passing the captured value forward. Below, `$OUT` holds the Step 1 output. Three
+ways to reuse it — pick one:
+
+**A. Export to the environment (recommended).** fetch auto-reads `AAUTH_AUTH_TOKEN`
+and `AAUTH_SIGNING_KEY`, so later calls pick the token up with no extra flags:
+
+```bash
+export AAUTH_AUTH_TOKEN=$(jq -r .auth_token  <<<"$OUT")   # $OUT captured in Step 1
+export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
+
+# Next — call the protected resource. Each call is one signed request: no consent,
+# no person-server round-trip.
+npx @aauth/fetch https://notes.aauth.dev/notes
+npx @aauth/fetch -X POST -d '{"title":"hi"}' https://notes.aauth.dev/notes
+
+# When done, drop them from your shell so they don't shadow later calls to other
+# resources (the auth_token's `aud` claim is bound to one resource):
+unset AAUTH_AUTH_TOKEN AAUTH_SIGNING_KEY
+```
+
+> **Tip — scope to a subshell instead of `unset`.** If you'd rather not pollute the
+> outer shell at all, wrap the whole sequence in `( … )` — exported env vars
+> vanish when the subshell exits.
+
+**B. Pass as flags explicitly** on the next call:
+
+```bash
+npx @aauth/fetch \
+  --auth-token  "$(jq -r .auth_token  <<<"$OUT")" \
+  --signing-key "$(jq -c .signingKey <<<"$OUT")" \
+  https://notes.aauth.dev/notes
+```
+
+**C. Pass via JSON stdin** (keeps keys out of the process list / argv):
+
 ```bash
 echo '{
   "url": "https://notes.aauth.dev/notes",
   "method": "POST",
-  "body": {"title": "My Note", "body": "Content here"},
-  "authToken": "eyJ...",
+  "body": {"title": "My Note", "content": "Content here"},
+  "auth_token": "eyJ...",
   "signingKey": {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}
 }' | npx @aauth/fetch --json
 ```
 
+In all three, `signingKey` is the ephemeral private key bound to the auth token —
+you **must** use the same key on every reuse (it isn't re-minted).
+
+### Two-party (resource-managed) reuse
+
+Some resources manage authorization themselves instead of delegating to a person
+server. After authorizing, they hand back an **opaque `AAuth-Access` token** (in the
+`opaque_token` field of `authorize` / `--with-token` output). Reuse it with
+`--opaque-token` — it's sent under the `AAuth` scheme and bound to the request
+signature, so **no signing key is needed** (your agent identity from config signs it):
+
+```bash
+OUT=$(npx @aauth/fetch --with-token https://resource.example/api)
+export AAUTH_OPAQUE_TOKEN=$(jq -r .opaque_token <<<"$OUT")   # or pass --opaque-token "$TOKEN"
+npx @aauth/fetch https://resource.example/api               # reuses the opaque token
+```
+
+The resource may return a new `AAuth-Access` token on any response (rolling refresh);
+`--with-token` surfaces the latest one. Unlike the three-party auth token, this token
+is opaque and resource-specific — only send it back to the resource that issued it.
+
 ### Token expiration
 
-Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `--authorize` step to get fresh tokens.
+Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `authorize` step (or `--with-token`) to get fresh tokens.
 
 ## Agent-only mode
 
@@ -142,11 +187,11 @@ For resources that use R3 vocabularies (like OpenAPI-based APIs), you must speci
 
 ```bash
 # Authorize specific operations
-npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes,createNote,deleteNote
 
 # Then make calls with the returned tokens
-echo '{"url":"https://notes.aauth.dev/notes","method":"GET","authToken":"...","signingKey":{...}}' \
+echo '{"url":"https://notes.aauth.dev/notes","method":"GET","auth_token":"...","signingKey":{...}}' \
   | npx @aauth/fetch --json
 ```
 
@@ -169,13 +214,13 @@ Hints help the person server route authorization requests. They are optional and
 
 | Flag | JSON field | Purpose |
 |------|-----------|---------|
-| `--login-hint <hint>` | `loginHint` | Hint about who to authorize — a user identifier, email, or account name. Helps the person server identify the correct user. |
-| `--domain-hint <domain>` | `domainHint` | Hints at which domain or organization the user belongs to. Used in enterprise/multi-tenant systems to route to the correct identity provider. |
+| `--login-hint <hint>` | `login_hint` | Hint about who to authorize — a user identifier, email, or account name. Helps the person server identify the correct user. |
+| `--domain-hint <domain>` | `domain_hint` | Hints at which domain or organization the user belongs to. Used in enterprise/multi-tenant systems to route to the correct identity provider. |
 | `--tenant <id>` | `tenant` | Tenant identifier for multi-tenant systems. Specifies which organization context should be used for authorization. |
 
 Example:
 ```bash
-npx @aauth/fetch --authorize https://resource.example \
+npx @aauth/fetch authorize https://resource.example \
   --login-hint user@acme.com \
   --tenant acme.com
 ```
@@ -185,7 +230,7 @@ Or via JSON stdin:
 {
   "url": "https://resource.example",
   "authorize": true,
-  "loginHint": "user@acme.com",
+  "login_hint": "user@acme.com",
   "tenant": "acme.com"
 }
 ```
@@ -195,7 +240,7 @@ Or via JSON stdin:
 The `--justification` flag provides a Markdown string explaining **why** the agent is requesting access. The person server presents this to the user during consent review.
 
 ```bash
-npx @aauth/fetch --authorize https://notes.aauth.dev/authorize \
+npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes \
   --justification "Read the user's notes to summarize action items from today's meeting"
 ```
@@ -234,20 +279,31 @@ Via JSON stdin:
 }
 ```
 
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `<resource>` | Authenticated fetch — full flow (sign → 401 → token exchange → consent → retry) |
+| `authorize <resource>` | Auth flow only; return auth token + signing key as JSON (no resource call). R3 via `--operations` |
+| `skill` | Print this usage guide (markdown), plus the AAuth protocol spec URL to fetch yourself |
+| (bare) / `--help` | Top-level help |
+
 ## All flags
 
 | Flag | Description |
 |------|-------------|
-| `--authorize` | Auth flow only; return tokens + signing key as JSON |
 | `--agent-only` | Sign with agent token only; don't handle 401 |
-| `--json` | Read full request from stdin as JSON |
+| `--auth-token` / `--signing-key` | Use an existing auth token + signing key (skip the auth flow) — three-party reuse |
+| `--opaque-token` | Reuse an opaque AAuth-Access token (two-party / resource-managed); no signing key needed |
+| `--with-token` | Return the reusable credential alongside the response. Three-party: `{ auth_token, expires_in, signingKey, response }`. Two-party: `{ opaque_token, response }` (no signingKey needed). `response` is the body (same as bare fetch) |
+| `--json` | Read full request from stdin as JSON (input only) |
 | `-X, --method` | HTTP method (default: GET) |
-| `-d, --data` | Request body |
+| `-d, --data` | Request body (use `-` for stdin) |
 | `-H, --header` | Additional header (repeatable) |
-| `--agent-url` | Override agent URL |
+| `--agent-provider` | Agent provider to sign as (default: from config) |
 | `--local` | Local part of agent identifier (default: from config) |
 | `--scope` | Requested scopes |
-| `--operations` | R3 operationIds (comma-separated, with --authorize) |
+| `--operations` | R3 operationIds (comma-separated, with `authorize`) |
 | `--person-server` | Override person server URL |
 | `--login-hint` | Hint about who to authorize |
 | `--domain-hint` | Domain/org routing hint |
@@ -256,8 +312,33 @@ Via JSON stdin:
 | `--capabilities` | Agent capabilities (comma-separated) |
 | `--no-browser` | Don't open browser for consent |
 | `--non-interactive` | Fail if consent is needed |
-| `-v, --verbose` | Show status + headers on stderr |
-| `--debug` | Show all requests/responses with headers on stderr |
+| `-v, --verbose` | Print every request/response on stderr as pretty JSON (type/step/description + real RFC 9421 headers) |
+
+## Verbose output (`-v`)
+
+Each `-v` event is `{ type, step, description, … }` on stderr (stdout stays clean
+for `jq`):
+
+- **`type`** — `request` | `response` | `info`.
+- **`step`** — which protocol step this is, named by what it targets / the token
+  it carries (a request pairs with the response right after it). Vocabulary:
+
+| step | what it is |
+|------|------------|
+| `agent_token_request` | the call to the resource signed with your agent token (may get a 401 challenge) |
+| `auth_token_request` | the call to the resource signed with the person-authorized auth token (the retry, or a pre-authed reuse) |
+| `challenge` | parsed the 401 — exchange the resource token for an auth token |
+| `authorize_request` | (R3) POST operations to the resource's authorize endpoint |
+| `ps_metadata` | discover the person server's endpoints |
+| `token_exchange` | trade the resource token for an auth token at the person server |
+| `consent_required` | the person must consent; the approval URL is opened |
+| `consent_prompt` | waiting for the person to approve |
+| `consent_poll` | poll for the consent result (repeats while waiting) |
+| `consent_granted` | the person approved |
+| `auth_token` | the auth token was received |
+
+- **`description`** — a one-line beat in the flow: a request states intent; a
+  response states what came back (never the bare status code).
 
 ## Error handling
 
@@ -266,17 +347,34 @@ Errors are output as JSON to stderr:
 {"error": "description of what went wrong"}
 ```
 
-When consent is needed, interaction info is output to stderr:
+When consent is needed, a browser opens at the approval URL by default. With
+`--no-browser`, the URL is printed on stderr (`Approve at: https://…`) along with a
+scannable QR code — open the link or scan it from your phone. With `-v`, a
+`consent_required` event also appears in the stream:
 ```json
-{"interaction": {"url": "https://...", "code": "ABCD-1234"}}
+{"type": "info", "step": "consent_required", "description": "Consent required — opening the approval URL for the person."}
 ```
 
 ## Environment variables
 
 | Variable | Equivalent flag |
 |----------|----------------|
-| `AAUTH_AGENT_URL` | `--agent-url` |
+| `AAUTH_AGENT_URL` | `--agent-provider` |
 | `AAUTH_LOCAL` | `--local` |
 | `AAUTH_AUTH_TOKEN` | `--auth-token` |
 | `AAUTH_SIGNING_KEY` | `--signing-key` |
+| `AAUTH_OPAQUE_TOKEN` | `--opaque-token` |
 | `AAUTH_PERSON_SERVER` | `--person-server` |
+
+## Caching
+
+- **Tokens are never cached to disk.** The `auth_token` and any access token are
+  output (with `authorize` / `--with-token`) for you to reuse as you see fit —
+  there is no automatic on-disk token reuse. See "Step 2: Reuse the captured token".
+- **Person-server metadata is cached** (it's public, not a secret) under
+  `~/.aauth/cache/<host>/aauth-person.json`, with expiry tracked in
+  `~/.aauth/cache/index.json`. `bootstrap` seeds it (a one-time setup step), but the
+  cache is then read, refreshed, and self-healed by `fetch` on use — honoring the
+  server's `Cache-Control: max-age` (default ~1 day). This lets the token exchange
+  skip the `/.well-known/aauth-person.json` round-trip. If a cached endpoint goes
+  stale (404/410 or unreachable), fetch evicts it and refetches once automatically.

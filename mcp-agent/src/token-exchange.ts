@@ -21,6 +21,10 @@ export class TokenExchangeError extends Error {
 export interface TokenExchangeOptions {
   signedFetch: FetchLike
   authServerUrl: string
+  /** Cached auth-server metadata; when provided, skips the /.well-known fetch. */
+  authServerMetadata?: AuthServerMetadata
+  /** Called with freshly-fetched metadata (only when authServerMetadata wasn't provided) so callers can persist it. */
+  onMetadata?: (metadata: AuthServerMetadata) => void
   resourceToken: string
   justification?: string
   localhostCallback?: string
@@ -51,9 +55,9 @@ export interface TokenExchangeResult {
   expiresIn: number
 }
 
-interface AuthServerMetadata {
+export interface AuthServerMetadata {
   token_endpoint: string
-  jwks_uri: string
+  jwks_uri?: string
 }
 
 const PREFER_WAIT = 45
@@ -83,8 +87,16 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     sentTracker,
   } = options
 
-  // 1. Fetch auth server metadata
-  const metadata = await fetchMetadata(signedFetch, authServerUrl, onEvent, getKeyMaterial, sentTracker)
+  // 1. Auth server metadata — use the cached copy if provided, else fetch it
+  // (and hand the fresh copy back via onMetadata so the caller can persist it).
+  let metadata: AuthServerMetadata
+  if (options.authServerMetadata) {
+    metadata = options.authServerMetadata
+    onEvent?.({ step: 'ps_metadata_cached', phase: 'info' })
+  } else {
+    metadata = await fetchMetadata(signedFetch, authServerUrl, onEvent, getKeyMaterial, sentTracker)
+    options.onMetadata?.(metadata)
+  }
 
   const { capabilities, prompt } = options
 

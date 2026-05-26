@@ -1,205 +1,156 @@
 ---
 name: setup
-description: Set up AAuth agent identity — generate signing keys, add keys from new devices, and publish to a hosting platform
-when: User wants to create an AAuth agent identity, generate keys, add a key from a new device or hardware backend, or publish their agent metadata
+description: Set up an AAuth agent provider identity — generate a signing key, bind a person server, and publish to a hosting platform
+when: User wants to create an AAuth agent provider identity, generate a key, or publish their agent metadata
 ---
 
-# Skill: Set up AAuth agent identity
+# Skill: Set up an AAuth agent provider identity
 
-## CRITICAL: Run discovery first — do not assume anything
+## CRITICAL: Run `list` first — do not assume anything
 
-Before giving the user ANY guidance, you MUST run these commands and use the output to determine what is available:
+Before giving the user ANY guidance, run this and use the output to see what
+keystores this machine has and what is already configured:
 
 ```
-npx @aauth/bootstrap discover
-npx @aauth/bootstrap show
+npx @aauth/bootstrap list
 ```
 
-Do NOT assume which backends are available. Do NOT suggest EdDSA or OS keychain keys unless `discover` shows no hardware backends. The discovery output is the source of truth for what this machine supports.
+The `keystores` array is the source of truth for what this machine supports. Do
+NOT suggest a software/EdDSA key if a hardware keystore (secure-enclave,
+yubikey-piv) is present — prefer hardware.
 
-## When to use
+## What `create` does
 
-- First-time setup: the user wants to create an AAuth agent identity with signing keys
-- Adding a key: the user has a new device (e.g. new YubiKey, new Mac) and wants to add its key to an existing agent identity
-- Publishing: the user has generated keys and needs to publish them to their hosting platform
+`create` is the whole first-time setup in one command. It:
 
-## Prerequisites
+1. generates a signing key in the chosen keystore,
+2. binds that key to the agent provider, and
+3. binds a person server (default `https://person.hello.coop`).
 
-- `@aauth/local-keys` is installed
-- For YubiKey: a YubiKey is plugged in
-- For Secure Enclave: macOS with Apple Silicon
+```
+npx @aauth/bootstrap create <agent-provider-url> [--keystore <name>] [--algorithm <alg>] [--person-server <url>]
+```
 
-## Key backend priority
+It fails if the agent provider already exists — delete it first to re-create.
 
-Always prefer hardware keys over software keys. Generate a key on ALL available hardware backends for redundancy — if one device is unavailable (e.g. YubiKey unplugged), the agent falls back to the next available key automatically.
+## Keystore priority
 
-1. **`yubikey-piv`** — YubiKey PIV slot 9e, no PIN required, ES256. Key lives in YubiKey hardware.
-2. **`secure-enclave`** — macOS Secure Enclave, ES256. Key lives in the Mac's secure hardware.
-3. **`software`** — OS keychain, EdDSA or ES256. Only use if no hardware is available.
+Prefer hardware over software (the private key never leaves the device):
 
-## Determining the agent URL
+1. **`yubikey-piv`** — YubiKey PIV slot 9e, no PIN, ES256.
+2. **`secure-enclave`** — macOS Secure Enclave (Apple Silicon), ES256.
+3. **`software`** — OS keychain, EdDSA (default) or ES256. Use only if no hardware is present.
 
-Before generating keys, you need the user's agent URL. This is the HTTPS URL where their agent metadata will be published. Ask the user:
+Pick the keystore from the `keystores` array that `list` reported.
 
-- If they have a domain they want to use, use that.
-- If using GitHub Pages, ask for their GitHub username — the agent URL will be `https://username.github.io`.
-- Run the platform detection commands (see step 4) to discover what hosting options are available and suggest accordingly.
+## Determining the agent provider URL
 
-Do NOT pick a hosting platform or agent URL without asking the user.
+The agent provider URL is the HTTPS URL where the agent metadata will be
+published. Ask the user:
 
-## Adding a key to an existing agent
+- If they have a domain, use it.
+- If using GitHub Pages, ask for their GitHub username — the URL is `https://username.github.io`.
+- Run the platform detection commands (below) to suggest hosting.
 
-If the user already has an agent identity set up and wants to add a key from a new device (e.g. they got a new YubiKey, or they're on a new Mac with a Secure Enclave):
-
-1. Check existing setup: `npx @aauth/bootstrap show`
-2. Discover backends: `npx @aauth/bootstrap discover`
-3. Generate a key on the new hardware: `npx @aauth/bootstrap generate --backend <backend> --agent <agent-url>`
-4. Add the new public key to the existing JWKS on the hosting platform (load the appropriate platform skill)
-5. The new key will be used automatically — key resolution matches any published key that has a local private key
+Do NOT pick a hosting platform or URL without asking the user.
 
 ## First-time setup steps
 
-### 1. Discover available backends
-
-Run:
-```
-npx @aauth/bootstrap discover
-```
-
-This returns a JSON array of available backends with their supported algorithms. You MUST run this and use the output — do not skip this step.
-
-### 2. Generate keys on each available hardware backend
-
-For each hardware backend in the discovery output, generate a key and associate it with the agent URL:
+### 1. See what's available
 
 ```
-npx @aauth/bootstrap generate --backend yubikey-piv --agent <agent-url>
-npx @aauth/bootstrap generate --backend secure-enclave --agent <agent-url>
+npx @aauth/bootstrap list
 ```
 
-Each command outputs JSON with:
-- `kid` — key identifier to use in the JWKS
-- `publicJwk` — the public key to publish, including `aauth.device` and `aauth.created` metadata
+### 2. Create the agent provider
 
-**Only generate a software key if no hardware backends are available:**
-```
-npx @aauth/bootstrap generate --agent <agent-url>
-```
+Pick the best available keystore and create the provider. Example with the
+default software keystore:
 
-### 3. Set the person server
-
-The person server URL is included as the `ps` claim in agent tokens. Set it during setup:
 ```
-npx @aauth/bootstrap add-agent <agent-url> --person-server <person-server-url>
+npx @aauth/bootstrap create https://username.github.io
 ```
 
-The agent MUST be configured with a person server URL. **Do not assume a default** — if the user hasn't specified one, ask them which PS to use before proceeding.
+With a hardware keystore and a custom person server:
 
-### 4. Choose a hosting platform
-
-The generated public keys need to be published at `{agentUrl}/.well-known/jwks.json` along with agent metadata at `{agentUrl}/.well-known/aauth-agent.json`. The agent needs to serve these as static files over HTTPS.
-
-**Load the list of supported platforms** by calling:
-
-```ts
-import { listPlatforms } from '@aauth/local-keys'
-const platforms = listPlatforms()
+```
+npx @aauth/bootstrap create https://username.github.io --keystore secure-enclave --person-server https://person.example
 ```
 
-Or via CLI:
+The output includes `keys[0].publicJwk` — the public key you publish — plus the
+resolved `agentId` and `personServer`.
+
+### 3. Choose a hosting platform
+
+The public key must be published at `{agentProviderUrl}/.well-known/jwks.json`,
+with agent metadata at `{agentProviderUrl}/.well-known/aauth-agent.json`, served
+as static files over HTTPS.
+
+List the platform skills:
+
 ```
 npx @aauth/bootstrap skill
 ```
 
-Platform skills are in `skills/platforms/`. Each platform's front matter includes discovery metadata:
+Each platform skill's front matter includes discovery metadata:
 - `detect_cli` — CLI tool to check for (e.g. `gh`, `glab`, `wrangler`)
 - `detect_auth` — command to check if authenticated
-- `detect_existing` — command to check for an existing site (uses `{username}` placeholder)
-- `pros` / `cons` — trade-offs to present to the user
-- `agentUrlPattern` — what the agent URL will look like
+- `detect_existing` — command to check for an existing site (uses `{username}`)
+- `pros` / `cons` — trade-offs to present
+- `agentUrlPattern` — what the URL will look like
 
-**Discovery flow:**
+**Discovery flow** — for each platform: run `<detect_cli>`; if it succeeds, run
+`<detect_auth>`; if authenticated and `detect_existing` is set, substitute
+`{username}` and run it.
 
-For each platform, run the detection commands:
-1. Run `<detect_cli>` — if it succeeds, the CLI is available
-2. If available, run `<detect_auth>` — check if authenticated (look for "not authenticated" or similar in output to detect unauthenticated state)
-3. If authenticated and `detect_existing` is set, substitute `{username}` and run to check for an existing site
+**Present results** organized by availability: Ready (CLI + auth + maybe a site)
+first, then Available (CLI but not authenticated), then Not detected. Mention
+that any static HTTPS host works — the required files are
+`/.well-known/aauth-agent.json` and `/.well-known/jwks.json`.
 
-**Presenting the results to the user:**
+### 4. Publish using the platform skill
 
-Present ALL platforms to the user, organized by availability:
-
-1. **Ready** — CLI installed, authenticated, possibly an existing site. Recommend these first.
-2. **Available** — CLI installed but not authenticated. Mention what command to run to log in.
-3. **Not detected** — CLI not installed. Still present these as options with their pros/cons. The user may want to install one, or may already have an account on the platform's website.
-
-Also mention that any static HTTPS hosting works — the platforms with skills just have step-by-step instructions. If the user has a different hosting provider (Netlify, Vercel, S3+CloudFront, their own server, etc.), they can still publish the `.well-known/` files manually. The required files are:
-- `/.well-known/aauth-agent.json` — agent metadata with `jwks_uri`
-- `/.well-known/jwks.json` — public key set
-
-**Recommendation logic:**
-- If one platform is fully ready (CLI + auth + existing site) → suggest that first
-- If multiple are ready → present the choices with pros/cons and let the user choose
-- If none are ready but some are available → suggest logging in to the simplest one
-- If none are detected → recommend GitHub Pages (lowest barrier) but present all options
-
-After the user chooses, register the hosting platform:
-```
-npx @aauth/bootstrap add-agent <agent-url> --hosting <platform> --repo <repo-identifier>
-```
-
-### 5. Publish keys using the platform skill
-
-Load the full instructions for the chosen platform:
 ```
 npx @aauth/bootstrap skill <platform-name>
 ```
 
-Follow the skill instructions to publish the keys.
+Follow the skill to publish `jwks.json` (containing `keys[0].publicJwk` from
+step 2) and `aauth-agent.json`.
 
-### 6. Verify setup
+### 5. Verify
 
 ```
-npx @aauth/bootstrap show
+npx @aauth/bootstrap list
 ```
 
-This shows all configured agents, their keys, and which backends are available.
+Confirm the provider, its key, person server, and agentId are present.
+
+### 6. Use it
+
+Mint an agent token, or just make an authenticated request:
+
+```
+npx @aauth/bootstrap token
+npx @aauth/fetch https://whoami.aauth.dev
+```
 
 ## How key resolution works
 
-When `@aauth/local-keys` signs an agent token, it resolves a key automatically through this fallback chain:
+When `@aauth/local-keys` signs an agent token it resolves a key automatically:
 
-1. **Fetch JWKS** — fetches `{agentUrl}/.well-known/aauth-agent.json` to find `jwks_uri`, then fetches the JWKS. Tolerates network failure gracefully.
-
-2. **Discover local keys** — scans all backends (YubiKey, Secure Enclave, OS keychain). Only keys on hardware that is currently available are found. If a YubiKey is unplugged, its keys silently don't appear.
-
-3. **Match JWKS against local keys** — compares JWK thumbprints between published keys and local keys. Prefers hardware matches over software. Any hardware match is used immediately.
-
-4. **Fall back to config** — checks `~/.aauth/config.json` for registered keys. Skips entries whose backend is unavailable (e.g. YubiKey unplugged). Verifies the key actually exists before using it. Prefers hardware over software.
-
-5. **Fall back to any local hardware key** — for bootstrap (key just generated, not yet published).
-
-6. **Fall back to any local software key** — backward compatibility with older setups.
-
-7. **Error** — no key found, with a helpful message to run `generate`.
-
-Each step tolerates failure and falls through. Hardware keys are always preferred.
-
-## How signing works
-
-When `createAgentToken({ delegate: 'claude' })` is called:
-
-1. The agent URL is resolved from the call, or defaults to the first configured agent in `~/.aauth/config.json`, or the first agent URL in the OS keychain.
-2. A signing key is resolved using the fallback chain above.
-3. An ephemeral key pair is generated (software, ES256 or EdDSA).
-4. The agent token JWT is signed by the resolved root key, with the ephemeral public key in the `cnf` claim.
-5. The ephemeral private key and signed JWT are returned.
-
-For hardware backends, the root key signing happens in hardware — the private key never exists in process memory.
+1. **Fetch JWKS** — `{agentProviderUrl}/.well-known/aauth-agent.json` → `jwks_uri` → JWKS. Tolerates network failure.
+2. **Discover local keys** — scans all keystores; only keys on currently-available hardware are found.
+3. **Match JWKS against local keys** — by JWK thumbprint, preferring hardware.
+4. **Fall back to config** — `~/.aauth/config.json`, skipping unavailable keystores.
+5. **Fall back to any local hardware key**, then **any local software key** (just-created, not yet published).
 
 ## Notes
 
-- Generate keys on ALL available hardware backends for redundancy.
-- Software keys are a last resort — they store the private key in the OS keychain, not hardware.
-- The `aauth.device` field in the public JWK is auto-derived from the machine hostname or YubiKey name. It helps identify stale keys in the JWKS but is not sensitive.
-- After generating keys, publish them using the skill for your chosen hosting platform.
+- v1 sets up **one key per agent provider**. Adding more keys (e.g. one per
+  machine for multi-device redundancy) is a planned capability, not yet a CLI
+  command.
+- `delete <agent-provider-url>` removes the provider and wipes its software and
+  Secure Enclave keys. A YubiKey PIV key can't be wiped programmatically yet —
+  `delete` reports the slot to clear manually (`ykman piv keys delete 9e`).
+- The `aauth.device` field in the public JWK is auto-derived from the machine or
+  YubiKey name. It helps identify stale keys; it is not sensitive.

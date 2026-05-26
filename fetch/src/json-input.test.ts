@@ -4,15 +4,14 @@ import type { FetchArgs } from './args.js'
 
 function baseArgs(overrides?: Partial<FetchArgs>): FetchArgs {
   return {
-    skill: false,
-    authorize: false,
     agentOnly: false,
     method: 'GET',
     headers: [],
     jsonInput: true,
     nonInteractive: false,
     verbose: false,
-    debug: false,
+    help: false,
+    version: false,
     url: 'https://default.example.com',
     ...overrides,
   }
@@ -70,12 +69,20 @@ describe('mergeJsonInput', () => {
     expect(result.data).toBe('existing')
   })
 
-  it('overrides authToken from JSON', () => {
+  it('overrides authToken from JSON auth_token', () => {
     const result = mergeJsonInput(baseArgs(), {
       url: 'https://x.com',
-      authToken: 'eyJ.json.token',
+      auth_token: 'eyJ.json.token',
     })
     expect(result.authToken).toBe('eyJ.json.token')
+  })
+
+  it('overrides opaqueToken from JSON opaque_token', () => {
+    const result = mergeJsonInput(baseArgs(), {
+      url: 'https://x.com',
+      opaque_token: 'opaque.json.token',
+    })
+    expect(result.opaqueToken).toBe('opaque.json.token')
   })
 
   it('stringifies signingKey object from JSON', () => {
@@ -94,37 +101,30 @@ describe('mergeJsonInput', () => {
     expect(result.signingKey).toBe('{"existing":true}')
   })
 
-  it('overrides agentUrl, local, operations, scope, personServer', () => {
+  it('overrides agentProvider, local, operations, scope, personServer', () => {
     const result = mergeJsonInput(baseArgs(), {
       url: 'https://x.com',
-      agentUrl: 'https://json-agent.com',
+      agentProvider: 'https://json-agent.com',
       local: 'json-local',
       operations: 'listNotes',
       scope: 'email',
       personServer: 'https://json-ps.com',
     })
-    expect(result.agentUrl).toBe('https://json-agent.com')
+    expect(result.agentProvider).toBe('https://json-agent.com')
     expect(result.local).toBe('json-local')
     expect(result.operations).toBe('listNotes')
     expect(result.scope).toBe('email')
     expect(result.personServer).toBe('https://json-ps.com')
   })
 
-  it('overrides authorize and agentOnly booleans', () => {
-    const result = mergeJsonInput(baseArgs(), {
-      url: 'https://x.com',
-      authorize: true,
-      agentOnly: true,
-    })
-    expect(result.authorize).toBe(true)
+  it('overrides the agentOnly boolean', () => {
+    const result = mergeJsonInput(baseArgs(), { url: 'https://x.com', agentOnly: true })
     expect(result.agentOnly).toBe(true)
   })
 
   it('does not override booleans when JSON fields are undefined', () => {
-    const result = mergeJsonInput(baseArgs({ authorize: true }), {
-      url: 'https://x.com',
-    })
-    expect(result.authorize).toBe(true)
+    const result = mergeJsonInput(baseArgs({ agentOnly: true }), { url: 'https://x.com' })
+    expect(result.agentOnly).toBe(true)
   })
 
   it('preserves non-overridable args from CLI', () => {

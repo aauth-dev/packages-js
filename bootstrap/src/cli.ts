@@ -1,509 +1,282 @@
 #!/usr/bin/env node
 
+import { createRequire } from 'node:module'
 import {
   generateKey,
   generateKid,
   toPublicJwk,
-  readKeychain,
-  writeKeychain,
-  listAgentUrls,
   discoverBackends,
   getBackend,
-  readConfig,
-  addKeyToAgent,
-  setPersonServer,
-  setHosting,
-  setAgentConfig,
   getAgentConfig,
-  listConfiguredAgents,
+  addKeyToAgent,
+  deleteAgentProvider,
+  listAgentProviders,
+  readKeychain,
+  writeKeychain,
+  deleteKeychain,
   signAgentToken,
-  resolveKey,
   validateUrl,
   ensureAgentUrls,
+  KeyDeletionUnsupportedError,
 } from '@aauth/local-keys'
-import type { KeyAlgorithm, KeyBackend, AAuthPublicJwk } from '@aauth/local-keys'
-import { listSkills, getSkill } from './skills.js'
+import type { LocalKeyMeta } from '@aauth/local-keys'
 import { bootstrapWithPS } from './bootstrap-ps.js'
-import { buildLogEmitter, type LogMode } from './log.js'
+import { listSkills, getSkill } from './skills.js'
+import { parseArgs } from './args.js'
+import {
+  topLevelHelp,
+  COMMAND_HELP,
+  shapeKeystores,
+  renderSkillListMarkdown,
+  withProtocolSpec,
+  colorizeJson,
+} from './render.js'
+import {
+  resolveProvider,
+  resolveKeystoreAlgorithm,
+  resolveAgentId,
+  resolveLifetime,
+} from './resolve.js'
 
-// --log → pretty narrative; --jsonl (alias --ndjson) → NDJSON; neither → silent.
-function pickLogMode(flags: Record<string, string>): LogMode | undefined {
-  const log = flags.log === 'true'
-  const jsonl = flags.jsonl === 'true' || flags.ndjson === 'true'
-  if (log && jsonl) {
-    console.error(JSON.stringify({ error: '--log and --jsonl are mutually exclusive (same events, different formats). Pick one.' }))
-    process.exit(1)
-  }
-  if (log) return 'pretty'
-  if (jsonl) return 'jsonl'
-  return undefined
-}
-import { createHash } from 'node:crypto'
-import { createRequire } from 'node:module'
+/** A JWK is opaque here — we only pass it through to JSON output. */
+type Jwk = unknown
 
 const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
 
-/** Person Server used when `--ps`/`--person-server` is given without a URL. */
 const DEFAULT_PERSON_SERVER = 'https://person.hello.coop'
 
-function computeJkt(jwk: Record<string, unknown>): string {
-  const kty = jwk.kty as string
-  const crv = jwk.crv as string
-  const x = jwk.x as string
-  const y = jwk.y as string | undefined
-  const canonical = kty === 'EC'
-    ? JSON.stringify({ crv, kty, x, y })
-    : JSON.stringify({ crv, kty, x })
-  return createHash('sha256').update(canonical).digest('base64url')
+// === output helpers (stdout = result, stderr = errors) ===
+
+function printResult(value: unknown): void {
+  const json = JSON.stringify(value, null, 2)
+  // Color only at a TTY; piped/redirected or NO_COLOR stays plain so ANSI codes
+  // never reach `jq` or an agent reading the JSON.
+  const useColor = process.stdout.isTTY === true && !process.env.NO_COLOR
+  console.log(useColor ? colorizeJson(json) : json)
 }
 
-function parseArgs(args: string[]) {
-  const flags: Record<string, string> = {}
-  const positional: string[] = []
-  // Alias map: short flag → canonical flag
-  const aliases: Record<string, string> = { ps: 'person-server' }
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith('--') && i + 1 < args.length && !args[i + 1].startsWith('--')) {
-      const key = aliases[args[i].slice(2)] ?? args[i].slice(2)
-      flags[key] = args[i + 1]
-      i++
-    } else if (args[i].startsWith('--')) {
-      const key = aliases[args[i].slice(2)] ?? args[i].slice(2)
-      flags[key] = 'true'
-    } else {
-      positional.push(args[i])
-    }
-  }
-  return { flags, positional }
+function fail(message: string): void {
+  console.error(JSON.stringify({ error: message }))
+  process.exitCode = 1
 }
 
-// === Commands ===
+// === shared helpers ===
 
-function cmdDiscover(flags: Record<string, string>) {
-  const onEvent = buildLogEmitter(pickLogMode(flags))
-  onEvent?.({ step: 'backend_discovery', phase: 'start' })
-  const backends = discoverBackends()
-  onEvent?.({ step: 'backend_discovery', phase: 'done', backends: backends.map(b => b.backend) })
-  console.log(JSON.stringify(backends, null, 2))
+/** Read a flag's value as a string, or undefined if absent/boolean. */
+function flagStr(flags: Record<string, string | boolean>, key: string): string | undefined {
+  return typeof flags[key] === 'string' ? flags[key] as string : undefined
 }
 
-async function cmdGenerate(flags: Record<string, string>) {
-  const backend = (flags.backend || 'software') as KeyBackend
-  const algorithm = (flags.algorithm || (backend === 'software' ? 'EdDSA' : 'ES256')) as KeyAlgorithm
-  const agentUrl = flags.agent
-  const kid = generateKid()
-  const onEvent = buildLogEmitter(pickLogMode(flags))
-
-  const driver = getBackend(backend)
-  const deviceLabel = driver.getDeviceLabel()
-
-  onEvent?.({ step: 'key_generation', phase: 'start', backend, algorithm })
-
-  let publicJwk: AAuthPublicJwk
-
-  if (backend === 'software') {
-    const { privateJwk, publicJwk: pubJwk } = await generateKey()
-    const actualKid = pubJwk.kid || kid
-    publicJwk = {
-      ...toPublicJwk(pubJwk),
-      kid: actualKid,
-      aauth: { device: deviceLabel, created: new Date().toISOString().slice(0, 10) },
-    }
-
-    if (agentUrl) {
-      ensureAgentUrls(agentUrl)
-      const existing = readKeychain(agentUrl)
-      const data = existing ?? { current: actualKid, keys: {} }
-      data.current = actualKid
-      data.keys[actualKid] = privateJwk
-      writeKeychain(agentUrl, data)
-
-      addKeyToAgent(agentUrl, actualKid, {
-        backend: 'software',
-        algorithm: 'EdDSA',
-        keyId: actualKid,
-        deviceLabel,
-      })
-    }
-  } else {
-    const keyRef = await driver.generateKey(algorithm)
-    publicJwk = {
-      ...keyRef.publicJwk,
-      kid,
-      aauth: { device: deviceLabel, created: new Date().toISOString().slice(0, 10) },
-    }
-
-    if (agentUrl) {
-      ensureAgentUrls(agentUrl)
-      addKeyToAgent(agentUrl, kid, {
-        backend,
-        algorithm,
-        keyId: keyRef.keyId,
-        deviceLabel,
-      })
-    }
+/** Best-effort public JWK for a configured key (software from keychain, hardware from the device). */
+async function resolvePublicJwk(agentUrl: string, kid: string, meta: LocalKeyMeta): Promise<Jwk | null> {
+  if (meta.backend === 'software') {
+    const data = readKeychain(agentUrl)
+    const jwk = data?.keys[kid]
+    return jwk ? toPublicJwk(jwk) : null
   }
-
-  onEvent?.({ step: 'key_generation', phase: 'done', kid: publicJwk.kid, backend, algorithm })
-  console.log(JSON.stringify({ kid: publicJwk.kid, publicJwk }, null, 2))
-}
-
-async function cmdSignToken(flags: Record<string, string>) {
-  const agentUrl = flags.agent
-  const lifetime = parseInt(flags.lifetime || '3600', 10)
-  const onEvent = buildLogEmitter(pickLogMode(flags))
-
-  if (!agentUrl) {
-    console.error(JSON.stringify({ error: '--agent <url> required' }))
-    process.exitCode = 1
-    return
-  }
-
-  // Resolve agent identifier from --agent-id flag or config
-  const agentId = flags['agent-id'] ?? getAgentConfig(agentUrl)?.agentId
-  if (!agentId) {
-    console.error(JSON.stringify({ error: 'No agent identifier. Run bootstrap with --ps first, or pass --agent-id.' }))
-    process.exitCode = 1
-    return
-  }
-
-  onEvent?.({ step: 'sign_token', phase: 'start', agentUrl, agentId, lifetime })
-  const result = await signAgentToken({ agentUrl, sub: agentId, lifetime })
-  // Decode the signed agent token to surface its claims under --log.
-  const parts = result.signatureKey.jwt.split('.')
-  let decoded: unknown
-  if (parts.length >= 2) {
-    try { decoded = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) } catch { /* ignore */ }
-  }
-  onEvent?.({ step: 'sign_token', phase: 'done', agent_token: decoded })
-  console.log(JSON.stringify(result, null, 2))
-}
-
-async function cmdPublicKey(flags: Record<string, string>) {
-  const agentUrl = flags.agent
-  if (!agentUrl) {
-    const backends = discoverBackends()
-    const allKeys: Array<{ backend: string; keyId: string; publicJwk: unknown }> = []
-    for (const info of backends) {
-      const driver = getBackend(info.backend)
-      try {
-        const keys = await driver.listKeys()
-        for (const k of keys) {
-          if (k.publicJwk && k.publicJwk.kty) {
-            allKeys.push({ backend: k.backend, keyId: k.keyId, publicJwk: k.publicJwk })
-          }
-        }
-      } catch { /* skip */ }
-    }
-    console.log(JSON.stringify(allKeys, null, 2))
-    return
-  }
-
   try {
-    const resolved = await resolveKey(agentUrl)
-    const driver = getBackend(resolved.backend)
-    const pubJwk = await driver.getPublicKey(resolved.keyId)
-    console.log(JSON.stringify(pubJwk, null, 2))
-  } catch (e) {
-    console.error(JSON.stringify({ error: (e as Error).message }))
-    process.exitCode = 1
+    return await getBackend(meta.backend).getPublicKey(meta.keyId)
+  } catch {
+    return null
   }
 }
 
-function cmdAddAgent(flags: Record<string, string>, positional: string[]) {
-  const agentUrl = positional[1]
-  if (!agentUrl) {
-    console.error(JSON.stringify({ error: 'agent URL required' }))
-    process.exitCode = 1
-    return
-  }
+/**
+ * Re-attach the `aauth` metadata (device + created) that `create` publishes, so
+ * `list` shows the same public-key shape. `created` comes from the kid's date
+ * prefix (`YYYY-MM-DD_hex`); `device` from the stored key metadata.
+ */
+function withAauthMeta(pub: Jwk | null, meta: LocalKeyMeta, kid: string): Jwk | null {
+  if (!pub || typeof pub !== 'object') return pub
+  const created = kid.includes('_') ? kid.split('_')[0] : undefined
+  return { ...(pub as Record<string, unknown>), aauth: { device: meta.deviceLabel, created } }
+}
 
-  const urlError = validateUrl(agentUrl)
-  if (urlError) {
-    console.error(JSON.stringify({ error: `${agentUrl} — ${urlError}` }))
-    process.exitCode = 1
-    return
-  }
+// === commands ===
 
-  ensureAgentUrls(agentUrl)
+async function cmdList(): Promise<void> {
+  const keystores = shapeKeystores(discoverBackends())
 
-  if (flags['jwks-uri']) {
-    const existing = getAgentConfig(agentUrl)
-    setAgentConfig(agentUrl, { ...existing!, jwksUri: flags['jwks-uri'] })
-  }
-
-  if (flags.hosting) {
-    setHosting(agentUrl, {
-      platform: flags.hosting,
-      repo: flags.repo,
+  const agentProviders = []
+  for (const url of listAgentProviders()) {
+    const cfg = getAgentConfig(url)
+    if (!cfg) continue
+    const keys = []
+    for (const [kid, meta] of Object.entries(cfg.keys)) {
+      const publicJwk = withAauthMeta(await resolvePublicJwk(url, kid, meta), meta, kid)
+      keys.push({ kid, keystore: meta.backend, publicJwk })
+    }
+    agentProviders.push({
+      url,
+      agentId: cfg.agentId ?? null,
+      personServer: cfg.personServerUrl ?? null,
+      keys,
     })
   }
 
-  if (flags.kid && flags.backend && flags['key-id']) {
-    addKeyToAgent(agentUrl, flags.kid, {
-      backend: flags.backend as KeyBackend,
-      algorithm: (flags.algorithm || 'ES256') as KeyAlgorithm,
-      keyId: flags['key-id'],
-      deviceLabel: flags.device || 'unknown',
-    })
-  }
-
-  const config = getAgentConfig(agentUrl)
-  console.log(JSON.stringify({ agentUrl, config }, null, 2))
+  printResult({ keystores, agentProviders })
 }
 
-function cmdConfig() {
-  console.log(JSON.stringify(readConfig(), null, 2))
-}
+async function cmdCreate(positional: string[], flags: Record<string, string | boolean>): Promise<void> {
+  const url = positional[1]
+  if (!url) return fail('Usage: create <agent-provider-url>')
 
-function cmdShow(flags: Record<string, string> = {}) {
-  const onEvent = buildLogEmitter(pickLogMode(flags))
+  const urlError = validateUrl(url)
+  if (urlError) return fail(`${url} — ${urlError}`)
 
-  console.log('@aauth/bootstrap — set up an agent identity for AAuth')
-  console.log('')
-
-  const backends = discoverBackends()
-  onEvent?.({ step: 'backends_discovered', phase: 'info', backends })
-  console.log('Available backends:')
-  for (const b of backends) {
-    console.log(`  ${b.backend} — ${b.description} [${b.algorithms.join(', ')}]`)
+  const existing = getAgentConfig(url)
+  if (existing && Object.keys(existing.keys).length > 0) {
+    return fail(`Agent provider already exists: ${url} (delete it first to re-create)`)
   }
 
-  const agents = listConfiguredAgents()
-  onEvent?.({ step: 'agents_listed', phase: 'info', agents })
-  if (agents.length > 0) {
-    console.log('\nConfigured agents:')
-    for (const url of agents) {
-      const ac = getAgentConfig(url)
-      if (!ac) continue
-      console.log(`  ${url}`)
-      if (ac.personServerUrl) console.log(`    person-server: ${ac.personServerUrl}`)
-      for (const [kid, meta] of Object.entries(ac.keys)) {
-        console.log(`    ${kid} [${meta.algorithm}] ${meta.backend} (${meta.deviceLabel})`)
-      }
-    }
-  }
+  const { keystore, algorithm } = resolveKeystoreAlgorithm(flagStr(flags, 'keystore'), flagStr(flags, 'algorithm'))
+  const personServer = flagStr(flags, 'person-server') ?? DEFAULT_PERSON_SERVER
+  const local = flagStr(flags, 'local')
 
-  const urls = listAgentUrls()
-  onEvent?.({ step: 'keychain_scanned', phase: 'info', urls })
-  if (urls.length > 0) {
-    console.log('\nSoftware keys in keychain:')
-    for (const url of urls) {
-      const data = readKeychain(url)
-      if (!data) continue
-      for (const [kid, jwk] of Object.entries(data.keys)) {
-        const marker = kid === data.current ? ' (current)' : ''
-        const alg = jwk.crv === 'P-256' ? 'ES256' : 'EdDSA'
-        console.log(`  ${url} ${kid}${marker} [${alg}]`)
-      }
-    }
-  }
+  const driver = getBackend(keystore)
+  const deviceLabel = driver.getDeviceLabel()
+  const created = new Date().toISOString().slice(0, 10)
 
-  // Getting-started footer: shown for both `bootstrap` (no command) and `bootstrap show`.
-  console.log('')
-  if (agents.length === 0) {
-    console.log('No agents configured yet. Quick start (use your own agent URL):')
-    console.log('  npx @aauth/bootstrap generate --agent https://me.github.io --ps')
-    console.log('  (generates a key, then binds the default person server person.hello.coop)')
+  ensureAgentUrls(url)
+
+  let kid: string
+  let publicJwk: Jwk
+
+  if (keystore === 'software') {
+    const { privateJwk, publicJwk: pub } = await generateKey(algorithm === 'ES256' ? 'ES256' : 'EdDSA')
+    kid = pub.kid as string
+    publicJwk = { ...pub, aauth: { device: deviceLabel, created } } as Jwk
+    writeKeychain(url, { current: kid, keys: { [kid]: privateJwk } })
+    addKeyToAgent(url, kid, { backend: 'software', algorithm, keyId: kid, deviceLabel })
   } else {
-    console.log('Try calling an AAuth-protected resource:')
-    console.log('  npx @aauth/fetch https://whoami.aauth.dev --log')
-  }
-  console.log('')
-  console.log('Common commands:')
-  console.log('  npx @aauth/bootstrap discover         List available key backends')
-  console.log('  npx @aauth/bootstrap generate [opts]  Generate a signing key')
-  console.log('  npx @aauth/bootstrap --ps [url]       Configure a person server (default: person.hello.coop)')
-  console.log('  npx @aauth/bootstrap sign-token       Sign a one-off agent_token')
-  console.log('  npx @aauth/bootstrap help             Full help')
-}
-
-function cmdSkill(name?: string) {
-  if (!name) {
-    console.log(JSON.stringify(listSkills(), null, 2))
-    return
+    const ref = await driver.generateKey(algorithm)
+    kid = generateKid()
+    publicJwk = { ...ref.publicJwk, kid, aauth: { device: deviceLabel, created } } as Jwk
+    addKeyToAgent(url, kid, { backend: keystore, algorithm, keyId: ref.keyId, deviceLabel })
   }
 
-  const skill = getSkill(name)
-  if (!skill) {
-    console.error(JSON.stringify({ error: `Unknown skill: "${name}"` }))
-    process.exitCode = 1
-    return
-  }
+  // Bind a person server (fetches + validates its metadata, persists agentId + ps).
+  const psError = validateUrl(personServer)
+  if (psError) return fail(`person-server: ${personServer} — ${psError}`)
+  await bootstrapWithPS({ agentUrl: url, personServerUrl: personServer, local })
 
-  console.log(skill.body)
-}
-
-function cmdHelp() {
-  console.log(`Usage: npx @aauth/bootstrap <command> [options]
-
-Commands:
-  discover                 List available key backends (JSON)
-  generate [options]       Generate a key pair, output public JWK (JSON)
-  sign-token [options]     Sign an agent token with ephemeral cnf (JSON)
-  public-key [options]     Output public key(s) (JSON)
-  add-agent <url> [opts]   Register an agent URL in config
-  config                   Dump ~/.aauth/config.json
-  show                     Human-readable status overview
-  skill                    List available skills (JSON)
-  skill <name>             Show full skill instructions
-  help                     Show this help
-  --version                Print version and exit
-
-Generate options:
-  --backend <name>         software (default), yubikey-piv, secure-enclave
-  --algorithm <alg>        EdDSA (default for software), ES256, RS256
-  --agent <url>            Associate key with an agent URL
-
-Sign-token options:
-  --agent <url>            Agent URL (required)
-  --agent-id <id>          Agent identifier (default: from config)
-  --lifetime <seconds>     Token lifetime (default: 3600)
-
-Add-agent options:
-  --kid <kid>              Key ID to associate
-  --backend <name>         Key backend
-  --key-id <id>            Backend-specific key ID (slot, label, etc.)
-  --algorithm <alg>        Key algorithm
-
-Person server configuration (can be combined with any command):
-  --person-server [url]    Person server URL (alias: --ps; default: https://person.hello.coop)
-  --local <name>           Local part of agent identifier (default: "local")
-
-Output:
-  --log                    Narrate each step on stderr (JSONL)
-
-Examples:
-  npx @aauth/bootstrap discover
-  npx @aauth/bootstrap generate --backend yubikey-piv
-  npx @aauth/bootstrap generate --backend secure-enclave --agent https://me.github.io
-  npx @aauth/bootstrap sign-token --agent https://me.github.io
-  npx @aauth/bootstrap add-agent https://me.github.io
-  npx @aauth/bootstrap --ps                                 (defaults to https://person.hello.coop)
-  npx @aauth/bootstrap --ps https://person.example
-  npx @aauth/bootstrap generate --agent https://me.github.io --ps
-  npx @aauth/bootstrap public-key --agent https://me.github.io`)
-}
-
-async function runBootstrapPS(flags: Record<string, string>) {
-  // The arg parser stores a value-less `--ps` as the string 'true'. Treat that
-  // (or an empty value) as "use the default Person Server" so `bootstrap --ps`
-  // works without typing the URL.
-  const psFlag = flags['person-server']
-  if (!psFlag) return
-  const personServerUrl = psFlag === 'true' ? DEFAULT_PERSON_SERVER : psFlag
-
-  const urlError = validateUrl(personServerUrl)
-  if (urlError) {
-    console.error(JSON.stringify({ error: `person-server: ${personServerUrl} — ${urlError}` }))
-    process.exitCode = 1
-    return
-  }
-
-  // Resolve agent URL from --agent flag or sole configured agent
-  let agentUrl = flags.agent
-  if (!agentUrl) {
-    const configured = listConfiguredAgents()
-    if (configured.length === 1) {
-      agentUrl = configured[0]
-    } else if (configured.length === 0) {
-      console.error(JSON.stringify({ error: 'No agent configured. Use --agent <url> or run add-agent first.' }))
-      process.exitCode = 1
-      return
-    } else {
-      console.error(JSON.stringify({ error: 'Multiple agents configured. Use --agent <url> to specify.' }))
-      process.exitCode = 1
-      return
-    }
-  }
-
-  const logMode = pickLogMode(flags)
-  const onEvent = buildLogEmitter(logMode)
-  const logEnabled = logMode !== undefined
-
-  if (logEnabled) {
-    onEvent?.({ step: 'bootstrap_started', phase: 'info', agentUrl, personServerUrl })
-
-    // Surface the existing keypair (if any) so Step 0 can show agent identity.
-    const keychain = readKeychain(agentUrl)
-    if (keychain) {
-      const currentKid = keychain.current
-      const jwk = keychain.keys[currentKid] as unknown as Record<string, unknown>
-      if (jwk) {
-        onEvent?.({
-          step: 'key_info',
-          phase: 'info',
-          kid: currentKid,
-          publicJwk: { kty: jwk.kty, crv: jwk.crv, x: jwk.x },
-          jkt: computeJkt(jwk),
-        })
-      }
-    }
-  } else {
-    console.error(`Configuring ${agentUrl} with person server ${personServerUrl}...`)
-  }
-
-  await bootstrapWithPS({
-    agentUrl,
-    personServerUrl,
-    local: flags.local,
-    onEvent,
+  const cfg = getAgentConfig(url)
+  printResult({
+    agentProvider: url,
+    agentId: cfg?.agentId ?? null,
+    personServer: cfg?.personServerUrl ?? null,
+    keys: [{ kid, keystore, publicJwk }],
   })
-
-  if (logEnabled) {
-    onEvent?.({
-      step: 'bootstrap_complete',
-      phase: 'info',
-      note: 'Person binding happens on the agent\'s first authorized request',
-    })
-  } else {
-    console.error('Person server configured. Person binding will happen on the agent\'s first authorized request.')
-  }
 }
 
-async function run() {
-  const { flags, positional } = parseArgs(process.argv.slice(2))
+async function cmdDelete(positional: string[]): Promise<void> {
+  const url = positional[1]
+  if (!url) return fail('Usage: delete <agent-provider-url>')
 
-  if (flags.version === 'true') {
+  const cfg = getAgentConfig(url)
+  if (!cfg) return fail(`Agent provider not found: ${url}`)
+
+  let keysDeleted = 0
+  const hardwareKeysRetained: Array<{ kid: string; keystore: string; keyId: string; hint: string }> = []
+
+  // Software keys are grouped under the agent URL in the OS keychain — wipe in one shot.
+  if (readKeychain(url)) deleteKeychain(url)
+
+  for (const [kid, meta] of Object.entries(cfg.keys)) {
+    if (meta.backend === 'software') {
+      keysDeleted++
+      continue
+    }
+    const driver = getBackend(meta.backend)
+    try {
+      await driver.deleteKey?.(meta.keyId)
+      keysDeleted++
+    } catch (e) {
+      if (e instanceof KeyDeletionUnsupportedError) {
+        hardwareKeysRetained.push({ kid, keystore: meta.backend, keyId: meta.keyId, hint: e.hint })
+      } else {
+        throw e
+      }
+    }
+  }
+
+  deleteAgentProvider(url)
+
+  const result: Record<string, unknown> = { deleted: url, keysDeleted }
+  if (hardwareKeysRetained.length > 0) result.hardwareKeysRetained = hardwareKeysRetained
+  printResult(result)
+}
+
+async function cmdToken(flags: Record<string, string | boolean>): Promise<void> {
+  const { url, error } = resolveProvider(flagStr(flags, 'agent-provider'), listAgentProviders())
+  if (error || !url) return fail(error ?? 'No agent provider configured.')
+
+  const agentId = resolveAgentId({
+    explicit: flagStr(flags, 'agent-id'),
+    local: flagStr(flags, 'local'),
+    host: new URL(url).hostname,
+    configAgentId: getAgentConfig(url)?.agentId,
+  })
+  if (!agentId) {
+    return fail(`No agent identifier for ${url}. Pass --agent-id, or run \`create\` to configure one.`)
+  }
+
+  const lifetime = resolveLifetime(flagStr(flags, 'lifetime'))
+  const result = await signAgentToken({ agentUrl: url, sub: agentId, lifetime })
+  printResult(result)
+}
+
+function cmdSkill(name?: string): void {
+  if (!name) {
+    console.log(renderSkillListMarkdown(listSkills()))
+    return
+  }
+  const skill = getSkill(name)
+  if (!skill) return fail(`Unknown skill: "${name}". Run \`skill\` to list available skills.`)
+  console.log(withProtocolSpec(skill.body))
+}
+
+function cmdHelp(command?: string): void {
+  if (command && COMMAND_HELP[command]) {
+    console.log(COMMAND_HELP[command])
+    return
+  }
+  console.log(topLevelHelp(pkg.version))
+}
+
+// === entrypoint ===
+
+async function run(): Promise<void> {
+  const { command, positional, flags, help, version } = parseArgs(process.argv.slice(2))
+
+  if (version) {
     console.log(pkg.version)
     return
   }
 
-  const command = positional[0]
+  // Bare invocation or no recognized command → top-level help.
+  if (!command || command === 'help') {
+    cmdHelp(positional[1])
+    return
+  }
 
-  if (!command) {
-    // No command: if --person-server is present, bootstrap; otherwise show status + getting-started
-    if (flags['person-server']) {
-      await runBootstrapPS(flags)
-      return
-    }
-    cmdShow(flags)
+  // `<command> --help` / `-h` → that command's help.
+  if (help) {
+    cmdHelp(command)
     return
   }
 
   switch (command) {
-    case 'discover': cmdDiscover(flags); break
-    case 'generate': await cmdGenerate(flags); break
-    case 'sign-token': await cmdSignToken(flags); break
-    case 'public-key': await cmdPublicKey(flags); break
-    case 'add-agent': cmdAddAgent(flags, positional); break
-    case 'config': cmdConfig(); break
-    case 'show': cmdShow(flags); break
+    case 'list': await cmdList(); break
+    case 'create': await cmdCreate(positional, flags); break
+    case 'delete': await cmdDelete(positional); break
+    case 'token': await cmdToken(flags); break
     case 'skill': cmdSkill(positional[1]); break
-    case 'help': cmdHelp(); break
     default:
-      console.error(`Unknown command: ${command}`)
-      cmdHelp()
-      process.exitCode = 1
-  }
-
-  // After any command, run PS bootstrap if --person-server is present
-  if (flags['person-server'] && process.exitCode !== 1) {
-    await runBootstrapPS(flags)
+      fail(`Unknown command: ${command}. Run \`npx @aauth/bootstrap help\`.`)
   }
 }
 
-run().catch((err) => {
-  console.error(JSON.stringify({ error: err.message }))
-  process.exitCode = 1
+run().catch((err: Error) => {
+  fail(err.message)
 })

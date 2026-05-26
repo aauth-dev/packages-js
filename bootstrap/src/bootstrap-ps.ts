@@ -1,22 +1,21 @@
-import { setAgentConfig, getAgentConfig } from '@aauth/local-keys'
-import type { OnBootstrapEvent } from './log.js'
+import { setAgentConfig, getAgentConfig, writeCachedMetadata, parseMaxAge } from '@aauth/local-keys'
 
 export interface BootstrapPSOptions {
   agentUrl: string
   personServerUrl: string
   local?: string
-  onEvent?: OnBootstrapEvent
 }
 
 interface PSMetadata {
   issuer: string
   token_endpoint: string
   jwks_uri: string
+  authorization_endpoint?: string
   interaction_endpoint?: string
 }
 
 /**
- * Configure an agent with a person server.
+ * Bind an agent provider to a person server.
  *
  * Per draft-hardt-aauth-bootstrap §Self-Hosted Enrollment, publication of the
  * JWKS is the enrollment — there is no separate enrollment step. The PS
@@ -26,14 +25,16 @@ interface PSMetadata {
  * This function:
  * 1. Fetches and validates PS metadata
  * 2. Persists agentId + personServerUrl to ~/.aauth/config.json
+ * 3. Caches the fetched PS metadata (public) to ~/.aauth/cache/ so fetch can
+ *    skip the runtime /.well-known/aauth-person.json round-trip until it expires
  *
  * No network registration call is made; signAgentToken reads personServerUrl
  * from config and includes it in the `ps` claim of every minted agent_token.
  */
 export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void> {
-  const { agentUrl, personServerUrl, local = 'local', onEvent } = options
+  const { agentUrl, personServerUrl, local = 'local' } = options
 
-  const metadata = await fetchPSMetadata(personServerUrl, onEvent)
+  const { metadata, cacheControl } = await fetchPSMetadata(personServerUrl)
 
   if (!metadata.issuer) {
     throw new Error('PS metadata missing required field: issuer')
@@ -52,7 +53,6 @@ export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void
       `PS issuer (${metadata.issuer}) does not match URL (${personServerUrl})`,
     )
   }
-  onEvent?.({ step: 'ps_metadata_validated', phase: 'info' })
 
   const agentId = `aauth:${local}@${new URL(agentUrl).hostname}`
   const existing = getAgentConfig(agentUrl)
@@ -61,32 +61,25 @@ export async function bootstrapWithPS(options: BootstrapPSOptions): Promise<void
     agentId,
     personServerUrl,
   })
-  onEvent?.({ step: 'agent_config_persisted', phase: 'info', agentId, personServerUrl })
+
+  // Cache the PS metadata we just fetched (public, not a secret) so fetch can
+  // skip the runtime /.well-known/aauth-person.json round-trip. Honour the
+  // server's Cache-Control: max-age if it sent one, else the cache's default TTL.
+  writeCachedMetadata(
+    new URL(personServerUrl).hostname,
+    metadata,
+    parseMaxAge(cacheControl),
+  )
 }
 
-async function fetchPSMetadata(personServerUrl: string, onEvent?: OnBootstrapEvent): Promise<PSMetadata> {
+async function fetchPSMetadata(
+  personServerUrl: string,
+): Promise<{ metadata: PSMetadata; cacheControl: string | null }> {
   const url = `${personServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
-  onEvent?.({ step: 'ps_metadata_request', phase: 'start', url })
   const response = await fetch(url)
-  const headers: Record<string, string> = {}
-  const ct = response.headers.get('content-type')
-  if (ct) headers['content-type'] = ct
   if (!response.ok) {
-    onEvent?.({
-      step: 'ps_metadata_request',
-      phase: 'done',
-      status: response.status,
-      response: { headers },
-    })
     throw new Error(`Failed to fetch PS metadata at ${url}: ${response.status}`)
   }
-  const body = await response.json() as PSMetadata
-  onEvent?.({
-    step: 'ps_metadata_request',
-    phase: 'done',
-    status: response.status,
-    response: { headers },
-  })
-  onEvent?.({ step: 'ps_metadata_body', phase: 'info', body: body as unknown as Record<string, unknown> })
-  return body
+  const metadata = await response.json() as PSMetadata
+  return { metadata, cacheControl: response.headers.get('cache-control') }
 }

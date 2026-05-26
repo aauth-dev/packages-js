@@ -9,6 +9,7 @@ import type {
   KeyBackendDriver,
   KeyAlgorithm,
 } from '../types.js'
+import { KeyDeletionUnsupportedError } from '../types.js'
 
 const require = createRequire(import.meta.url)
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -139,5 +140,13 @@ export const yubikeyPivBackend: KeyBackendDriver = {
     // deviceId is the serial number
     const name = info.description.split('(')[0].trim()
     return yubikeyLabel(name, info.deviceId)
+  },
+
+  async deleteKey(keyId: string): Promise<void> {
+    // The native addon has no PIV key-deletion path yet (firmware 5.7+ feature,
+    // unsupported by the yubikey crate). Signal so callers report the manual step.
+    throw new KeyDeletionUnsupportedError(
+      `Can't wipe the YubiKey PIV key in slot ${keyId} programmatically yet — clear it manually with: ykman piv keys delete ${keyId}`,
+    )
   },
 }

@@ -6,6 +6,8 @@ const { mockHttpSigFetch } = vi.hoisted(() => ({
 
 vi.mock('@hellocoop/httpsig', () => ({
   fetch: mockHttpSigFetch,
+  DEFAULT_COMPONENTS_GET: ['@method', '@authority', '@path', 'signature-key'],
+  DEFAULT_COMPONENTS_BODY: ['@method', '@authority', '@path', 'content-type', 'signature-key'],
 }))
 
 const { mockExchangeToken } = vi.hoisted(() => ({
@@ -69,10 +71,12 @@ describe('createAAuthFetch', () => {
     const okResponse = new Response('{"data":"secret"}', { status: 200 })
     mockHttpSigFetch.mockResolvedValueOnce(okResponse)
 
+    const onAuthToken = vi.fn()
     const fetch = createAAuthFetch({
       getKeyMaterial,
       authServerUrl: 'https://auth.example',
       justification: 'read files',
+      onAuthToken,
     })
     const result = await fetch('https://resource.example/api', { method: 'GET' })
 
@@ -90,6 +94,9 @@ describe('createAAuthFetch', () => {
     expect(mockHttpSigFetch).toHaveBeenCalledTimes(2)
     const retryCall = mockHttpSigFetch.mock.calls[1]
     expect(retryCall[1].signatureKey).toEqual({ type: 'jwt', jwt: 'eyJ.auth.token' })
+
+    // The minted auth token is surfaced for reuse (fetch --with-token / export).
+    expect(onAuthToken).toHaveBeenCalledWith('eyJ.auth.token', 3600)
   })
 
   it('returns 401 without AAuth-Requirement header as-is', async () => {
@@ -196,10 +203,39 @@ describe('createAAuthFetch', () => {
     mockHttpSigFetch.mockResolvedValueOnce(secondResponse)
     await fetch('https://resource.example/other')
 
-    // Verify the second call included the Authorization header
+    // Verify the second call sent the token under the AAuth scheme...
     const secondCall = mockHttpSigFetch.mock.calls[1]
     const headers = new Headers(secondCall[1].headers)
-    expect(headers.get('authorization')).toBe('Bearer opaque-token-123')
+    expect(headers.get('authorization')).toBe('AAuth opaque-token-123')
+    // ...and bound it to the signature (authorization in covered components).
+    expect(secondCall[1].components).toContain('authorization')
+  })
+
+  it('fires onOpaqueToken when a resource returns an AAuth-Access token', async () => {
+    mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', {
+      status: 200,
+      headers: { 'aauth-access': 'fresh-opaque-token' },
+    }))
+
+    const onOpaqueToken = vi.fn()
+    const fetch = createAAuthFetch({ getKeyMaterial, onOpaqueToken })
+    await fetch('https://resource.example/api')
+
+    expect(onOpaqueToken).toHaveBeenCalledWith('fresh-opaque-token')
+  })
+
+  it('sends a seeded opaqueToken on the first request (two-party reuse)', async () => {
+    mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    const fetch = createAAuthFetch({ getKeyMaterial, opaqueToken: 'seeded-token' })
+    await fetch('https://resource.example/api')
+
+    // The very first call carries the seeded token, bound to the signature.
+    expect(mockHttpSigFetch).toHaveBeenCalledOnce()
+    const firstCall = mockHttpSigFetch.mock.calls[0]
+    const headers = new Headers(firstCall[1].headers)
+    expect(headers.get('authorization')).toBe('AAuth seeded-token')
+    expect(firstCall[1].components).toContain('authorization')
   })
 
   it('replaces cached access token when response includes new AAuth-Access', async () => {
@@ -225,7 +261,7 @@ describe('createAAuthFetch', () => {
 
     const thirdCall = mockHttpSigFetch.mock.calls[2]
     const headers = new Headers(thirdCall[1].headers)
-    expect(headers.get('authorization')).toBe('Bearer token-v2')
+    expect(headers.get('authorization')).toBe('AAuth token-v2')
   })
 
   it('passes enterprise hints to token exchange', async () => {
