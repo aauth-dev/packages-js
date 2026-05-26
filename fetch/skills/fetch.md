@@ -73,8 +73,8 @@ person-server round-trip. Two ways to capture the credential:
 ### Step 1: Authorize once and capture
 
 Run `authorize` **once**, capturing stdout — don't print it and then run it again to
-capture (each run re-mints the token and may re-prompt for consent). The captured
-`$OUT` holds `{ auth_token, expires_in, signingKey, response }`:
+capture (each run re-mints the token and may re-prompt for consent). `$OUT` then
+holds the reusable credential:
 
 ```bash
 OUT=$(npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations listNotes,createNote)
@@ -85,10 +85,12 @@ OUT=$(npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations 
 - Or capture *with* the call in one shot via `--with-token` (makes the request AND
   returns the credential): `OUT=$(npx @aauth/fetch --with-token https://notes.aauth.dev/notes)`.
 
-If the resource accepts the agent token directly (no auth needed), the output has
-`signingKey` + `signatureKey` + a filled-in `response` instead of an `auth_token`.
-(Spec-defined fields use snake_case — `auth_token`/`expires_in`; our own artifacts like
-`signingKey` stay camelCase.)
+**Output shape — fields appear only when relevant:**
+- Three-party (PS-asserted): `{ auth_token, expires_in, signingKey, response? }`. `response` is the resource body (omitted by `authorize` since it makes no resource call); `signingKey` is the ephemeral private key the auth_token is `cnf`-bound to — needed on every reuse.
+- Two-party (resource-managed): `{ opaque_token, response? }`. **No `signingKey`** — the opaque token binds per-request to the agent identity, so reuse only needs the token.
+- Agent-token-only 200 (resource accepted the agent token directly): `{ signingKey, signatureKey, response }` — both emitted so you can reuse that exact agent token without re-minting.
+
+(Spec-defined fields use snake_case — `auth_token`/`expires_in`/`opaque_token`; our own artifacts like `signingKey`/`signatureKey` stay camelCase.)
 
 ### Step 2: Reuse the captured token
 
@@ -285,7 +287,7 @@ Via JSON stdin:
 | `--agent-only` | Sign with agent token only; don't handle 401 |
 | `--auth-token` / `--signing-key` | Use an existing auth token + signing key (skip the auth flow) — three-party reuse |
 | `--opaque-token` | Reuse an opaque AAuth-Access token (two-party / resource-managed); no signing key needed |
-| `--with-token` | Return `{ auth_token, expires_in, signingKey, response }` (and `opaque_token` in two-party mode) instead of just the body — the call plus the reusable credential |
+| `--with-token` | Return the reusable credential alongside the response. Three-party: `{ auth_token, expires_in, signingKey, response }`. Two-party: `{ opaque_token, response }` (no signingKey needed). `response` is the body (same as bare fetch) |
 | `--json` | Read full request from stdin as JSON (input only) |
 | `-X, --method` | HTTP method (default: GET) |
 | `-d, --data` | Request body (use `-` for stdin) |

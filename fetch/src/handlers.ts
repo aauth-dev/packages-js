@@ -245,14 +245,24 @@ export async function handleAuthorize(
 
     if (response.status === 200) {
       const b = await response.text()
+      const parsed = tryParseJson(b)
       // Two-party: the resource may hand back an opaque AAuth-Access token to
       // reuse (via --opaque-token) on subsequent calls.
       const opaqueToken = response.headers.get('aauth-access') ?? undefined
+      if (opaqueToken) {
+        // Two-party reuse needs only the opaque token (binds per-request to the
+        // agent identity); no signing key to carry.
+        return printResult({
+          opaque_token: opaqueToken,
+          response: parsed === undefined ? b : parsed,
+        })
+      }
+      // Agent-token-only 200: surface the agent token + its ephemeral signing key
+      // so the caller can reuse them on the next call without re-minting.
       return printResult({
-        ...(opaqueToken ? { opaque_token: opaqueToken } : {}),
         signingKey: keyMaterial.signingKey,
         signatureKey: keyMaterial.signatureKey,
-        response: { status: 200, body: tryParseJson(b) },
+        response: parsed === undefined ? b : parsed,
       })
     }
     if (response.status !== 401) {
@@ -290,11 +300,11 @@ export async function handleAuthorize(
     sentTracker: sent,
   })
 
+  // No final resource call in this path — just the reusable credential.
   printResult({
     auth_token: result.authToken,
     expires_in: result.expiresIn,
     signingKey: keyMaterial.signingKey,
-    response: { status: 200 },
   })
 }
 
@@ -390,16 +400,20 @@ export async function handleFullFlow(
 
   if (args.withToken) {
     // Combined object: the reusable credential(s) + the resource response in one
-    // call. auth_token/expires_in appear only when an auth token was minted (the
-    // resource issued a three-party challenge); opaque_token appears in two-party
-    // mode; an agent-token-only 200 has neither.
+    // call. `response` is the body directly (same shape as bare fetch). Fields
+    // appear only when relevant:
+    //   - auth_token/expires_in: only when an auth token was minted (three-party).
+    //   - opaque_token: only in two-party mode.
+    //   - signingKey: only with auth_token (cnf-bound — required for three-party
+    //     reuse). Two-party reuse needs only the opaque_token (binds per-request
+    //     to the agent identity), so no signingKey is emitted there.
     const body = await response.text()
     const parsed = tryParseJson(body)
     printResult({
       ...(minted ? { auth_token: minted.authToken, expires_in: minted.expiresIn } : {}),
       ...(opaqueToken ? { opaque_token: opaqueToken } : {}),
-      signingKey: keyMaterial.signingKey,
-      response: { status: response.status, body: parsed === undefined ? body : parsed },
+      ...(minted ? { signingKey: keyMaterial.signingKey } : {}),
+      response: parsed === undefined ? body : parsed,
     })
     return
   }

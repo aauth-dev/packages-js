@@ -61,9 +61,13 @@ MODE (modifiers)
     the AAuth scheme and bound to the request signature; no signing key needed.
 
   --with-token
-    Return { auth_token, expires_in, signingKey, response } — and opaque_token in
-    two-party mode — instead of just the response body: the call plus the reusable
-    credential, so the next call can skip the consent round-trip (see EXAMPLES).
+    Return the reusable credential alongside the response — the call plus the
+    next-call shortcut in one invocation. Shape (fields appear only when relevant):
+      { auth_token, expires_in, signingKey, response }     three-party
+      { opaque_token, response }                           two-party
+    \`response\` is the resource's response body (same as bare fetch). \`signingKey\`
+    is emitted only with \`auth_token\` (three-party reuse needs it); two-party
+    reuse needs only the opaque_token. See EXAMPLES.
 
 HINTS (passed through the auth flow)
   --login-hint <hint>      Hint about who to authorize (user / account)

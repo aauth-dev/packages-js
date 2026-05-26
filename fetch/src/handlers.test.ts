@@ -471,7 +471,7 @@ describe('handleFullFlow', () => {
     expect(result.auth_token).toBe('eyJ.minted.token')
     expect(result.expires_in).toBe(3600)
     expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
-    expect(result.response).toEqual({ status: 200, body: { data: 'secret' } })
+    expect(result.response).toEqual({ data: 'secret' })  // response IS the body, no status/body wrapper
     // The onAuthToken callback was wired in.
     expect(typeof mockCreateAAuthFetch.mock.calls[0][0].onAuthToken).toBe('function')
   })
@@ -494,8 +494,9 @@ describe('handleFullFlow', () => {
     const result = JSON.parse(stdout.output[0])
     expect(result.auth_token).toBeUndefined()
     expect(result.expires_in).toBeUndefined()
-    expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
-    expect(result.response.status).toBe(200)
+    // No auth_token minted → no signingKey to carry (only emitted for three-party reuse).
+    expect(result.signingKey).toBeUndefined()
+    expect(result.response).toEqual({ ok: true })
   })
 
   it('default (no --with-token) prints the raw resource body', async () => {
@@ -541,7 +542,8 @@ describe('handleFullFlow', () => {
     const result = JSON.parse(stdout.output[0])
     expect(result.opaque_token).toBe('opaque-xyz')
     expect(result.auth_token).toBeUndefined()
-    expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
+    // Two-party reuse binds per-request to the agent identity — no signingKey to carry.
+    expect(result.signingKey).toBeUndefined()
   })
 
   it('--opaque-token seeds the opaque token into createAAuthFetch', async () => {
@@ -583,10 +585,10 @@ describe('handleAuthorize', () => {
     }
 
     const result = JSON.parse(stdout.output[0])
+    // Agent-token-only 200 path: surface the agent token + its key for reuse.
     expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
     expect(result.signatureKey).toEqual(fakeKeyMaterial.signatureKey)
-    expect(result.response.status).toBe(200)
-    expect(result.response.body).toEqual({ identity: 'me' })
+    expect(result.response).toEqual({ identity: 'me' })  // response IS the body
     expect(result.opaque_token).toBeUndefined() // no AAuth-Access header → no field
   })
 
@@ -609,7 +611,10 @@ describe('handleAuthorize', () => {
 
     const result = JSON.parse(stdout.output[0])
     expect(result.opaque_token).toBe('opaque-aaa')
-    expect(result.response.status).toBe(200)
+    expect(result.response).toEqual({ data: 1 })  // response IS the body
+    // Two-party reuse doesn't need a signing key — none should be emitted.
+    expect(result.signingKey).toBeUndefined()
+    expect(result.signatureKey).toBeUndefined()
   })
 
   it('exchanges token on 401 challenge and returns authToken + signingKey', async () => {

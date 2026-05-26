@@ -77,9 +77,10 @@ Modes:
   --agent-only                Sign with agent token only; don't handle 401
   --auth-token <jwt> --signing-key <jwk>   Use an existing auth token + signing key (three-party)
   --opaque-token <token>      Reuse an opaque AAuth-Access token (two-party; no signing key)
-  --with-token                Return { auth_token, expires_in, signingKey, response }
-                              (and opaque_token in two-party mode) instead of just the
-                              body — the call + reusable credential
+  --with-token                Return the reusable credential alongside the body.
+                              Three-party: { auth_token, expires_in, signingKey, response }
+                              Two-party:   { opaque_token, response }  (no signingKey)
+                              `response` is the body (same as bare fetch)
 
 Authorize (with the `authorize` command):
   --operations <ops>          R3 operationIds (comma-separated)
