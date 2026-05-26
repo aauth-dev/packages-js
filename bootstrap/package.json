@@ -1,6 +1,6 @@
 {
   "name": "@aauth/bootstrap",
-  "version": "0.11.3",
+  "version": "1.0.0",
   "description": "CLI for bootstrapping AAuth agent keys and configuration",
   "type": "module",
   "bin": {
@@ -30,6 +30,6 @@
     "directory": "bootstrap"
   },
   "dependencies": {
-    "@aauth/local-keys": "^0.11.1"
+    "@aauth/local-keys": "^1.0.0"
   }
 }

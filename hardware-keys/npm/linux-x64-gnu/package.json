@@ -1,6 +1,6 @@
 {
   "name": "@aauth/hardware-keys-linux-x64-gnu",
-  "version": "0.11.3",
+  "version": "1.0.0",
   "os": [
     "linux"
   ],
@@ -14,7 +14,7 @@
   "files": [
     "index.linux-x64-gnu.node"
   ],
-  "description": "Hardware key backends for AAuth — Linux x64 (glibc) native binary",
+  "description": "Hardware key backends for AAuth \u2014 Linux x64 (glibc) native binary",
   "license": "MIT",
   "repository": {
     "type": "git",
