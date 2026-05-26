@@ -115,7 +115,15 @@ export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
 # no person-server round-trip.
 npx @aauth/fetch https://notes.aauth.dev/notes
 npx @aauth/fetch -X POST -d '{"title":"hi"}' https://notes.aauth.dev/notes
+
+# When done, drop them from your shell so they don't shadow later calls to other
+# resources (the auth_token's `aud` claim is bound to one resource):
+unset AAUTH_AUTH_TOKEN AAUTH_SIGNING_KEY
 ```
+
+> **Tip — scope to a subshell instead of `unset`.** If you'd rather not pollute the
+> outer shell at all, wrap the whole sequence in `( … )` — exported env vars
+> vanish when the subshell exits.
 
 **B. Pass as flags explicitly** on the next call:
 

@@ -105,7 +105,8 @@ EXAMPLES
   $ OUT=$(npx @aauth/fetch --with-token https://notes.aauth.dev/notes)
   $ export AAUTH_AUTH_TOKEN=$(jq -r .auth_token  <<<"$OUT")
   $ export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
-  $ npx @aauth/fetch https://notes.aauth.dev/notes      # reuses the saved token`
+  $ npx @aauth/fetch https://notes.aauth.dev/notes      # reuses the saved token
+  $ unset AAUTH_AUTH_TOKEN AAUTH_SIGNING_KEY            # when done — token is aud-bound to this resource`
 }
 
 export const COMMAND_HELP: Record<string, string> = {
@@ -137,6 +138,11 @@ EXAMPLE
 
   $ npx @aauth/fetch https://notes.aauth.dev/notes
   $ npx @aauth/fetch -X POST -d '{"title":"x","content":"y"}' https://notes.aauth.dev/notes
+
+  When you're done, drop the credential from your shell so it doesn't shadow later
+  calls to other resources (the auth_token's \`aud\` is bound to one resource):
+
+  $ unset AAUTH_AUTH_TOKEN AAUTH_SIGNING_KEY
 
   The ephemeral signing key is emitted so it isn't re-minted — the same key must
   sign every reuse.`,
