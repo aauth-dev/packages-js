@@ -152,16 +152,38 @@ function infoFields(e: AAuthEvent): Record<string, unknown> {
 }
 
 /**
- * Build an OnEvent that renders each mcp-agent event as a pretty JSON object on
- * stderr (the `-v` view). Maps the agent's `phase` to `type`:
+ * Bodies travel through the event stream as strings (raw on-the-wire form). For
+ * display, parse JSON bodies back into objects so they pretty-print; leave
+ * non-JSON (or absent) bodies as-is.
+ */
+function bodyForDisplay(body: unknown): unknown {
+  if (typeof body !== 'string') return body
+  try { return JSON.parse(body) } catch { return body }
+}
+
+/** The request body carried on a :done event, parsed for display (or undefined). */
+function requestBody(e: AAuthEvent): unknown {
+  return e.request_body !== undefined ? bodyForDisplay(e.request_body) : undefined
+}
+
+/** The response body carried on a :done event, parsed for display (or undefined). */
+function responseBody(e: AAuthEvent): unknown {
+  const response = e.response as { body?: unknown } | undefined
+  return response?.body !== undefined ? bodyForDisplay(response.body) : undefined
+}
+
+/**
+ * `--explain`: the teaching view. Render each mcp-agent event as a pretty JSON
+ * object on stderr, mapping the agent's `phase` to `type`:
  *   - phase 'start' is buffered (the real signed headers aren't known until the
  *     response arrives) and emitted as the `request` object once 'done' fires;
- *   - phase 'done' emits the `request` (with real RFC 9421 `request_headers`)
- *     then the `response`;
+ *   - phase 'done' emits the `request` (with real RFC 9421 `request_headers` and
+ *     the request `body`) then the `response` (status, headers, `body`);
  *   - phase 'info' emits an `info` object.
  * `step` is the display label; a request pairs with the response right after it.
+ * Each object carries a `description` explaining what that step does.
  */
-export function makeVerboseRenderer(emit: (line: string) => void, isTty: boolean): OnEvent {
+export function makeExplainRenderer(emit: (line: string) => void, isTty: boolean): OnEvent {
   const started = new Map<string, { method?: string; url?: string }>()
   const out = (obj: Record<string, unknown>) => emit(prettyJson(obj, isTty))
 
@@ -175,21 +197,65 @@ export function makeVerboseRenderer(emit: (line: string) => void, isTty: boolean
       out({ type: 'info', step: displayStep(step), description: describe(step, 'info'), ...infoFields(e) })
       return
     }
-    // phase 'done': emit the request (with real headers) then the response.
+    // phase 'done': emit the request (with real headers + body) then the response.
     const start = started.get(step) ?? {}
     started.delete(step)
     const status = typeof e.status === 'number' ? e.status : undefined
     const response = e.response as { headers?: Record<string, string> } | undefined
+    const reqBody = requestBody(e)
+    const respBody = responseBody(e)
 
     const reqObj: Record<string, unknown> = { type: 'request', step: displayStep(step), description: describe(step, 'request') }
     if (start.method) reqObj.method = start.method
     if (start.url) reqObj.url = start.url
     if (e.request_headers) reqObj.headers = e.request_headers
+    if (reqBody !== undefined) reqObj.body = reqBody
     out(reqObj)
 
     const respObj: Record<string, unknown> = { type: 'response', step: displayStep(step), description: describe(step, 'response', status) }
     if (status !== undefined) respObj.status = status
     if (response?.headers) respObj.headers = response.headers
+    if (respBody !== undefined) respObj.body = respBody
     out(respObj)
+  }
+}
+
+/**
+ * `--debug`: the raw wire view. Render only the request and response of each
+ * HTTP hop on stderr — no descriptions, no step vocabulary, no info events. Each
+ * hop emits a `{ request }` object (method, url, headers, body) then a
+ * `{ response }` object (status, headers, body) — the response nested under a
+ * property rather than tagged with a `type`.
+ */
+export function makeDebugRenderer(emit: (line: string) => void, isTty: boolean): OnEvent {
+  const started = new Map<string, { method?: string; url?: string }>()
+  const out = (obj: Record<string, unknown>) => emit(prettyJson(obj, isTty))
+
+  return (e: AAuthEvent) => {
+    const step = e.step
+    if (e.phase === 'start') {
+      started.set(step, { method: e.method as string | undefined, url: e.url as string | undefined })
+      return
+    }
+    if (e.phase === 'info') return // debug = only requests and responses
+    const start = started.get(step) ?? {}
+    started.delete(step)
+    const status = typeof e.status === 'number' ? e.status : undefined
+    const response = e.response as { headers?: Record<string, string> } | undefined
+    const reqBody = requestBody(e)
+    const respBody = responseBody(e)
+
+    const request: Record<string, unknown> = {}
+    if (start.method) request.method = start.method
+    if (start.url) request.url = start.url
+    if (e.request_headers) request.headers = e.request_headers
+    if (reqBody !== undefined) request.body = reqBody
+    out({ request })
+
+    const resp: Record<string, unknown> = {}
+    if (status !== undefined) resp.status = status
+    if (response?.headers) resp.headers = response.headers
+    if (respBody !== undefined) resp.body = respBody
+    out({ response: resp })
   }
 }

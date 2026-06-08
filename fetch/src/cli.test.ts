@@ -88,12 +88,13 @@ describe('cli dispatch', () => {
     noHandlerCalled()
   })
 
-  it('skill prints the one guide and folds in the protocol spec URL', async () => {
+  it('skill prints the one guide and folds in the site + protocol spec URLs', async () => {
     setArgv('skill')
     await run()
     const md = out.join('\n')
     expect(md).toContain('@aauth/fetch')
-    expect(md).toContain('## AAuth protocol spec')
+    expect(md).toContain('## Learn more')
+    expect(md).toContain('https://www.aauth.dev/llms.txt')
     expect(md).toContain('draft-hardt-oauth-aauth-protocol.md')
     noHandlerCalled()
   })
@@ -106,18 +107,19 @@ describe('cli dispatch', () => {
     noHandlerCalled()
   })
 
-  it('skill --help prints the skill command help', async () => {
+  it('--help short-circuits to top-level help (no per-command help)', async () => {
     setArgv('skill', '--help')
     await run()
-    expect(out.join('\n').toLowerCase()).toContain('skill')
+    expect(out.join('\n')).toContain('DESCRIPTION')
+    expect(out.join('\n')).toContain('USAGE')
     noHandlerCalled()
   })
 
-  it('help <command> prints that command help (subcommand form)', async () => {
+  it('help <command> ignores the topic and prints top-level help', async () => {
     setArgv('help', 'authorize')
     await run()
-    expect(out.join('\n')).toContain('authorize')
-    expect(out.join('\n')).toContain('--operations')
+    expect(out.join('\n')).toContain('DESCRIPTION')
+    expect(out.join('\n')).toContain('--operations') // top-level help lists all flags
     noHandlerCalled()
   })
 

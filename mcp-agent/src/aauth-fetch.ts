@@ -137,12 +137,13 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       })
     }
     const response = await signedFetch(url, init)
-    const responseBody = response.status === 401 ? await peekResponseBody(response) : undefined
+    const responseBody = onEvent ? await peekResponseBody(response) : undefined
     onEvent?.({
       step: 'signed_request',
       phase: 'done',
       status: response.status,
       request_headers: sentTracker.latest?.headers,
+      request_body: sentTracker.latest?.body,
       response: {
         headers: summarizeResponseHeaders(response.headers),
         ...(responseBody !== undefined ? { body: responseBody } : {}),
@@ -216,12 +217,17 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         const retryResponse = await fetchWithAuthToken(
           url, init, result.authToken, getKeyMaterial, onSigned,
         )
+        const retryBody = onEvent ? await peekResponseBody(retryResponse) : undefined
         onEvent?.({
           step: 'retry_with_auth_token',
           phase: 'done',
           status: retryResponse.status,
           request_headers: sentTracker.latest?.headers,
-          response: { headers: summarizeResponseHeaders(retryResponse.headers) },
+          request_body: sentTracker.latest?.body,
+          response: {
+            headers: summarizeResponseHeaders(retryResponse.headers),
+            ...(retryBody !== undefined ? { body: retryBody } : {}),
+          },
         })
         cacheOpaqueToken(opaqueCache, resourceOrigin, retryResponse, onOpaqueToken)
         return handleResourceInteraction(retryResponse, signedFetch, onInteraction, onClarification)

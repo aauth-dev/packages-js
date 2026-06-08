@@ -133,8 +133,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     },
     body: tokenBody,
   })
-  // Peek body for 202 (deferred) responses where downstream code only reads headers.
-  const tokenResponseBody = response.status === 202 ? await peekResponseBody(response) : undefined
+  const tokenResponseBody = onEvent ? await peekResponseBody(response) : undefined
   onEvent?.({
     step: 'ps_token_request',
     phase: 'done',
@@ -221,13 +220,13 @@ async function fetchMetadata(
     onEvent({ step: 'ps_metadata_request', phase: 'start', url: metadataUrl, agent_token: agentToken })
   }
   const response = await signedFetch(metadataUrl, { method: 'GET' })
-  // Peek body so the rendered card can show the discovered endpoints.
-  const responseBody = response.ok ? await peekResponseBody(response) : undefined
+  const responseBody = onEvent ? await peekResponseBody(response) : undefined
   onEvent?.({
     step: 'ps_metadata_request',
     phase: 'done',
     status: response.status,
     request_headers: sentTracker?.latest?.headers,
+    request_body: sentTracker?.latest?.body,
     response: {
       headers: summarizeResponseHeaders(response.headers),
       ...(responseBody !== undefined ? { body: responseBody } : {}),

@@ -7,7 +7,7 @@ const argv = (...rest: string[]) => ['node', 'aauth-fetch', ...rest]
 describe('parseArgs', () => {
   const originalEnv = { ...process.env }
   beforeEach(() => {
-    for (const k of ['AAUTH_AGENT_URL', 'AAUTH_LOCAL', 'AAUTH_AUTH_TOKEN', 'AAUTH_SIGNING_KEY', 'AAUTH_OPAQUE_TOKEN', 'AAUTH_PERSON_SERVER']) {
+    for (const k of ['AAUTH_AGENT_URL', 'AAUTH_LOCAL', 'AAUTH_AUTH_TOKEN', 'AAUTH_SIGNING_KEY', 'AAUTH_ACCESS_TOKEN', 'AAUTH_PERSON_SERVER']) {
       delete process.env[k]
     }
   })
@@ -17,7 +17,7 @@ describe('parseArgs', () => {
     const a = parseArgs(argv())
     expect(a).toMatchObject({
       method: 'GET', headers: [], jsonInput: false, agentOnly: false,
-      nonInteractive: false, verbose: false, help: false, version: false,
+      nonInteractive: false, explain: false, debug: false, help: false, version: false,
     })
     expect(a.command).toBeUndefined()
     expect(a.url).toBeUndefined()
@@ -62,33 +62,46 @@ describe('parseArgs', () => {
     expect(a).toMatchObject({ local: 'claude', personServer: 'https://ps', authToken: 'jwt', signingKey: '{}' })
   })
 
-  it('parses --opaque-token (flag and AAUTH_OPAQUE_TOKEN env)', () => {
-    expect(parseArgs(argv('https://x', '--opaque-token', 'opaque-1')).opaqueToken).toBe('opaque-1')
-    process.env.AAUTH_OPAQUE_TOKEN = 'opaque-env'
-    expect(parseArgs(argv('https://x')).opaqueToken).toBe('opaque-env')
+  it('parses --aauth-access-token (flag and AAUTH_ACCESS_TOKEN env)', () => {
+    expect(parseArgs(argv('https://x', '--aauth-access-token', 'tok-1')).opaqueToken).toBe('tok-1')
+    process.env.AAUTH_ACCESS_TOKEN = 'tok-env'
+    expect(parseArgs(argv('https://x')).opaqueToken).toBe('tok-env')
     // flag wins over env
-    expect(parseArgs(argv('https://x', '--opaque-token', 'opaque-flag')).opaqueToken).toBe('opaque-flag')
+    expect(parseArgs(argv('https://x', '--aauth-access-token', 'tok-flag')).opaqueToken).toBe('tok-flag')
   })
 
   it('parses --agent-only', () => {
     expect(parseArgs(argv('https://x', '--agent-only')).agentOnly).toBe(true)
   })
 
-  it('parses hints + capabilities (capabilities split)', () => {
-    const a = parseArgs(argv('https://x', '--login-hint', 'u', '--domain-hint', 'd', '--tenant', 't', '--justification', 'why', '--capabilities', 'interaction, payment'))
+  it('parses person-server hints', () => {
+    const a = parseArgs(argv('https://x', '--login-hint', 'u', '--domain-hint', 'd', '--tenant', 't', '--justification', 'why'))
     expect(a).toMatchObject({ loginHint: 'u', domainHint: 'd', tenant: 't', justification: 'why' })
-    expect(a.capabilities).toEqual(['interaction', 'payment'])
   })
 
-  it('parses --no-browser and --non-interactive', () => {
-    const a = parseArgs(argv('https://x', '--no-browser', '--non-interactive'))
-    expect(a.browser).toBe(false)
+  it('ignores the removed --capabilities flag (and its value)', () => {
+    const a = parseArgs(argv('https://x', '--capabilities', 'interaction,payment'))
+    expect(a.url).toBe('https://x')
+    expect((a as Record<string, unknown>).capabilities).toBeUndefined()
+  })
+
+  it('parses --browser and --non-interactive', () => {
+    const a = parseArgs(argv('https://x', '--browser', '--non-interactive'))
+    expect(a.browser).toBe(true)
     expect(a.nonInteractive).toBe(true)
   })
 
-  it('parses -v / --verbose (no exit)', () => {
-    expect(parseArgs(argv('https://x', '-v')).verbose).toBe(true)
-    expect(parseArgs(argv('https://x', '--verbose')).verbose).toBe(true)
+  it('treats -v / --verbose / --debug as debug (no exit)', () => {
+    expect(parseArgs(argv('https://x', '-v')).debug).toBe(true)
+    expect(parseArgs(argv('https://x', '--verbose')).debug).toBe(true)
+    expect(parseArgs(argv('https://x', '--debug')).debug).toBe(true)
+    // debug is distinct from explain
+    expect(parseArgs(argv('https://x', '--debug')).explain).toBe(false)
+  })
+
+  it('parses --explain', () => {
+    expect(parseArgs(argv('https://x', '--explain')).explain).toBe(true)
+    expect(parseArgs(argv('https://x', '--explain')).debug).toBe(false)
   })
 
   it('treats --help / -h / --version as flags (no process.exit)', () => {

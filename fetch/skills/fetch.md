@@ -8,6 +8,8 @@ when: Agent needs to call an AAuth-protected API
 
 Make HTTP requests to AAuth-protected APIs. Handles HTTP message signatures, agent tokens, and the full AAuth authorization flow including R3 (Rich Resource Requests).
 
+> **More for agents:** machine-readable index at https://www.aauth.dev/llms.txt · overview at https://www.aauth.dev · protocol spec linked under "Learn more" below.
+
 ## Prerequisites
 
 The agent must have a signing key and a person server configured before making authorized requests:
@@ -51,7 +53,7 @@ For resources that work with just an agent token (no authorization needed):
 npx @aauth/fetch https://whoami.aauth.dev
 ```
 
-If the resource returns a 401 challenge, fetch automatically handles the authorization flow — exchanging tokens with the person server, opening a browser for consent if needed, and retrying.
+If the resource returns a 401 challenge, fetch automatically handles the authorization flow — exchanging tokens with the person server, surfacing a consent URL (+ QR) if approval is needed, and retrying. (Pass `--browser` to auto-open the URL instead of printing it.)
 
 ## One-shot with scopes
 
@@ -68,7 +70,7 @@ reuse the returned `auth_token` + `signingKey` so later calls skip the
 person-server round-trip. Two ways to capture the credential:
 
 - **`authorize <resource>`** — runs the auth flow only and returns the credential (no resource call).
-- **`--with-token`** on a normal fetch — makes the call *and* returns the credential alongside the response.
+- **`--emit`** on a normal fetch — makes the call *and* returns the credential alongside the response.
 
 ### Step 1: Authorize once and capture
 
@@ -82,15 +84,15 @@ OUT=$(npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations 
 
 - For a standard 401-challenge resource (e.g. whoami with scopes), pass the resource
   URL instead: `OUT=$(npx @aauth/fetch authorize "https://whoami.aauth.dev?scope=email")`.
-- Or capture *with* the call in one shot via `--with-token` (makes the request AND
-  returns the credential): `OUT=$(npx @aauth/fetch --with-token https://notes.aauth.dev/notes)`.
+- Or capture *with* the call in one shot via `--emit` (makes the request AND
+  returns the credential): `OUT=$(npx @aauth/fetch --emit https://notes.aauth.dev/notes)`.
 
 **Output shape — fields appear only when relevant:**
 - Three-party (PS-asserted): `{ auth_token, expires_in, signingKey, response? }`. `response` is the resource body (omitted by `authorize` since it makes no resource call); `signingKey` is the ephemeral private key the auth_token is `cnf`-bound to — needed on every reuse.
-- Two-party (resource-managed): `{ opaque_token, response? }`. **No `signingKey`** — the opaque token binds per-request to the agent identity, so reuse only needs the token.
+- Two-party (resource-managed): `{ aauth_access_token, response? }`. **No `signingKey`** — the AAuth-Access token binds per-request to the agent identity, so reuse only needs the token.
 - Agent-token-only 200 (resource accepted the agent token directly): `{ signingKey, signatureKey, response }` — both emitted so you can reuse that exact agent token without re-minting.
 
-(Spec-defined fields use snake_case — `auth_token`/`expires_in`/`opaque_token`; our own artifacts like `signingKey`/`signatureKey` stay camelCase.)
+(Spec-defined fields use snake_case — `auth_token`/`expires_in`/`aauth_access_token`; our own artifacts like `signingKey`/`signatureKey` stay camelCase.)
 
 ### Step 2: Reuse the captured token
 
@@ -152,24 +154,24 @@ you **must** use the same key on every reuse (it isn't re-minted).
 ### Two-party (resource-managed) reuse
 
 Some resources manage authorization themselves instead of delegating to a person
-server. After authorizing, they hand back an **opaque `AAuth-Access` token** (in the
-`opaque_token` field of `authorize` / `--with-token` output). Reuse it with
-`--opaque-token` — it's sent under the `AAuth` scheme and bound to the request
+server. After authorizing, they hand back an **`AAuth-Access` token** (in the
+`aauth_access_token` field of `authorize` / `--emit` output). Reuse it with
+`--aauth-access-token` — it's sent under the `AAuth` scheme and bound to the request
 signature, so **no signing key is needed** (your agent identity from config signs it):
 
 ```bash
-OUT=$(npx @aauth/fetch --with-token https://resource.example/api)
-export AAUTH_OPAQUE_TOKEN=$(jq -r .opaque_token <<<"$OUT")   # or pass --opaque-token "$TOKEN"
-npx @aauth/fetch https://resource.example/api               # reuses the opaque token
+OUT=$(npx @aauth/fetch --emit https://resource.example/api)
+export AAUTH_ACCESS_TOKEN=$(jq -r .aauth_access_token <<<"$OUT")   # or pass --aauth-access-token "$TOKEN"
+npx @aauth/fetch https://resource.example/api                     # reuses the AAuth-Access token
 ```
 
 The resource may return a new `AAuth-Access` token on any response (rolling refresh);
-`--with-token` surfaces the latest one. Unlike the three-party auth token, this token
+`--emit` surfaces the latest one. Unlike the three-party auth token, this token
 is opaque and resource-specific — only send it back to the resource that issued it.
 
 ### Token expiration
 
-Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `authorize` step (or `--with-token`) to get fresh tokens.
+Auth tokens have a limited lifetime (typically 1 hour). If a call returns a 401 after previously working, the token has expired. Re-run the `authorize` step (or `--emit`) to get fresh tokens.
 
 ## Agent-only mode
 
@@ -257,67 +259,34 @@ Via JSON stdin:
 
 Justification is especially important for autonomous agents — it enables human reviewers to make informed consent decisions that policy engines cannot make automatically.
 
-## Capabilities
+## Interaction capability
 
-Capabilities declare which protocol features the agent supports. By default, fetch declares `interaction` capability (unless `--non-interactive` is set).
-
-```bash
-npx @aauth/fetch --capabilities interaction,clarification https://resource.example
-```
-
-| Capability | Meaning |
-|-----------|---------|
-| `interaction` | Agent can direct a user to a URL for authentication, consent, payment, or other actions. Declared by default. |
-| `clarification` | Agent can engage in back-and-forth clarification chat with the user through the person server. |
-| `payment` | Agent can handle payment flows — either directly or via its person server. |
-
-Via JSON stdin:
-```json
-{
-  "url": "https://resource.example",
-  "capabilities": ["interaction", "clarification"]
-}
-```
+fetch declares the `interaction` capability to the person server — meaning the
+agent can direct the user to a URL to authenticate, consent, or otherwise act.
+Pass `--non-interactive` to declare no capability (and fail rather than prompt
+if consent turns out to be required).
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `<resource>` | Authenticated fetch — full flow (sign → 401 → token exchange → consent → retry) |
-| `authorize <resource>` | Auth flow only; return auth token + signing key as JSON (no resource call). R3 via `--operations` |
-| `skill` | Print this usage guide (markdown), plus the AAuth protocol spec URL to fetch yourself |
-| (bare) / `--help` | Top-level help |
+<!-- AUTOGEN:COMMANDS -->
 
 ## All flags
 
-| Flag | Description |
-|------|-------------|
-| `--agent-only` | Sign with agent token only; don't handle 401 |
-| `--auth-token` / `--signing-key` | Use an existing auth token + signing key (skip the auth flow) — three-party reuse |
-| `--opaque-token` | Reuse an opaque AAuth-Access token (two-party / resource-managed); no signing key needed |
-| `--with-token` | Return the reusable credential alongside the response. Three-party: `{ auth_token, expires_in, signingKey, response }`. Two-party: `{ opaque_token, response }` (no signingKey needed). `response` is the body (same as bare fetch) |
-| `--json` | Read full request from stdin as JSON (input only) |
-| `-X, --method` | HTTP method (default: GET) |
-| `-d, --data` | Request body (use `-` for stdin) |
-| `-H, --header` | Additional header (repeatable) |
-| `--agent-provider` | Agent provider to sign as (default: from config) |
-| `--local` | Local part of agent identifier (default: from config) |
-| `--scope` | Requested scopes |
-| `--operations` | R3 operationIds (comma-separated, with `authorize`) |
-| `--person-server` | Override person server URL |
-| `--login-hint` | Hint about who to authorize |
-| `--domain-hint` | Domain/org routing hint |
-| `--tenant` | Tenant identifier |
-| `--justification` | Markdown explaining why access is needed |
-| `--capabilities` | Agent capabilities (comma-separated) |
-| `--no-browser` | Don't open browser for consent |
-| `--non-interactive` | Fail if consent is needed |
-| `-v, --verbose` | Print every request/response on stderr as pretty JSON (type/step/description + real RFC 9421 headers) |
+<!-- AUTOGEN:FLAGS -->
 
-## Verbose output (`-v`)
+## Inspecting requests (`--explain` / `--debug`)
 
-Each `-v` event is `{ type, step, description, … }` on stderr (stdout stays clean
-for `jq`):
+Both write to stderr, so stdout stays clean for `jq`. Pick by intent:
+
+- **`--explain`** — the *teaching* view. Each protocol step is a pretty JSON
+  object `{ type, step, description, … }` with method/url/status, the real RFC 9421
+  signed headers, and the request/response bodies.
+- **`--debug`** (also `-v` / `--verbose`) — the *raw wire* view. Every HTTP hop is
+  a `{ request }` object (method, url, headers, body) followed by a `{ response }`
+  object (status, headers, body). No descriptions, no `info` events — just what
+  went over the wire.
+
+In `--explain`:
 
 - **`type`** — `request` | `response` | `info`.
 - **`step`** — which protocol step this is, named by what it targets / the token
@@ -347,9 +316,10 @@ Errors are output as JSON to stderr:
 {"error": "description of what went wrong"}
 ```
 
-When consent is needed, a browser opens at the approval URL by default. With
-`--no-browser`, the URL is printed on stderr (`Approve at: https://…`) along with a
-scannable QR code — open the link or scan it from your phone. With `-v`, a
+When consent is needed, the approval URL is printed on stderr (`Approve at: https://…`)
+along with a scannable QR code — open the link or scan it from your phone. fetch does
+**not** open a browser by default (an agent / CI / SSH session has no GUI to open one
+on); pass `--browser` to auto-open it on a machine that does. With `--explain`, a
 `consent_required` event also appears in the stream:
 ```json
 {"type": "info", "step": "consent_required", "description": "Consent required — opening the approval URL for the person."}
@@ -357,19 +327,12 @@ scannable QR code — open the link or scan it from your phone. With `-v`, a
 
 ## Environment variables
 
-| Variable | Equivalent flag |
-|----------|----------------|
-| `AAUTH_AGENT_URL` | `--agent-provider` |
-| `AAUTH_LOCAL` | `--local` |
-| `AAUTH_AUTH_TOKEN` | `--auth-token` |
-| `AAUTH_SIGNING_KEY` | `--signing-key` |
-| `AAUTH_OPAQUE_TOKEN` | `--opaque-token` |
-| `AAUTH_PERSON_SERVER` | `--person-server` |
+<!-- AUTOGEN:ENV -->
 
 ## Caching
 
 - **Tokens are never cached to disk.** The `auth_token` and any access token are
-  output (with `authorize` / `--with-token`) for you to reuse as you see fit —
+  output (with `authorize` / `--emit`) for you to reuse as you see fit —
   there is no automatic on-disk token reuse. See "Step 2: Reuse the captured token".
 - **Person-server metadata is cached** (it's public, not a secret) under
   `~/.aauth/cache/<host>/aauth-person.json`, with expiry tracked in

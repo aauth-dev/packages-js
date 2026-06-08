@@ -16,7 +16,7 @@ import {
 import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/mcp-agent'
 import { createRequire } from 'node:module'
 import open from 'open'
-import { makeVerboseRenderer, prettyJson } from './render.js'
+import { makeExplainRenderer, makeDebugRenderer, prettyJson } from './render.js'
 
 // qrcode-terminal is CommonJS — load it via require to get module.exports reliably.
 const require = createRequire(import.meta.url)
@@ -25,13 +25,20 @@ type QrModule = { generate: (input: string, opts: { small?: boolean }, cb: (out:
 const STDOUT_TTY = process.stdout.isTTY === true
 const STDERR_TTY = process.stderr.isTTY === true
 
-/** Build the `-v` event renderer (pretty JSON events → stderr), or undefined. */
-function verboseRenderer(verbose: boolean): OnEvent | undefined {
-  if (!verbose) return undefined
-  return makeVerboseRenderer((line) => process.stderr.write(line + '\n'), STDERR_TTY)
+/**
+ * Build the event renderer for the active output mode (pretty JSON → stderr):
+ *   --explain → teaching view (per-step request/response + descriptions + bodies)
+ *   --debug / -v / --verbose → raw view (every hop's request/response + bodies)
+ * Returns undefined when neither is set.
+ */
+function eventRenderer(args: { explain?: boolean; debug?: boolean }): OnEvent | undefined {
+  const emit = (line: string) => process.stderr.write(line + '\n')
+  if (args.explain) return makeExplainRenderer(emit, STDERR_TTY)
+  if (args.debug) return makeDebugRenderer(emit, STDERR_TTY)
+  return undefined
 }
 
-/** Response headers surfaced in `-v` — the AAuth-relevant set. */
+/** Response headers surfaced in --explain/--debug — the AAuth-relevant set. */
 const AAUTH_RESPONSE_HEADERS = ['www-authenticate', 'aauth-requirement', 'aauth-access', 'content-type', 'location']
 function respHeaders(headers: Headers): Record<string, string> {
   const out: Record<string, string> = {}
@@ -39,6 +46,23 @@ function respHeaders(headers: Headers): Record<string, string> {
     const v = headers.get(k)
     if (v) out[k] = v
   }
+  return out
+}
+
+/** Read a response body without consuming it (for --explain/--debug events). */
+async function peekBodyText(response: Response): Promise<string | undefined> {
+  try { return await response.clone().text() } catch { return undefined }
+}
+
+/**
+ * Build a :done event's `response` payload — AAuth-relevant headers plus the raw
+ * body string (renderers parse it for display). The body is peeked via clone(),
+ * so the caller can still read the response afterwards.
+ */
+async function doneResponse(response: Response): Promise<{ headers: Record<string, string>; body?: string }> {
+  const body = await peekBodyText(response)
+  const out: { headers: Record<string, string>; body?: string } = { headers: respHeaders(response.headers) }
+  if (body !== undefined) out.body = body
   return out
 }
 
@@ -163,19 +187,25 @@ function fail(message: string, extra?: Record<string, unknown>): void {
 
 // === interaction (consent) ===
 
-function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; verbose: boolean }) {
-  const shouldOpenBrowser = args.browser ?? true
+function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; explain?: boolean; debug?: boolean }) {
+  // Default: don't assume a browser exists (agents, CI, containers, SSH-to-headless
+  // all have a TTY but no GUI). Print the URL + a scannable QR instead. --browser
+  // opts into auto-open on a machine that actually has a browser.
+  const shouldOpenBrowser = args.browser === true
+  // When an event renderer is active it already surfaces the consent URL, so
+  // skip the plain one-liner to avoid duplicating it.
+  const quiet = args.explain || args.debug
   return (interactionEndpoint: string, code: string) => {
     const url = `${interactionEndpoint}?code=${code}`
     if (args.nonInteractive) {
       throw new Error(`Consent required but --non-interactive set. URL: ${url}`)
     }
     if (shouldOpenBrowser) {
-      if (!args.verbose) process.stderr.write(`Opening ${url} to approve (code: ${code}).\n`)
+      if (!quiet) process.stderr.write(`Opening ${url} to approve (code: ${code}).\n`)
       open(url)
       return
     }
-    // --no-browser: surface the URL and a scannable QR (open the link, or scan it).
+    // Default: surface the URL and a scannable QR (open the link, or scan it).
     process.stderr.write(`Approve at: ${url}\n`)
     const qrcode = require('qrcode-terminal') as QrModule
     qrcode.generate(url, { small: true }, (qr) => process.stderr.write(`${qr}\n`))
@@ -192,17 +222,18 @@ function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; v
 export async function handleAuthorize(
   args: {
     url: string; agentProvider?: string; operations?: string; scope?: string;
-    browser?: boolean; nonInteractive: boolean; verbose: boolean;
+    browser?: boolean; nonInteractive: boolean; explain: boolean; debug: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
-    capabilities?: string[];
   },
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
   personServerMetadata?: AuthServerMetadata,
   onMetadata?: (m: AuthServerMetadata) => void,
 ): Promise<void> {
-  const onEvent = verboseRenderer(args.verbose)
-  const capabilities = args.capabilities as Capability[] | undefined
+  const onEvent = eventRenderer(args)
+  // We support exactly one capability: interaction — declared unless the caller
+  // opted out with --non-interactive. (No payment; clarification isn't wired here.)
+  const capabilities: Capability[] = args.nonInteractive ? [] : ['interaction']
 
   const keyMaterial = await getKeyMaterial()
   const pinnedGetKeyMaterial: GetKeyMaterial = async () => keyMaterial
@@ -228,7 +259,7 @@ export async function handleAuthorize(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(r3Body),
     })
-    onEvent?.({ step: 'r3_authorize_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, response: { headers: respHeaders(response.headers) } })
+    if (onEvent) onEvent({ step: 'r3_authorize_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, request_body: sent.latest?.body, response: await doneResponse(response) })
     if (response.status !== 200) {
       const b = await response.text()
       return fail(`Authorize endpoint returned status ${response.status}`, { body: tryParseJson(b) })
@@ -241,19 +272,19 @@ export async function handleAuthorize(
     if (args.scope) url.searchParams.set('scope', args.scope)
     onEvent?.({ step: 'signed_request', phase: 'start', url: url.toString(), method: 'GET' })
     const response = await signedFetch(url.toString(), { method: 'GET' })
-    onEvent?.({ step: 'signed_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, response: { headers: respHeaders(response.headers) } })
+    if (onEvent) onEvent({ step: 'signed_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, request_body: sent.latest?.body, response: await doneResponse(response) })
 
     if (response.status === 200) {
       const b = await response.text()
       const parsed = tryParseJson(b)
-      // Two-party: the resource may hand back an opaque AAuth-Access token to
-      // reuse (via --opaque-token) on subsequent calls.
+      // Two-party: the resource may hand back an AAuth-Access token to
+      // reuse (via --aauth-access-token) on subsequent calls.
       const opaqueToken = response.headers.get('aauth-access') ?? undefined
       if (opaqueToken) {
         // Two-party reuse needs only the opaque token (binds per-request to the
         // agent identity); no signing key to carry.
         return printResult({
-          opaque_token: opaqueToken,
+          aauth_access_token: opaqueToken,
           response: parsed === undefined ? b : parsed,
         })
       }
@@ -293,7 +324,7 @@ export async function handleAuthorize(
     loginHint: args.loginHint,
     tenant: args.tenant,
     domainHint: args.domainHint,
-    capabilities: (capabilities as string[]) ?? ['interaction'],
+    capabilities: capabilities as string[],
     onEvent,
     getKeyMaterial: pinnedGetKeyMaterial,
     onInteraction: makeOnInteraction(args),
@@ -311,7 +342,7 @@ export async function handleAuthorize(
 // === pre-authed ===
 
 export async function handlePreAuthed(
-  args: { url: string; authToken: string; signingKey: string; verbose: boolean },
+  args: { url: string; authToken: string; signingKey: string; explain: boolean; debug: boolean },
   init: RequestInit,
 ): Promise<void> {
   let signingKey: JsonWebKey
@@ -320,7 +351,7 @@ export async function handlePreAuthed(
   } catch {
     return fail('Invalid --signing-key: must be valid JSON (JWK)')
   }
-  const onEvent = verboseRenderer(args.verbose)
+  const onEvent = eventRenderer(args)
   const getKeyMaterial: GetKeyMaterial = async () => ({
     signingKey,
     signatureKey: { type: 'jwt' as const, jwt: args.authToken },
@@ -330,23 +361,23 @@ export async function handlePreAuthed(
   // Carries the auth token, not the agent token — emit the auth-token step.
   onEvent?.({ step: 'auth_token_request', phase: 'start', url: args.url, method: (init.method as string) ?? 'GET' })
   const response = await signedFetch(args.url, init)
-  onEvent?.({ step: 'auth_token_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, response: { headers: respHeaders(response.headers) } })
+  if (onEvent) onEvent({ step: 'auth_token_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, request_body: sent.latest?.body, response: await doneResponse(response) })
   await outputResponse(response)
 }
 
 // === agent-only ===
 
 export async function handleAgentOnly(
-  args: { url: string; verbose: boolean },
+  args: { url: string; explain: boolean; debug: boolean },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
 ): Promise<void> {
-  const onEvent = verboseRenderer(args.verbose)
+  const onEvent = eventRenderer(args)
   const sent: { latest?: CapturedSent } = {}
   const signedFetch = createSignedFetch(getKeyMaterial, onEvent ? { onSigned: (s) => { sent.latest = s } } : undefined)
   onEvent?.({ step: 'signed_request', phase: 'start', url: args.url, method: (init.method as string) ?? 'GET' })
   const response = await signedFetch(args.url, init)
-  onEvent?.({ step: 'signed_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, response: { headers: respHeaders(response.headers) } })
+  if (onEvent) onEvent({ step: 'signed_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, request_body: sent.latest?.body, response: await doneResponse(response) })
   await outputResponse(response)
 }
 
@@ -354,9 +385,9 @@ export async function handleAgentOnly(
 
 export async function handleFullFlow(
   args: {
-    url: string; agentProvider?: string; browser?: boolean; nonInteractive: boolean; verbose: boolean;
+    url: string; agentProvider?: string; browser?: boolean; nonInteractive: boolean; explain: boolean; debug: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
-    capabilities?: string[]; withToken?: boolean; opaqueToken?: string;
+    emit?: boolean; opaqueToken?: string;
   },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
@@ -364,13 +395,13 @@ export async function handleFullFlow(
   personServerMetadata?: AuthServerMetadata,
   onMetadata?: (m: AuthServerMetadata) => void,
 ): Promise<void> {
-  const onEvent = verboseRenderer(args.verbose)
+  const onEvent = eventRenderer(args)
   const keyMaterial = await getKeyMaterial()
   const pinnedGetKeyMaterial: GetKeyMaterial = async () => keyMaterial
 
-  // --with-token: capture the credentials surfaced during the flow so we can
-  // return them (alongside the response) for reuse — the three-party auth token,
-  // and/or a two-party opaque AAuth-Access token.
+  // --emit: capture the credentials surfaced during the flow so we can
+  // emit them (alongside the response) for reuse — the three-party auth token,
+  // and/or a two-party AAuth-Access token.
   let minted: { authToken: string; expiresIn: number } | undefined
   let opaqueToken: string | undefined = args.opaqueToken
 
@@ -379,39 +410,39 @@ export async function handleFullFlow(
     authServerUrl: personServer,
     authServerMetadata: personServerMetadata,
     onMetadata,
-    // --opaque-token: reuse a previously-issued opaque token on this call.
+    // --aauth-access-token: reuse a previously-issued AAuth-Access token on this call.
     opaqueToken: args.opaqueToken,
-    onAuthToken: args.withToken
+    onAuthToken: args.emit
       ? (authToken, expiresIn) => { minted = { authToken, expiresIn } }
       : undefined,
-    onOpaqueToken: args.withToken
+    onOpaqueToken: args.emit
       ? (token) => { opaqueToken = token }
       : undefined,
     justification: args.justification,
     loginHint: args.loginHint,
     tenant: args.tenant,
     domainHint: args.domainHint,
-    capabilities: (args.capabilities as Capability[]) ?? (args.nonInteractive ? [] : ['interaction']),
+    capabilities: args.nonInteractive ? [] : ['interaction'],
     onEvent,
     onInteraction: makeOnInteraction(args),
   })
 
   const response = await aAuthFetch(args.url, init)
 
-  if (args.withToken) {
+  if (args.emit) {
     // Combined object: the reusable credential(s) + the resource response in one
     // call. `response` is the body directly (same shape as bare fetch). Fields
     // appear only when relevant:
     //   - auth_token/expires_in: only when an auth token was minted (three-party).
-    //   - opaque_token: only in two-party mode.
+    //   - aauth_access_token: only in two-party mode.
     //   - signingKey: only with auth_token (cnf-bound — required for three-party
-    //     reuse). Two-party reuse needs only the opaque_token (binds per-request
+    //     reuse). Two-party reuse needs only the aauth_access_token (binds per-request
     //     to the agent identity), so no signingKey is emitted there.
     const body = await response.text()
     const parsed = tryParseJson(body)
     printResult({
       ...(minted ? { auth_token: minted.authToken, expires_in: minted.expiresIn } : {}),
-      ...(opaqueToken ? { opaque_token: opaqueToken } : {}),
+      ...(opaqueToken ? { aauth_access_token: opaqueToken } : {}),
       ...(minted ? { signingKey: keyMaterial.signingKey } : {}),
       response: parsed === undefined ? body : parsed,
     })

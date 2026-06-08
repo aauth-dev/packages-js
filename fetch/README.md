@@ -41,10 +41,10 @@ npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
 ```
 
 Returns the auth token and ephemeral signing key. Or capture the credential *with*
-the call using `--with-token`, then export it so later calls reuse it:
+the call using `--emit`, then export it so later calls reuse it:
 
 ```bash
-OUT=$(npx @aauth/fetch --with-token https://notes.aauth.dev/notes)
+OUT=$(npx @aauth/fetch --emit https://notes.aauth.dev/notes)
 export AAUTH_AUTH_TOKEN=$(jq -r .auth_token  <<<"$OUT")
 export AAUTH_SIGNING_KEY=$(jq -c .signingKey <<<"$OUT")
 npx @aauth/fetch https://notes.aauth.dev/notes      # signs with the saved auth token
@@ -59,12 +59,12 @@ pipe between commands). Only the public person-server metadata is cached, under
 ```
 npx @aauth/fetch <resource> [flags]          # authenticated fetch (full flow)
 npx @aauth/fetch authorize <resource> [flags] # auth flow only; print tokens for reuse
-npx @aauth/fetch skill                   # print the fetch guide (+ protocol spec URL)
-npx @aauth/fetch help [command]          # help for a command (--help also works)
+npx @aauth/fetch skill                   # print the fetch guide (+ site & protocol URLs)
+npx @aauth/fetch help                    # show help (--help also works)
 
 Request:
   -X, --method <method>       HTTP method (default: GET)
-  -d, --data <body>           Request body (use - for stdin)
+  -d, --data <body>           Request body
   -H, --header <header>       Additional header (repeatable)
   --json                      Read full request from stdin as JSON (input only)
 
@@ -76,31 +76,34 @@ AAuth:
 Modes:
   --agent-only                Sign with agent token only; don't handle 401
   --auth-token <jwt> --signing-key <jwk>   Use an existing auth token + signing key (three-party)
-  --opaque-token <token>      Reuse an opaque AAuth-Access token (two-party; no signing key)
-  --with-token                Return the reusable credential alongside the body.
+  --aauth-access-token <token>  Reuse an AAuth-Access token (two-party; no signing key)
+  --emit                      Emit the reusable credential(s) to stdout alongside the body.
                               Three-party: { auth_token, expires_in, signingKey, response }
-                              Two-party:   { opaque_token, response }  (no signingKey)
+                              Two-party:   { aauth_access_token, response }  (no signingKey)
                               `response` is the body (same as bare fetch)
 
 Authorize (with the `authorize` command):
   --operations <ops>          R3 operationIds (comma-separated)
   --scope <scope>             Requested scopes
 
-Hints / consent / capabilities:
+Person server (passed during consent) / consent handling:
   --login-hint / --domain-hint / --tenant / --justification
-  --no-browser / --non-interactive
-  --capabilities <list>       interaction, clarification, payment
+  --browser / --non-interactive   (consent URL + QR print by default; --browser auto-opens)
 
-Output:
-  -v, --verbose               Print every request/response on stderr as pretty
-                              JSON (type/step/description + real RFC 9421 headers).
-                              Result on stdout stays clean for `… | jq`.
+Output (response body → stdout; these add detail on stderr, clean for `… | jq`):
+  --explain                   Teaching view: per-step request/response with
+                              descriptions, real RFC 9421 signed headers, and bodies.
+  --debug, -v, --verbose      Raw wire view: every HTTP hop as { request } /
+                              { response } objects (with bodies); no descriptions.
 ```
+
+> The CLI's full flag list is generated from one spec (`src/args.ts`) — run
+> `npx @aauth/fetch --help` for the authoritative, always-current reference.
 
 ## For AI Agents
 
-Run `npx @aauth/fetch skill` to list the agent skills (the list also includes the
-AAuth protocol spec URL to fetch yourself), then `skill fetch` for the usage guide.
+Run `npx @aauth/fetch skill` to print the agent usage guide (markdown), which also
+links to https://www.aauth.dev, the llms.txt index, and the AAuth protocol spec.
 
 ## Related Packages
 

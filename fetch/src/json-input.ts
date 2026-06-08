@@ -1,4 +1,5 @@
 import type { FetchArgs } from './args.js'
+import { FLAGS } from './args.js'
 
 export interface JsonRequest {
   url: string
@@ -8,7 +9,7 @@ export interface JsonRequest {
   // Spec-defined fields use the spec's snake_case names; our own artifacts
   // (signingKey, agentProvider, personServer, agentOnly, local) stay camelCase.
   auth_token?: string
-  opaque_token?: string
+  aauth_access_token?: string
   signingKey?: JsonWebKey
   agentProvider?: string
   local?: string
@@ -16,12 +17,11 @@ export interface JsonRequest {
   scope?: string
   personServer?: string
   agentOnly?: boolean
-  withToken?: boolean
+  emit?: boolean
   login_hint?: string
   domain_hint?: string
   tenant?: string
   justification?: string
-  capabilities?: string[]
 }
 
 export async function readJsonInput(): Promise<JsonRequest> {
@@ -36,29 +36,39 @@ export async function readJsonInput(): Promise<JsonRequest> {
   return JSON.parse(raw) as JsonRequest
 }
 
+/**
+ * Merge a JSON-stdin request spec onto parsed CLI args. CLI flags win only where
+ * JSON omits the field. Field-name mapping and value transforms are driven by the
+ * `json`/`jsonKind` entries in FLAGS (see args.ts) — the one place flags are
+ * declared — so this never drifts from the parser. `url` is the lone special case
+ * (a positional, not a flag).
+ */
 export function mergeJsonInput(args: FetchArgs, json: JsonRequest): FetchArgs {
-  return {
-    ...args,
-    url: json.url ?? args.url,
-    method: json.method ?? args.method,
-    headers: json.headers
-      ? Object.entries(json.headers).map(([k, v]) => `${k}: ${v}`)
-      : args.headers,
-    data: json.body !== undefined ? JSON.stringify(json.body) : args.data,
-    authToken: json.auth_token ?? args.authToken,
-    opaqueToken: json.opaque_token ?? args.opaqueToken,
-    signingKey: json.signingKey ? JSON.stringify(json.signingKey) : args.signingKey,
-    agentProvider: json.agentProvider ?? args.agentProvider,
-    local: json.local ?? args.local,
-    operations: json.operations ?? args.operations,
-    scope: json.scope ?? args.scope,
-    personServer: json.personServer ?? args.personServer,
-    agentOnly: json.agentOnly ?? args.agentOnly,
-    withToken: json.withToken ?? args.withToken,
-    loginHint: json.login_hint ?? args.loginHint,
-    domainHint: json.domain_hint ?? args.domainHint,
-    tenant: json.tenant ?? args.tenant,
-    justification: json.justification ?? args.justification,
-    capabilities: json.capabilities ?? args.capabilities,
+  const merged = { ...args } as FetchArgs
+  const ref = merged as unknown as Record<string, unknown>
+  const src = json as unknown as Record<string, unknown>
+
+  merged.url = json.url ?? args.url
+
+  for (const f of FLAGS) {
+    if (!f.json) continue
+    const raw = src[f.json]
+    switch (f.jsonKind) {
+      case 'body': // request body → JSON-encoded `data`
+        if (raw !== undefined) ref[f.field] = JSON.stringify(raw)
+        break
+      case 'headers': // { k: v } → ["k: v", …]
+        if (raw && typeof raw === 'object') {
+          ref[f.field] = Object.entries(raw as Record<string, string>).map(([k, v]) => `${k}: ${v}`)
+        }
+        break
+      case 'json': // JWK / object → stringified
+        if (raw) ref[f.field] = JSON.stringify(raw)
+        break
+      default: // 'string' | 'boolean' | 'array' — assign as-is
+        if (raw !== undefined) ref[f.field] = raw
+    }
   }
+
+  return merged
 }

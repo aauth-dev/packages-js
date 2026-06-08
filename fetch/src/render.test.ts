@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { colorizeJson, prettyJson, makeVerboseRenderer } from './render.js'
+import { colorizeJson, prettyJson, makeExplainRenderer, makeDebugRenderer } from './render.js'
 import { renderSkill } from './skill.js'
 import type { AAuthEvent } from '@aauth/mcp-agent'
 
@@ -15,10 +15,10 @@ describe('colorizeJson / prettyJson', () => {
   })
 })
 
-describe('makeVerboseRenderer', () => {
+describe('makeExplainRenderer', () => {
   function collect(events: AAuthEvent[]): Array<Record<string, unknown>> {
     const lines: string[] = []
-    const render = makeVerboseRenderer((l) => lines.push(l), false)
+    const render = makeExplainRenderer((l) => lines.push(l), false)
     for (const e of events) render(e)
     return lines.map((l) => JSON.parse(l) as Record<string, unknown>)
   }
@@ -142,13 +142,76 @@ describe('makeVerboseRenderer', () => {
       ['response', 'token_exchange', 'Received the auth token — consent was already on file.'],
     ])
   })
+
+  it('surfaces request and response bodies, parsing JSON for display', () => {
+    const objs = collect([
+      { step: 'ps_token_request', phase: 'start', url: 'https://ps/token' },
+      {
+        step: 'ps_token_request', phase: 'done', status: 200,
+        request_body: '{"resource_token":"rt"}',
+        response: { headers: {}, body: '{"auth_token":"at"}' },
+      },
+    ])
+    expect(objs[0].body).toEqual({ resource_token: 'rt' })
+    expect(objs[1].body).toEqual({ auth_token: 'at' })
+  })
+
+  it('leaves a non-JSON body as a raw string', () => {
+    const objs = collect([
+      { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
+      { step: 'signed_request', phase: 'done', status: 200, response: { headers: {}, body: 'plain text' } },
+    ])
+    expect(objs[1].body).toBe('plain text')
+  })
+})
+
+describe('makeDebugRenderer', () => {
+  function collect(events: AAuthEvent[]): Array<Record<string, unknown>> {
+    const lines: string[] = []
+    const render = makeDebugRenderer((l) => lines.push(l), false)
+    for (const e of events) render(e)
+    return lines.map((l) => JSON.parse(l) as Record<string, unknown>)
+  }
+
+  it('emits raw { request } then { response } per hop, with bodies, no descriptions/type', () => {
+    const objs = collect([
+      { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
+      {
+        step: 'signed_request', phase: 'done', status: 401,
+        request_headers: { 'signature-key': 'sig=jwt;jwt="eyJ…"' },
+        response: { headers: { 'aauth-requirement': 'auth-token' }, body: '{"error":"auth_token_required"}' },
+      },
+    ])
+    expect(objs).toHaveLength(2)
+    const req = objs[0].request as Record<string, unknown>
+    expect(req).toMatchObject({ method: 'GET', url: 'https://x' })
+    expect((req.headers as Record<string, string>)['signature-key']).toContain('sig=jwt')
+    const res = objs[1].response as Record<string, unknown>
+    expect(res).toMatchObject({ status: 401, body: { error: 'auth_token_required' } })
+    // raw view: no teaching vocabulary, no type discriminator
+    for (const o of objs) {
+      expect(o.type).toBeUndefined()
+      expect(o.step).toBeUndefined()
+      expect(o.description).toBeUndefined()
+    }
+  })
+
+  it('skips info events (only requests and responses)', () => {
+    const objs = collect([
+      { step: 'challenge_received', phase: 'info', requirement: 'auth-token' },
+      { step: 'consent_prompt', phase: 'info' },
+    ])
+    expect(objs).toHaveLength(0)
+  })
 })
 
 describe('renderSkill', () => {
-  it('prints the fetch guide and folds in the protocol spec URL', () => {
+  it('prints the fetch guide and folds in the site + protocol spec URLs', () => {
     const md = renderSkill()
     expect(md).toContain('@aauth/fetch') // the guide
-    expect(md).toContain('## AAuth protocol spec')
+    expect(md).toContain('## Learn more')
+    expect(md).toContain('https://www.aauth.dev')
+    expect(md).toContain('https://www.aauth.dev/llms.txt')
     expect(md).toContain('draft-hardt-oauth-aauth-protocol.md')
     expect(md.trimStart().startsWith('[')).toBe(false) // markdown, not JSON
   })

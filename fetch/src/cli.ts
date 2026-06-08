@@ -7,7 +7,7 @@ import type { AuthServerMetadata } from '@aauth/mcp-agent'
 import { parseArgs } from './args.js'
 import { readJsonInput, mergeJsonInput } from './json-input.js'
 import { renderSkill } from './skill.js'
-import { topLevelHelp, COMMAND_HELP } from './help.js'
+import { topLevelHelp } from './help.js'
 import {
   resolvePersonServer,
   resolvePersonServerMetadata,
@@ -41,16 +41,15 @@ export async function run(): Promise<void> {
     return
   }
 
-  // `help [command]` — documented way to get help (--help is a silent alias).
-  if (args.command === 'help') {
-    const topic = args.helpTopic
-    console.log(topic && COMMAND_HELP[topic] ? COMMAND_HELP[topic] : topLevelHelp(pkg.version))
+  // `--help`/`-h` and the `help` command both show top-level help. Per-command
+  // detail lives in the skill guide (`npx @aauth/fetch skill`), not here.
+  if (args.help || args.command === 'help') {
+    console.log(topLevelHelp(pkg.version))
     return
   }
 
-  // `skill` — help for it, or print the single guide (+ protocol URL).
+  // `skill` — print the single guide (+ protocol & site URLs).
   if (args.command === 'skill') {
-    if (args.help) { console.log(COMMAND_HELP.skill); return }
     cmdSkill()
     return
   }
@@ -63,9 +62,8 @@ export async function run(): Promise<void> {
 
   // authorize command
   if (args.command === 'authorize') {
-    if (args.help || !args.url) {
-      console.log(COMMAND_HELP.authorize)
-      if (!args.help && !args.url) process.exitCode = 1
+    if (!args.url) {
+      fail('authorize requires a <resource> URL — see `npx @aauth/fetch skill`')
       return
     }
     const personServer = resolvePersonServer(args.agentProvider, args.personServer)
@@ -79,8 +77,8 @@ export async function run(): Promise<void> {
     return
   }
 
-  // Bare invocation or --help → top-level help.
-  if (!args.url || args.help) {
+  // Bare invocation → top-level help.
+  if (!args.url) {
     console.log(topLevelHelp(pkg.version))
     return
   }

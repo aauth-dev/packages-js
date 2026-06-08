@@ -283,7 +283,7 @@ describe('handleAgentOnly', () => {
     const stdout = captureStdout()
     try {
       await handleAgentOnly(
-        { url: 'https://resource.example/api', verbose: false },
+        { url: 'https://resource.example/api', explain: false },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
       )
@@ -296,8 +296,10 @@ describe('handleAgentOnly', () => {
     expect(stdout.output[0]).toContain('"data": "ok"')
   })
 
-  it('with -v, writes request/response events to stderr', async () => {
-    mockSignedFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+  it('with --explain, writes descriptive request/response events (with body) to stderr', async () => {
+    mockSignedFetch.mockResolvedValueOnce(new Response('{"data":"ok"}', {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }))
 
     const lines: string[] = []
     const origWrite = process.stderr.write.bind(process.stderr)
@@ -305,7 +307,7 @@ describe('handleAgentOnly', () => {
     const stdout = captureStdout()
     try {
       await handleAgentOnly(
-        { url: 'https://resource.example/api', verbose: true },
+        { url: 'https://resource.example/api', explain: true, debug: false },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
       )
@@ -317,7 +319,41 @@ describe('handleAgentOnly', () => {
     const joined = lines.join('')
     expect(joined).toContain('"step": "agent_token_request"')
     expect(joined).toContain('"type": "response"')
+    expect(joined).toContain('"description"')
     expect(joined).toContain('"status": 200')
+    expect(joined).toContain('"data": "ok"') // body plumbed through
+  })
+
+  it('with --debug, writes raw { request } / { response } objects (with body), no descriptions', async () => {
+    mockSignedFetch.mockResolvedValueOnce(new Response('{"data":"ok"}', {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }))
+
+    const lines: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((s: string) => { lines.push(String(s)); return true }) as typeof process.stderr.write
+    const stdout = captureStdout()
+    try {
+      await handleAgentOnly(
+        { url: 'https://resource.example/api', explain: false, debug: true },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+      )
+    } finally {
+      process.stderr.write = origWrite
+      stdout.restore()
+    }
+
+    const joined = lines.join('')
+    expect(joined).toContain('"request"')
+    expect(joined).toContain('"response"')
+    expect(joined).toContain('"status": 200')
+    expect(joined).toContain('"data": "ok"')
+    // raw view — no teaching vocabulary
+    expect(joined).not.toContain('"description"')
+    expect(joined).not.toContain('"type"')
+    // body still on stdout
+    expect(stdout.output[0]).toContain('"data": "ok"')
   })
 })
 
@@ -335,7 +371,7 @@ describe('handlePreAuthed', () => {
           method: 'GET',
           authToken: 'eyJ.auth.token',
           signingKey: '{"kty":"OKP","crv":"Ed25519","x":"pub","d":"priv"}',
-          verbose: false,
+          explain: false,
           headers: [],
         },
         { method: 'GET', headers: new Headers() },
@@ -362,7 +398,7 @@ describe('handlePreAuthed', () => {
           method: 'GET',
           authToken: 'eyJ.auth.token',
           signingKey: 'not-json',
-          verbose: false,
+          explain: false,
           headers: [],
         },
         { method: 'GET', headers: new Headers() },
@@ -386,7 +422,7 @@ describe('handleFullFlow', () => {
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         'https://ps.example.com',
@@ -412,7 +448,7 @@ describe('handleFullFlow', () => {
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         'https://ps.example.com',
@@ -433,7 +469,7 @@ describe('handleFullFlow', () => {
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         undefined,
@@ -447,7 +483,7 @@ describe('handleFullFlow', () => {
     }))
   })
 
-  it('--with-token returns { auth_token, expires_in, signingKey, response }', async () => {
+  it('--emit returns { auth_token, expires_in, signingKey, response }', async () => {
     // Simulate an auth token being minted during the flow (resource challenged).
     mockCreateAAuthFetch.mockImplementationOnce((opts: { onAuthToken?: (t: string, e: number) => void }) => {
       opts.onAuthToken?.('eyJ.minted.token', 3600)
@@ -458,7 +494,7 @@ describe('handleFullFlow', () => {
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, withToken: true },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false, emit: true },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         'https://ps.example.com',
@@ -476,13 +512,13 @@ describe('handleFullFlow', () => {
     expect(typeof mockCreateAAuthFetch.mock.calls[0][0].onAuthToken).toBe('function')
   })
 
-  it('--with-token omits auth_token when none was minted (agent-token 200)', async () => {
+  it('--emit omits auth_token when none was minted (agent-token 200)', async () => {
     mockAAuthFetch.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))
 
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, withToken: true },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false, emit: true },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         'https://ps.example.com',
@@ -499,13 +535,13 @@ describe('handleFullFlow', () => {
     expect(result.response).toEqual({ ok: true })
   })
 
-  it('default (no --with-token) prints the raw resource body', async () => {
+  it('default (no --emit) prints the raw resource body', async () => {
     mockAAuthFetch.mockResolvedValueOnce(new Response('{"data":"full"}', { status: 200 }))
 
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         'https://ps.example.com',
@@ -519,8 +555,8 @@ describe('handleFullFlow', () => {
     expect(stdout.output[0]).not.toContain('signingKey')
   })
 
-  it('--with-token includes opaque_token in two-party mode', async () => {
-    // Simulate a resource handing back an opaque AAuth-Access token.
+  it('--emit includes aauth_access_token in two-party mode', async () => {
+    // Simulate a resource handing back an AAuth-Access token.
     mockCreateAAuthFetch.mockImplementationOnce((opts) => {
       opts.onOpaqueToken?.('opaque-xyz')
       return mockAAuthFetch
@@ -530,7 +566,7 @@ describe('handleFullFlow', () => {
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, withToken: true },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false, emit: true },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         undefined,
@@ -540,19 +576,19 @@ describe('handleFullFlow', () => {
     }
 
     const result = JSON.parse(stdout.output[0])
-    expect(result.opaque_token).toBe('opaque-xyz')
+    expect(result.aauth_access_token).toBe('opaque-xyz')
     expect(result.auth_token).toBeUndefined()
     // Two-party reuse binds per-request to the agent identity — no signingKey to carry.
     expect(result.signingKey).toBeUndefined()
   })
 
-  it('--opaque-token seeds the opaque token into createAAuthFetch', async () => {
+  it('--aauth-access-token seeds the AAuth-Access token into createAAuthFetch', async () => {
     mockAAuthFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
 
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, verbose: false, opaqueToken: 'reuse-me' },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false, opaqueToken: 'reuse-me' },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         undefined,
@@ -576,7 +612,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://whoami.aauth.dev', nonInteractive: false, verbose: false },
+        { url: 'https://whoami.aauth.dev', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         undefined,
       )
@@ -589,10 +625,10 @@ describe('handleAuthorize', () => {
     expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
     expect(result.signatureKey).toEqual(fakeKeyMaterial.signatureKey)
     expect(result.response).toEqual({ identity: 'me' })  // response IS the body
-    expect(result.opaque_token).toBeUndefined() // no AAuth-Access header → no field
+    expect(result.aauth_access_token).toBeUndefined() // no AAuth-Access header → no field
   })
 
-  it('surfaces opaque_token from a two-party 200 (AAuth-Access header)', async () => {
+  it('surfaces aauth_access_token from a two-party 200 (AAuth-Access header)', async () => {
     mockSignedFetch.mockResolvedValueOnce(new Response('{"data":1}', {
       status: 200,
       headers: { 'aauth-access': 'opaque-aaa' },
@@ -601,7 +637,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         undefined,
       )
@@ -610,7 +646,7 @@ describe('handleAuthorize', () => {
     }
 
     const result = JSON.parse(stdout.output[0])
-    expect(result.opaque_token).toBe('opaque-aaa')
+    expect(result.aauth_access_token).toBe('opaque-aaa')
     expect(result.response).toEqual({ data: 1 })  // response IS the body
     // Two-party reuse doesn't need a signing key — none should be emitted.
     expect(result.signingKey).toBeUndefined()
@@ -634,7 +670,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -660,7 +696,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -687,7 +723,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         undefined,
       )
@@ -713,7 +749,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -733,7 +769,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -752,7 +788,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://whoami.aauth.dev', local: 'fetch', scope: 'email profile', nonInteractive: false, verbose: false },
+        { url: 'https://whoami.aauth.dev', local: 'fetch', scope: 'email profile', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         undefined,
       )
@@ -770,7 +806,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, verbose: false },
+        { url: 'https://resource.example', local: 'fetch', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         undefined,
       )
@@ -797,7 +833,7 @@ describe('handleAuthorize', () => {
     const stdout = captureStdout()
     try {
       await handleAuthorize(
-        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes, createNote', nonInteractive: false, verbose: false },
+        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes, createNote', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -832,7 +868,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes', nonInteractive: false, verbose: false },
+        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )
@@ -853,7 +889,7 @@ describe('handleAuthorize', () => {
     const origExitCode = process.exitCode
     try {
       await handleAuthorize(
-        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes', nonInteractive: false, verbose: false },
+        { url: 'https://notes.aauth.dev/authorize', operations: 'listNotes', nonInteractive: false, explain: false },
         fakeGetKeyMaterial,
         'https://ps.example.com',
       )

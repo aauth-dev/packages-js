@@ -9,7 +9,8 @@ function baseArgs(overrides?: Partial<FetchArgs>): FetchArgs {
     headers: [],
     jsonInput: true,
     nonInteractive: false,
-    verbose: false,
+    explain: false,
+    debug: false,
     help: false,
     version: false,
     url: 'https://default.example.com',
@@ -77,12 +78,12 @@ describe('mergeJsonInput', () => {
     expect(result.authToken).toBe('eyJ.json.token')
   })
 
-  it('overrides opaqueToken from JSON opaque_token', () => {
+  it('overrides opaqueToken from JSON aauth_access_token', () => {
     const result = mergeJsonInput(baseArgs(), {
       url: 'https://x.com',
-      opaque_token: 'opaque.json.token',
+      aauth_access_token: 'access.json.token',
     })
-    expect(result.opaqueToken).toBe('opaque.json.token')
+    expect(result.opaqueToken).toBe('access.json.token')
   })
 
   it('stringifies signingKey object from JSON', () => {
@@ -129,11 +130,11 @@ describe('mergeJsonInput', () => {
 
   it('preserves non-overridable args from CLI', () => {
     const result = mergeJsonInput(
-      baseArgs({ skill: false, verbose: true, nonInteractive: true, browser: false }),
+      baseArgs({ debug: true, nonInteractive: true, browser: true }),
       { url: 'https://x.com' },
     )
-    expect(result.verbose).toBe(true)
+    expect(result.debug).toBe(true)
     expect(result.nonInteractive).toBe(true)
-    expect(result.browser).toBe(false)
+    expect(result.browser).toBe(true)
   })
 })
