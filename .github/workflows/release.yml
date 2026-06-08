@@ -1,5 +1,10 @@
 name: Publish
 
+# Triggered by a published GitHub Release. The release tag is just a marker
+# (e.g. a date/time) — it does NOT have to match any package version. Packages
+# are versioned independently; each is published only when its own
+# package.json version differs from what's already on npm.
+
 on:
   release:
     types: [published]
@@ -15,12 +20,37 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm test
 
+  # Only (re)build + publish the native hardware-keys packages when their version
+  # actually changed. Decoupled from the JS packages so a JS-only release never
+  # touches the natives or their lockfile entries (which would otherwise create a
+  # publish/lockfile catch-22: npm ci verifies native integrity against published
+  # tarballs, but the new tarballs only get published by the release itself).
+  check-hardware-keys:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.c.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: c
+        run: |
+          version=$(node -p "require('./hardware-keys/package.json').version")
+          published=$(npm view "@aauth/hardware-keys" version 2>/dev/null || echo "0.0.0")
+          if [ "$version" = "$published" ]; then
+            echo "hardware-keys@$version already published — skipping native build/publish"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "hardware-keys@$version (npm has $published) — will build + publish"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   hardware-keys:
+    needs: check-hardware-keys
+    if: needs.check-hardware-keys.outputs.changed == 'true'
     uses: ./.github/workflows/hardware-keys.yml
     with:
       publish: true
@@ -30,6 +60,9 @@ jobs:
 
   publish:
     needs: [test, hardware-keys]
+    # hardware-keys is SKIPPED (not failed) on a JS-only release — proceed as long
+    # as tests passed and the native job didn't actually fail.
+    if: always() && needs.test.result == 'success' && needs.hardware-keys.result != 'failure'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -46,46 +79,21 @@ jobs:
         run: |
           for pkg in local-keys mcp-agent mcp-server bootstrap fetch mcp-openclaw mcp-stdio; do
             echo "Building $pkg..."
-            (cd $pkg && npm run build)
+            (cd "$pkg" && npm run build)
           done
 
-      - name: Verify version from release tag
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          ROOT_VERSION=$(node -p "require('./package.json').version")
-          if [ "$VERSION" != "$ROOT_VERSION" ]; then
-            echo "❌ Release tag v$VERSION does not match package.json version $ROOT_VERSION"
-            exit 1
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "Publishing version $VERSION"
-
-      - name: Verify all packages have same version
-        run: |
-          for pkg in mcp-server mcp-agent mcp-openclaw mcp-stdio local-keys bootstrap fetch hardware-keys; do
-            PKG_VERSION=$(node -p "require('./$pkg/package.json').version")
-            if [ "$PKG_VERSION" != "$VERSION" ]; then
-              echo "❌ $pkg has version $PKG_VERSION, expected $VERSION"
-              exit 1
-            fi
-          done
-          for pkg in darwin-arm64 darwin-x64 linux-x64-gnu win32-x64-msvc; do
-            PKG_VERSION=$(node -p "require('./hardware-keys/npm/$pkg/package.json').version")
-            if [ "$PKG_VERSION" != "$VERSION" ]; then
-              echo "❌ hardware-keys-$pkg has version $PKG_VERSION, expected $VERSION"
-              exit 1
-            fi
-          done
-          echo "✅ All packages at version $VERSION"
-
-      - name: Publish packages with provenance
+      # Independent per-package versions: publish each package only when its own
+      # package.json version differs from what's on npm. No release-tag /
+      # all-must-match gate.
+      - name: Publish changed packages with provenance
         run: |
           for pkg in local-keys mcp-agent mcp-server bootstrap fetch mcp-openclaw mcp-stdio; do
+            version=$(node -p "require('./$pkg/package.json').version")
             published=$(npm view "@aauth/$pkg" version 2>/dev/null || echo "0.0.0")
-            if [ "$published" = "$VERSION" ]; then
-              echo "Skipping @aauth/$pkg@$VERSION (already published)"
+            if [ "$version" = "$published" ]; then
+              echo "Skipping @aauth/$pkg@$version (already published)"
             else
-              echo "Publishing @aauth/$pkg@$VERSION (npm has $published)..."
-              (cd $pkg && npm publish --provenance --access public)
+              echo "Publishing @aauth/$pkg@$version (npm has $published)..."
+              (cd "$pkg" && npm publish --provenance --access public)
             fi
           done
