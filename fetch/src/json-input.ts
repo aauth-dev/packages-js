@@ -22,6 +22,7 @@ export interface JsonRequest {
   domain_hint?: string
   tenant?: string
   justification?: string
+  prompt?: string
 }
 
 export async function readJsonInput(): Promise<JsonRequest> {

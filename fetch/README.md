@@ -88,6 +88,7 @@ Authorize (with the `authorize` command):
 
 Person server (passed during consent) / consent handling:
   --login-hint / --domain-hint / --tenant / --justification
+  --prompt-login / --prompt-consent   (force re-auth / force the consent prompt)
   --browser / --non-interactive   (consent URL + QR print by default; --browser auto-opens)
 
 Output (response body → stdout; these add detail on stderr, clean for `… | jq`):

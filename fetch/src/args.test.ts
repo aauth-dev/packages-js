@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { parseArgs } from './args.js'
+import { parseArgs, promptValue } from './args.js'
 
 // parseArgs slices argv[2:], so prefix with two placeholders.
 const argv = (...rest: string[]) => ['node', 'aauth-fetch', ...rest]
@@ -77,6 +77,13 @@ describe('parseArgs', () => {
   it('parses person-server hints', () => {
     const a = parseArgs(argv('https://x', '--login-hint', 'u', '--domain-hint', 'd', '--tenant', 't', '--justification', 'why'))
     expect(a).toMatchObject({ loginHint: 'u', domainHint: 'd', tenant: 't', justification: 'why' })
+  })
+
+  it('parses --prompt-login / --prompt-consent and derives the wire prompt value', () => {
+    expect(promptValue(parseArgs(argv('https://x')))).toBeUndefined()
+    expect(promptValue(parseArgs(argv('https://x', '--prompt-consent')))).toBe('consent')
+    expect(promptValue(parseArgs(argv('https://x', '--prompt-login')))).toBe('login')
+    expect(promptValue(parseArgs(argv('https://x', '--prompt-login', '--prompt-consent')))).toBe('login consent')
   })
 
   it('ignores the removed --capabilities flag (and its value)', () => {

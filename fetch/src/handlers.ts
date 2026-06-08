@@ -17,6 +17,7 @@ import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetad
 import { createRequire } from 'node:module'
 import open from 'open'
 import { makeExplainRenderer, makeDebugRenderer, prettyJson } from './render.js'
+import { promptValue } from './args.js'
 
 // qrcode-terminal is CommonJS — load it via require to get module.exports reliably.
 const require = createRequire(import.meta.url)
@@ -224,6 +225,7 @@ export async function handleAuthorize(
     url: string; agentProvider?: string; operations?: string; scope?: string;
     browser?: boolean; nonInteractive: boolean; explain: boolean; debug: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
+    promptLogin?: boolean; promptConsent?: boolean;
   },
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
@@ -324,6 +326,7 @@ export async function handleAuthorize(
     loginHint: args.loginHint,
     tenant: args.tenant,
     domainHint: args.domainHint,
+    prompt: promptValue(args),
     capabilities: capabilities as string[],
     onEvent,
     getKeyMaterial: pinnedGetKeyMaterial,
@@ -387,6 +390,7 @@ export async function handleFullFlow(
   args: {
     url: string; agentProvider?: string; browser?: boolean; nonInteractive: boolean; explain: boolean; debug: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
+    promptLogin?: boolean; promptConsent?: boolean;
     emit?: boolean; opaqueToken?: string;
   },
   init: RequestInit,
@@ -422,6 +426,7 @@ export async function handleFullFlow(
     loginHint: args.loginHint,
     tenant: args.tenant,
     domainHint: args.domainHint,
+    prompt: promptValue(args),
     capabilities: args.nonInteractive ? [] : ['interaction'],
     onEvent,
     onInteraction: makeOnInteraction(args),

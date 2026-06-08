@@ -35,6 +35,10 @@ export interface FetchArgs {
   domainHint?: string
   tenant?: string
   justification?: string
+  /** --prompt-login: force the user to re-authenticate (OIDC prompt=login). */
+  promptLogin: boolean
+  /** --prompt-consent: force the consent prompt even if consent is already on file (OIDC prompt=consent). */
+  promptConsent: boolean
 
   // Interaction (local consent handling)
   browser?: boolean // true = --browser (open browser); default/undefined = print URL + QR
@@ -159,6 +163,10 @@ export const FLAGS: FlagSpec[] = [
     summary: 'Tenant identifier for multi-tenant systems', json: 'tenant' },
   { long: 'justification', kind: 'value', field: 'justification', metavar: '<md>', group: 'PersonServer',
     summary: 'Markdown shown at the consent prompt explaining why access is needed', json: 'justification' },
+  { long: 'prompt-login', kind: 'boolean', field: 'promptLogin', group: 'PersonServer',
+    summary: 'Force the user to re-authenticate (OIDC prompt=login)', json: 'prompt_login', jsonKind: 'boolean' },
+  { long: 'prompt-consent', kind: 'boolean', field: 'promptConsent', group: 'PersonServer',
+    summary: 'Force the consent prompt even if consent is already on file (OIDC prompt=consent)', json: 'prompt_consent', jsonKind: 'boolean' },
 
   // Consent (local handling)
   { long: 'browser', kind: 'boolean', field: 'browser', group: 'Consent',
@@ -209,6 +217,17 @@ export function flagInvocation(f: FlagSpec): string {
   return f.metavar ? `${names.join(', ')} ${f.metavar}` : names.join(', ')
 }
 
+/**
+ * Derive the OIDC `prompt` wire value from the discrete --prompt-* flags.
+ * Space-delimited (login before consent), or undefined when none are set.
+ */
+export function promptValue(a: { promptLogin?: boolean; promptConsent?: boolean }): string | undefined {
+  const parts: string[] = []
+  if (a.promptLogin) parts.push('login')
+  if (a.promptConsent) parts.push('consent')
+  return parts.length ? parts.join(' ') : undefined
+}
+
 export function parseArgs(argv: string[]): FetchArgs {
   const args = argv.slice(2)
   const a: FetchArgs = {
@@ -218,6 +237,8 @@ export function parseArgs(argv: string[]): FetchArgs {
     agentOnly: false,
     emit: false,
     nonInteractive: false,
+    promptLogin: false,
+    promptConsent: false,
     explain: false,
     debug: false,
     help: false,
