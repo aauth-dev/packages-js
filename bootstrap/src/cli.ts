@@ -9,17 +9,15 @@ import {
   getBackend,
   getAgentConfig,
   addKeyToAgent,
-  deleteAgentProvider,
   listAgentProviders,
   readKeychain,
   writeKeychain,
-  deleteKeychain,
   signAgentToken,
   validateUrl,
   ensureAgentUrls,
-  KeyDeletionUnsupportedError,
 } from '@aauth/local-keys'
 import type { LocalKeyMeta } from '@aauth/local-keys'
+import { deleteAgent, uninstall, listBackups } from './teardown.js'
 import { bootstrapWithPS } from './bootstrap-ps.js'
 import { listSkills, getSkill } from './skills.js'
 import { parseArgs } from './args.js'
@@ -110,11 +108,15 @@ async function cmdList(): Promise<void> {
       url,
       agentId: cfg.agentId ?? null,
       personServer: cfg.personServerUrl ?? null,
+      hosting: cfg.hosting ?? null,
+      jwksUri: cfg.jwksUri ?? null,
       keys,
     })
   }
 
-  printResult({ keystores, agentProviders })
+  // Surface uninstall backups so setup can offer to reuse a prior identity's
+  // settings (agent URL, person server, hosting) — fresh keys, same config.
+  printResult({ keystores, agentProviders, backups: listBackups() })
 }
 
 async function cmdCreate(positional: string[], flags: Record<string, string | boolean>): Promise<void> {
@@ -173,38 +175,13 @@ async function cmdDelete(positional: string[]): Promise<void> {
   const url = positional[1]
   if (!url) return fail('Usage: delete <agent-provider-url>')
 
-  const cfg = getAgentConfig(url)
-  if (!cfg) return fail(`Agent provider not found: ${url}`)
-
-  let keysDeleted = 0
-  const hardwareKeysRetained: Array<{ kid: string; keystore: string; keyId: string; hint: string }> = []
-
-  // Software keys are grouped under the agent URL in the OS keychain — wipe in one shot.
-  if (readKeychain(url)) deleteKeychain(url)
-
-  for (const [kid, meta] of Object.entries(cfg.keys)) {
-    if (meta.backend === 'software') {
-      keysDeleted++
-      continue
-    }
-    const driver = getBackend(meta.backend)
-    try {
-      await driver.deleteKey?.(meta.keyId)
-      keysDeleted++
-    } catch (e) {
-      if (e instanceof KeyDeletionUnsupportedError) {
-        hardwareKeysRetained.push({ kid, keystore: meta.backend, keyId: meta.keyId, hint: e.hint })
-      } else {
-        throw e
-      }
-    }
-  }
-
-  deleteAgentProvider(url)
-
-  const result: Record<string, unknown> = { deleted: url, keysDeleted }
-  if (hardwareKeysRetained.length > 0) result.hardwareKeysRetained = hardwareKeysRetained
+  const result = await deleteAgent(url)
+  if (!result) return fail(`Agent provider not found: ${url}`)
   printResult(result)
+}
+
+async function cmdUninstall(flags: Record<string, string | boolean>): Promise<void> {
+  printResult(await uninstall({ force: flags.force === true }))
 }
 
 async function cmdToken(flags: Record<string, string | boolean>): Promise<void> {
@@ -270,6 +247,7 @@ async function run(): Promise<void> {
     case 'list': await cmdList(); break
     case 'create': await cmdCreate(positional, flags); break
     case 'delete': await cmdDelete(positional); break
+    case 'uninstall': await cmdUninstall(flags); break
     case 'token': await cmdToken(flags); break
     case 'skill': cmdSkill(positional[1]); break
     default:

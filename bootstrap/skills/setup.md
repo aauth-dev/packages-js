@@ -19,6 +19,23 @@ The `keystores` array is the source of truth for what this machine supports. Do
 NOT suggest a software/EdDSA key if a hardware keystore (secure-enclave,
 yubikey-piv) is present — prefer hardware.
 
+## Check for a prior setup to reuse (`backups`)
+
+The `list` output includes a `backups` array — snapshots written when a previous
+identity was uninstalled. If it's non-empty, this machine was set up before. For
+the most recent entry (last in the array):
+
+- Read its `agentUrls`. Offer to set up again with the **same agent URL, person
+  server, and hosting** as before — the user almost always wants the same
+  identity back. (You'll generate fresh keys; the old private keys are gone.)
+- The full prior settings are in `~/.aauth/backups/<file>` (the `file` field) —
+  read it to recover `personServerUrl` and `hosting.platform` / `hosting.repo`,
+  and pass them to `create` (`--person-server`) and the matching platform skill
+  so you republish to the same place.
+
+Confirm with the user before reusing — they may want a different URL. If
+`backups` is empty, this is a first-time setup.
+
 ## What `create` does
 
 `create` is the whole first-time setup in one command. It:

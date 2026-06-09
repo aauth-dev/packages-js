@@ -1,18 +1,25 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { AAuthConfig, AgentConfig, AgentHosting, LocalKeyMeta } from './types.js'
 
-const CONFIG_DIR = join(homedir(), '.aauth')
-const CONFIG_FILE = join(CONFIG_DIR, 'config.json')
+// Resolved per call so `AAUTH_DIR` can relocate the config dir (used by tests for
+// isolation, and by anyone wanting a non-default location). Defaults to ~/.aauth.
+function configDir(): string {
+  return process.env.AAUTH_DIR || join(homedir(), '.aauth')
+}
+
+function configFile(): string {
+  return join(configDir(), 'config.json')
+}
 
 export function getConfigDir(): string {
-  return CONFIG_DIR
+  return configDir()
 }
 
 export function readConfig(): AAuthConfig {
   try {
-    const raw = readFileSync(CONFIG_FILE, 'utf-8')
+    const raw = readFileSync(configFile(), 'utf-8')
     const parsed = JSON.parse(raw) as AAuthConfig
     if (!parsed.agents) parsed.agents = {}
     return parsed
@@ -22,8 +29,22 @@ export function readConfig(): AAuthConfig {
 }
 
 export function writeConfig(config: AAuthConfig): void {
-  mkdirSync(CONFIG_DIR, { recursive: true })
-  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + '\n')
+  mkdirSync(configDir(), { recursive: true })
+  writeFileSync(configFile(), JSON.stringify(config, null, 2) + '\n')
+}
+
+/** Remove the entire config dir (~/.aauth by default) — the full-uninstall purge. */
+export function clearConfig(): void {
+  rmSync(configDir(), { recursive: true, force: true })
+}
+
+/**
+ * Remove just the active `config.json`, leaving the config dir (and anything else
+ * in it, e.g. `backups/`) intact. This is the default uninstall — a fresh
+ * bootstrap sees no agents, but a prior backup remains available for `restore`.
+ */
+export function deleteConfigFile(): void {
+  rmSync(configFile(), { force: true })
 }
 
 export function getAgentConfig(agentUrl: string): AgentConfig | null {

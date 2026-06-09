@@ -98,6 +98,10 @@ COMMANDS
   delete <agent-provider-url>
     Delete an agent provider and its keys
 
+  uninstall [--force]
+    Remove ALL agent providers and keys (clean slate). Backs up the config
+    first so setup can reuse it later. Dry-run by default — pass --force.
+
   token [--agent-provider <url>] [--agent-id <id>] [--local <name>] [--lifetime <s>]
     Generate an agent token
 
@@ -168,7 +172,9 @@ EXAMPLE
 
   delete: `DESCRIPTION
   Delete an agent provider and its keys, including from hardware keystores.
-  Fails if the agent provider doesn't exist.
+  Fails if the agent provider doesn't exist. Deletes immediately (no dry-run).
+  Reports the remote .well-known files that still need removing from hosting —
+  it never touches remote hosting itself.
 
 USAGE
   npx @aauth/bootstrap delete <agent-provider-url>
@@ -177,7 +183,52 @@ EXAMPLE
   $ npx @aauth/bootstrap delete https://descartes.github.io
   {
     "deleted": "https://descartes.github.io",
-    "keysDeleted": 1
+    "keysDeleted": 1,
+    "remoteFilesToRemove": [
+      "https://descartes.github.io/.well-known/jwks.json",
+      "https://descartes.github.io/.well-known/aauth-agent.json"
+    ],
+    "hosting": { "platform": "github-pages", "repo": "descartes/descartes.github.io" }
+  }`,
+
+  uninstall: `DESCRIPTION
+  Return the machine to a clean, pre-bootstrap state: delete every configured
+  agent provider's keys (across all keystores) and sweep orphaned keychain
+  entries. Backs up the config first (agent URL, person server, hosting, key
+  metadata — never private keys) to ~/.aauth/backups/, then removes the active
+  config.json while keeping the dir. \`list\` surfaces the backup so a later setup
+  can reuse the same settings with fresh keys.
+
+  Dry-run by default — it prints exactly what WOULD be removed and deletes
+  nothing. Pass --force to actually perform the teardown.
+
+  WARNING: this breaks any running agent or MCP server using these identities —
+  signing fails once the keys/config are gone, and resources can no longer verify
+  signatures once the published JWKS is removed. Stop dependent services first,
+  and remove the remote .well-known files (reported below) before re-bootstrapping.
+
+USAGE
+  npx @aauth/bootstrap uninstall [--force]
+
+EXAMPLE
+  $ npx @aauth/bootstrap uninstall
+  {
+    "dryRun": true,
+    "scope": "all",
+    "agents": [
+      {
+        "agentUrl": "https://descartes.github.io",
+        "keysToDelete": [ { "kid": "bd3f9c…", "backend": "software", "keyId": "…" } ],
+        "remoteFilesToRemove": [
+          "https://descartes.github.io/.well-known/jwks.json",
+          "https://descartes.github.io/.well-known/aauth-agent.json"
+        ],
+        "hosting": { "platform": "github-pages", "repo": "descartes/descartes.github.io" }
+      }
+    ],
+    "orphanedKeychainUrls": [],
+    "willBackUpConfig": true,
+    "hint": "Nothing was deleted. Re-run with --force to delete the keys — the config is backed up first so setup can reuse it later."
   }`,
 
   token: `DESCRIPTION

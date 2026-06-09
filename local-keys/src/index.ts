@@ -4,8 +4,11 @@ export { signAgentToken } from './agent-token.js'
 export { createAgentToken } from './create-agent-token.js'
 export { discoverBackends, getBackend } from './backends/index.js'
 export {
+  getConfigDir,
   readConfig,
   writeConfig,
+  clearConfig,
+  deleteConfigFile,
   getAgentConfig,
   setAgentConfig,
   addKeyToAgent,
