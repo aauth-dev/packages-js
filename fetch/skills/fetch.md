@@ -279,8 +279,10 @@ if consent turns out to be required).
 Both write to stderr, so stdout stays clean for `jq`. Pick by intent:
 
 - **`--explain`** — the *teaching* view. Each protocol step is a pretty JSON
-  object `{ type, step, description, … }` with method/url/status, the real RFC 9421
-  signed headers, and the request/response bodies.
+  object keyed by `step`, carrying one of: `request` (with method, url, RFC 9421
+  signed headers, body), `response` (status, headers, body), or — for info
+  events — a top-level `description`. A response object pairs with the
+  immediately preceding request by `step`.
 - **`--debug`** (also `-v` / `--verbose`) — the *raw wire* view. Every HTTP hop is
   a `{ request }` object (method, url, headers, body) followed by a `{ response }`
   object (status, headers, body). No descriptions, no `info` events — just what
@@ -288,9 +290,8 @@ Both write to stderr, so stdout stays clean for `jq`. Pick by intent:
 
 In `--explain`:
 
-- **`type`** — `request` | `response` | `info`.
 - **`step`** — which protocol step this is, named by what it targets / the token
-  it carries (a request pairs with the response right after it). Vocabulary:
+  it carries. A request and its response share a step. Vocabulary:
 
 | step | what it is |
 |------|------------|
@@ -306,8 +307,8 @@ In `--explain`:
 | `consent_granted` | the person approved |
 | `auth_token` | the auth token was received |
 
-- **`description`** — a one-line beat in the flow: a request states intent; a
-  response states what came back (never the bare status code).
+- **`description`** — a one-line beat in the flow. Appears on requests and info
+  events; responses omit it (their `status` + `body` carry the same information).
 
 ## Error handling
 
@@ -322,7 +323,7 @@ along with a scannable QR code — open the link or scan it from your phone. fet
 on); pass `--browser` to auto-open it on a machine that does. With `--explain`, a
 `consent_required` event also appears in the stream:
 ```json
-{"type": "info", "step": "consent_required", "description": "Consent required — opening the approval URL for the person."}
+{"step": "consent_required", "description": "Consent required — opening the approval URL for the person."}
 ```
 
 ## Environment variables

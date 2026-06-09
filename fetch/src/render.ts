@@ -174,14 +174,18 @@ function responseBody(e: AAuthEvent): unknown {
 
 /**
  * `--explain`: the teaching view. Render each mcp-agent event as a pretty JSON
- * object on stderr, mapping the agent's `phase` to `type`:
+ * object on stderr, keyed by `step`:
  *   - phase 'start' is buffered (the real signed headers aren't known until the
- *     response arrives) and emitted as the `request` object once 'done' fires;
- *   - phase 'done' emits the `request` (with real RFC 9421 `request_headers` and
- *     the request `body`) then the `response` (status, headers, `body`);
- *   - phase 'info' emits an `info` object.
- * `step` is the display label; a request pairs with the response right after it.
- * Each object carries a `description` explaining what that step does.
+ *     response arrives) and emitted as part of the request event once 'done' fires;
+ *   - phase 'done' emits a request event `{ step, description, request: { method,
+ *     url, headers, body } }` then a response event `{ step, response: { status,
+ *     headers, body } }`;
+ *   - phase 'info' emits `{ step, description, ... }`.
+ *
+ * A response pairs with the immediately preceding request by `step`. Only the
+ * request (and info) carry a `description`; the response is identified by its
+ * `step` and characterised by its `status` + `body`. No top-level `type` field —
+ * presence of `request` / `response` discriminates.
  */
 export function makeExplainRenderer(emit: (line: string) => void, isTty: boolean): OnEvent {
   const started = new Map<string, { method?: string; url?: string }>()
@@ -194,7 +198,7 @@ export function makeExplainRenderer(emit: (line: string) => void, isTty: boolean
       return
     }
     if (e.phase === 'info') {
-      out({ type: 'info', step: displayStep(step), description: describe(step, 'info'), ...infoFields(e) })
+      out({ step: displayStep(step), description: describe(step, 'info'), ...infoFields(e) })
       return
     }
     // phase 'done': emit the request (with real headers + body) then the response.
@@ -205,18 +209,18 @@ export function makeExplainRenderer(emit: (line: string) => void, isTty: boolean
     const reqBody = requestBody(e)
     const respBody = responseBody(e)
 
-    const reqObj: Record<string, unknown> = { type: 'request', step: displayStep(step), description: describe(step, 'request') }
-    if (start.method) reqObj.method = start.method
-    if (start.url) reqObj.url = start.url
-    if (e.request_headers) reqObj.headers = e.request_headers
-    if (reqBody !== undefined) reqObj.body = reqBody
-    out(reqObj)
+    const request: Record<string, unknown> = {}
+    if (start.method) request.method = start.method
+    if (start.url) request.url = start.url
+    if (e.request_headers) request.headers = e.request_headers
+    if (reqBody !== undefined) request.body = reqBody
+    out({ step: displayStep(step), description: describe(step, 'request'), request })
 
-    const respObj: Record<string, unknown> = { type: 'response', step: displayStep(step), description: describe(step, 'response', status) }
-    if (status !== undefined) respObj.status = status
-    if (response?.headers) respObj.headers = response.headers
-    if (respBody !== undefined) respObj.body = respBody
-    out(respObj)
+    const resp: Record<string, unknown> = {}
+    if (status !== undefined) resp.status = status
+    if (response?.headers) resp.headers = response.headers
+    if (respBody !== undefined) resp.body = respBody
+    out({ step: displayStep(step), response: resp })
   }
 }
 

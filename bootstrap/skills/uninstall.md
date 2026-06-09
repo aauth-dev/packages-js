@@ -6,112 +6,94 @@ when: User wants to uninstall AAuth, remove an agent provider, delete their keys
 
 # Skill: Uninstall an AAuth agent provider identity
 
-This returns the machine to a clean, pre-bootstrap state. There are three kinds
-of artifact, in two places:
+This returns the machine to a clean, pre-bootstrap state. There are two kinds of artifact, in two places:
 
-- **Remote** — the `.well-known/jwks.json` and `aauth-agent.json` files published
-  to a hosting platform (GitHub Pages, Cloudflare Pages, …). Only the hosting
-  platform's tooling can remove these.
-- **Local** — signing keys (in the OS keychain / Secure Enclave / YubiKey) and
-  the `~/.aauth` config dir. The `uninstall` command removes these.
+- **Remote** — the `.well-known/jwks.json` and `aauth-agent.json` files published to a hosting platform (GitHub Pages, Cloudflare Pages, …). Each platform has its own `<platform>-uninstall` skill (e.g. `github-pages-uninstall`) that knows how to take its files down.
+- **Local** — signing keys (in the OS keychain / Secure Enclave / YubiKey) and the `~/.aauth` config dir. The `uninstall` command removes these.
 
-## ⚠️ Before you start: this breaks running agents
+## How this skill flows
 
-Tearing down an identity will break **any running agent or MCP server that uses
-it**, on two independent layers:
+The whole walkthrough is **one named confirmation, then two automatic teardown steps**. Don't stack additional yes/no questions in front of it — the user already knows the consequence they're agreeing to.
 
-1. Once the local keys/config are gone, the agent can no longer **sign** requests
-   — the next call fails.
-2. Once the published JWKS is removed, resources can no longer **verify** the
-   agent's existing signatures — even a server that cached its key in memory
-   starts getting rejected.
-
-**Confirm with the user** that no production service depends on this identity,
-and that any running agents/MCP servers using it have been stopped, before doing
-anything destructive. Confirm again before each destructive step.
-
-## 1. See what's there
+## 1. See what's there (and decide whether to proceed)
 
 ```
 npx @aauth/bootstrap list
 ```
 
-If there are no agent providers, the machine is already clean — stop. Otherwise
-the output is the map for everything below: each agent's `hosting`, `jwksUri`,
-and `keys`.
+If `agentProviders` is empty, the machine is already clean — say so and stop.
+
+Otherwise build the consequence statement from the `list` output. For each agent provider, name:
+
+- The remote URLs that will go down (`<jwksUri>` and the matching `aauth-agent.json` URL)
+- The local key(s) being deleted (kid + keystore)
+- That the local `~/.aauth/config.json` will be removed
+- That **anything currently using this identity will break** — running agents, MCP servers, scripts
+
+Ask the user ONE question: *"Proceed with all of the above?"* Yes / No. Do not ask whether the user wants to handle remote files themselves — they don't; that's not an option this skill offers. If you can't take the remote files down (no platform auth, no connected repo), surface that as a blocker and stop, do not silently leave files published.
 
 ## 2. Remove the remote `.well-known` files FIRST
 
-Do this **before** wiping config — the config holds the `hosting` pointers you
-need to find the files. For each agent provider in `list`:
+Do this **before** wiping local config — the config holds the `hosting` pointers you need to find the files.
 
-- Read its `hosting.platform` and `hosting.repo`.
-- Load the matching platform skill (`npx @aauth/bootstrap skill <platform>`,
-  e.g. `github-pages`) and use that platform's tooling (`gh`, `wrangler`, …) to
-  delete `.well-known/jwks.json` and `.well-known/aauth-agent.json` (or remove
-  the whole `.well-known/` directory) and push.
+For each agent provider in `list`:
 
-Confirm the files are gone (e.g. `curl -I <jwksUri>` returns 404) before
-continuing.
+- Read its `hosting.platform` (e.g. `github-pages`).
+- Load the matching uninstall skill: `npx @aauth/bootstrap skill <platform>-uninstall` (e.g. `github-pages-uninstall`). That skill is the source of truth for *how* to take the files down on that platform — clone/sync the repo, delete the two files, commit, push, BLOCK until 404.
+- Run it. Do not improvise from the publish skill; the publish skill describes how to *put files up*, which is the wrong shape for taking them down.
 
-## 3. Preview the local teardown (dry-run)
+The uninstall skill's exit condition is **both URLs return 404 from the public agent URL**. That is the world-state change. A successful `git push` is not proof; a 404 is. Report it like:
 
-`uninstall` is dry-run by default — it prints exactly what it WOULD delete and
-removes nothing:
+> "JWKS at `https://username.github.io/.well-known/jwks.json` now returns 404 — resources can no longer verify signatures from this agent."
+
+Not the commit SHA, not the deploy ID — what changed in the world the user actually sees.
+
+If a platform doesn't have a `<platform>-uninstall` skill yet, surface that as a blocker. Don't fall back to "the user can delete the files themselves" — without your 404 verification step, that's just leaving files published.
+
+## 3. Tear down local state
+
+`uninstall` is dry-run by default — it prints exactly what it WOULD delete and removes nothing:
 
 ```
 npx @aauth/bootstrap uninstall
 ```
 
-Review `agents[].keysToDelete`, `orphanedKeychainUrls`, and `willRemoveConfigDir`
-with the user.
-
-## 4. Perform the teardown
-
-After the user confirms, run it for real with `--force`:
+Then run for real with `--force`:
 
 ```
 npx @aauth/bootstrap uninstall --force
 ```
 
-This **backs up the config first** (agent URL, person server, hosting, key
-metadata — never private keys) to `~/.aauth/backups/`, then deletes every agent's
-keys across all keystores, sweeps orphaned keychain entries, and removes the
-active `config.json`. The output's `backupPath` points at the snapshot.
+This **backs up the config first** (agent URL, person server, hosting, key metadata — never private keys) to `~/.aauth/backups/`, then deletes every agent's keys across all keystores, sweeps orphaned keychain entries, and removes the active `config.json`. The output's `backupPath` points at the snapshot. Mention the backup path to the user — they may want to know where their old agent URL / person server settings are recorded, for a future re-install.
 
-- A YubiKey PIV key (slot 9e) can't be wiped programmatically yet — it appears
-  under `hardwareKeysRetained` with a manual command (`ykman piv keys delete 9e`).
-  Relay that to the user.
+- A YubiKey PIV key (slot 9e) can't be wiped programmatically yet — it appears under `hardwareKeysRetained` with a manual command (`ykman piv keys delete 9e`). Relay that to the user.
 
-## 5. Verify
+## 4. Report final state, not commands
+
+Verify and tell the user what's true in the world now:
 
 ```
 npx @aauth/bootstrap list
 ```
 
-No agent providers means the machine is clean and ready to bootstrap fresh. The
-backup remains under `backups` in the `list` output — next time the user sets up,
-the `setup` skill can reuse the same agent URL, person server, and hosting (with
-fresh keys).
+Confirm `agentProviders: []` and report:
+
+- Local: "Signing key `<kid>` deleted from `<keystore>`. Local config removed; backup saved at `<path>`."
+- Remote (already reported in step 2): each `<url>` returns 404.
+
+That's the whole signal — the user shouldn't have to read the commit log or grep the keychain to know it worked.
+
+## No dangling background work
+
+If you started any background task or monitor during this skill (e.g. tailing a deploy log, polling for 404), stop it before ending the turn. The user should never inherit a running task from a previous step.
 
 ## Cross-machine note: this uninstall is only visible on the remote, not on other machines
 
 Uninstalling here removes:
 
-- The published `.well-known/` files from the hosting repo (step 2).
-- This machine's local keys, config, and adds a backup entry under
-  `~/.aauth/backups/`.
+- The published `.well-known/` files from the hosting platform (step 2).
+- This machine's local keys, config, and adds a backup entry under `~/.aauth/backups/`.
 
-It does **not** modify any other machine that previously cloned the hosting
-repo. Another laptop with the GitHub Pages repo checked out will still have a
-stale local copy of `.well-known/jwks.json` containing the keys you just
-removed. If `setup` runs there and follows the (older) "read existing JWKS and
-append" instruction, it can silently resurrect the deleted keys when it pushes.
+It does **not** modify any other machine that previously cloned the hosting repo. Another laptop with the GitHub Pages repo checked out will still have a stale local copy of `.well-known/jwks.json` containing the keys you just removed. If `setup` runs there and follows the (older) "read existing JWKS and append" instruction, it can silently resurrect the deleted keys when it pushes.
 
-The `github-pages` platform skill now requires `git pull` + a check for recent
-uninstall commits before publishing, which catches this. But if you wrote
-custom tooling around AAuth or are running an out-of-date skill version,
-remember: an empty `backups: []` on another machine does NOT mean the user
-never installed; it only means *that* machine never uninstalled. Confirm with
-the user before treating any setup as "first-time" when a hosting repo with
-git history exists.
+The platform publish skills (e.g. `github-pages`) require `git pull` + a check for recent uninstall commits before publishing, which catches this. But if you wrote custom tooling around AAuth or are running an out-of-date skill version, remember: an empty `backups: []` on another machine does NOT mean the user never installed; it only means *that* machine never uninstalled. Confirm with the user before treating any setup as "first-time" when a hosting repo with git history exists.

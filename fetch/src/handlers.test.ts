@@ -318,10 +318,13 @@ describe('handleAgentOnly', () => {
 
     const joined = lines.join('')
     expect(joined).toContain('"step": "agent_token_request"')
-    expect(joined).toContain('"type": "response"')
+    expect(joined).toContain('"request"')
+    expect(joined).toContain('"response"')
     expect(joined).toContain('"description"')
     expect(joined).toContain('"status": 200')
     expect(joined).toContain('"data": "ok"') // body plumbed through
+    // teaching view: no top-level type discriminator (request/response are nested keys)
+    expect(joined).not.toContain('"type"')
   })
 
   it('with --debug, writes raw { request } / { response } objects (with body), no descriptions', async () => {

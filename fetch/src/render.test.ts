@@ -23,6 +23,14 @@ describe('makeExplainRenderer', () => {
     return lines.map((l) => JSON.parse(l) as Record<string, unknown>)
   }
 
+  // Helpers to read into the new nested shape.
+  function req(obj: Record<string, unknown>): Record<string, unknown> {
+    return (obj.request as Record<string, unknown>) ?? {}
+  }
+  function res(obj: Record<string, unknown>): Record<string, unknown> {
+    return (obj.response as Record<string, unknown>) ?? {}
+  }
+
   it('maps phase start+done to a request then a response, with display step name', () => {
     const objs = collect([
       { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
@@ -34,10 +42,15 @@ describe('makeExplainRenderer', () => {
     ])
     expect(objs).toHaveLength(2)
     // signed_request → display step agent_token_request (named by the token it carries)
-    expect(objs[0]).toMatchObject({ type: 'request', step: 'agent_token_request', method: 'GET', url: 'https://x' })
-    expect((objs[0].headers as Record<string, string>)['signature-key']).toContain('sig=jwt')
-    expect(objs[1]).toMatchObject({ type: 'response', step: 'agent_token_request', status: 401 })
-    expect((objs[1].headers as Record<string, string>)['aauth-requirement']).toBe('auth-token')
+    expect(objs[0].step).toBe('agent_token_request')
+    expect(req(objs[0])).toMatchObject({ method: 'GET', url: 'https://x' })
+    expect((req(objs[0]).headers as Record<string, string>)['signature-key']).toContain('sig=jwt')
+    expect(typeof objs[0].description).toBe('string')
+    expect(objs[1].step).toBe('agent_token_request')
+    expect(res(objs[1])).toMatchObject({ status: 401 })
+    expect((res(objs[1]).headers as Record<string, string>)['aauth-requirement']).toBe('auth-token')
+    // response events carry no description — the request's description framed the step
+    expect(objs[1].description).toBeUndefined()
   })
 
   it('names the two resource calls by token: agent_token_request vs auth_token_request', () => {
@@ -51,10 +64,8 @@ describe('makeExplainRenderer', () => {
     ])
     expect(agentCall[0].step).toBe('agent_token_request')
     expect(authCall[0].step).toBe('auth_token_request')
+    // each request's description states the intent of that specific call
     expect(agentCall[0].description).not.toBe(authCall[0].description)
-    // success response says what came back, not "printed to stdout" / the status code
-    expect(authCall[1].description).toContain('Received')
-    expect(authCall[1].description).not.toContain('200')
   })
 
   it('pre-authed reuse also displays as auth_token_request', () => {
@@ -62,34 +73,40 @@ describe('makeExplainRenderer', () => {
       { step: 'auth_token_request', phase: 'start', url: 'https://x', method: 'GET' },
       { step: 'auth_token_request', phase: 'done', status: 200 },
     ])
-    expect(objs[0]).toMatchObject({ type: 'request', step: 'auth_token_request' })
-    expect(objs[1].description).toContain('Received')
+    expect(objs[0].step).toBe('auth_token_request')
+    expect(objs[0].request).toBeDefined()
+    expect(objs[1].response).toBeDefined()
   })
 
-  it('renders info events with type:info and the display step name', () => {
+  it('renders info events with step + description and no request/response', () => {
     const objs = collect([{ step: 'ps_consent_pending', phase: 'info' }])
-    expect(objs[0]).toMatchObject({ type: 'info', step: 'consent_required' })
+    expect(objs[0].step).toBe('consent_required')
     expect(typeof objs[0].description).toBe('string')
+    expect(objs[0].request).toBeUndefined()
+    expect(objs[0].response).toBeUndefined()
   })
 
   it('cached PS metadata renders as a ps_metadata info event (no request/response)', () => {
     const objs = collect([{ step: 'ps_metadata_cached', phase: 'info' }])
-    expect(objs[0]).toMatchObject({ type: 'info', step: 'ps_metadata' })
-    expect(objs[0].description).toContain('from config')
+    expect(objs[0].step).toBe('ps_metadata')
+    expect(objs[0].description).toEqual(expect.stringContaining('from config'))
+    expect(objs[0].request).toBeUndefined()
+    expect(objs[0].response).toBeUndefined()
   })
 
-  it('every event object carries a description', () => {
+  it('every request and info event carries a description; responses do not', () => {
     const objs = collect([
       { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
       { step: 'signed_request', phase: 'done', status: 200 },
       { step: 'challenge_received', phase: 'info', requirement: 'auth-token' },
     ])
-    for (const o of objs) expect(o.description).toBeTruthy()
+    expect(objs[0].description).toBeTruthy() // request
+    expect(objs[1].description).toBeUndefined() // response
+    expect(objs[2].description).toBeTruthy() // info
   })
 
-  // Locks the whole vocabulary: a full default-flow consent trace maps each
-  // internal step to its display name + description. If any wording or name
-  // drifts, this snapshot fails.
+  // Locks the vocabulary for a full default-flow consent trace. Each event maps
+  // to (step, kind, description) — kind is which key carries the payload.
   it('maps a full consent trace to the display vocabulary', () => {
     const objs = collect([
       { step: 'signed_request', phase: 'start', url: 'https://r', method: 'GET' },
@@ -108,22 +125,24 @@ describe('makeExplainRenderer', () => {
       { step: 'retry_with_auth_token', phase: 'start', url: 'https://r', method: 'GET' },
       { step: 'retry_with_auth_token', phase: 'done', status: 200 },
     ])
-    expect(objs.map((o) => [o.type, o.step, o.description])).toEqual([
+    const kind = (o: Record<string, unknown>): string =>
+      o.request !== undefined ? 'request' : o.response !== undefined ? 'response' : 'info'
+    expect(objs.map((o) => [kind(o), o.step, o.description])).toEqual([
       ['request', 'agent_token_request', 'Call the resource with your agent token — self-asserted identity, no person authorization yet.'],
-      ['response', 'agent_token_request', 'The resource needs a person-authorized token — returns a challenge to exchange.'],
+      ['response', 'agent_token_request', undefined],
       ['info', 'challenge', 'Parsed it — exchange the resource token for an auth token.'],
       ['request', 'ps_metadata', 'Ask your person server for its endpoints.'],
-      ['response', 'ps_metadata', "Received the person server's endpoints."],
+      ['response', 'ps_metadata', undefined],
       ['request', 'token_exchange', 'Send the resource token to the person server to mint an auth token.'],
-      ['response', 'token_exchange', 'Consent required before an auth token is issued.'],
+      ['response', 'token_exchange', undefined],
       ['info', 'consent_required', 'Consent required — opening the approval URL for the person.'],
       ['info', 'consent_prompt', 'Waiting for the person to approve…'],
       ['request', 'consent_poll', 'Check whether the person has approved yet.'],
-      ['response', 'consent_poll', 'Not yet — still waiting.'],
+      ['response', 'consent_poll', undefined],
       ['info', 'consent_granted', 'The person approved.'],
       ['info', 'auth_token', 'Auth token received.'],
       ['request', 'auth_token_request', 'Call the resource with the person-authorized auth token.'],
-      ['response', 'auth_token_request', "Received the resource's response."],
+      ['response', 'auth_token_request', undefined],
     ])
   })
 
@@ -135,12 +154,14 @@ describe('makeExplainRenderer', () => {
       { step: 'ps_token_request', phase: 'start', url: 'https://ps/token' },
       { step: 'ps_token_request', phase: 'done', status: 200 },
     ])
-    expect(objs.map((o) => [o.type, o.step, o.description])).toEqual([
-      ['request', 'authorize_request', "POST the requested operations to the resource's authorize endpoint, signed with your agent token."],
-      ['response', 'authorize_request', 'Received a resource token scoped to those operations.'],
-      ['request', 'token_exchange', 'Send the resource token to the person server to mint an auth token.'],
-      ['response', 'token_exchange', 'Received the auth token — consent was already on file.'],
-    ])
+    expect(objs[0].step).toBe('authorize_request')
+    expect(objs[0].description).toBe("POST the requested operations to the resource's authorize endpoint, signed with your agent token.")
+    expect(objs[1].step).toBe('authorize_request')
+    expect(objs[1].response).toBeDefined()
+    expect(objs[2].step).toBe('token_exchange')
+    expect(objs[2].description).toBe('Send the resource token to the person server to mint an auth token.')
+    expect(objs[3].step).toBe('token_exchange')
+    expect(objs[3].response).toBeDefined()
   })
 
   it('surfaces request and response bodies, parsing JSON for display', () => {
@@ -152,8 +173,8 @@ describe('makeExplainRenderer', () => {
         response: { headers: {}, body: '{"auth_token":"at"}' },
       },
     ])
-    expect(objs[0].body).toEqual({ resource_token: 'rt' })
-    expect(objs[1].body).toEqual({ auth_token: 'at' })
+    expect(req(objs[0]).body).toEqual({ resource_token: 'rt' })
+    expect(res(objs[1]).body).toEqual({ auth_token: 'at' })
   })
 
   it('leaves a non-JSON body as a raw string', () => {
@@ -161,7 +182,7 @@ describe('makeExplainRenderer', () => {
       { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
       { step: 'signed_request', phase: 'done', status: 200, response: { headers: {}, body: 'plain text' } },
     ])
-    expect(objs[1].body).toBe('plain text')
+    expect(res(objs[1]).body).toBe('plain text')
   })
 })
 
