@@ -1,6 +1,6 @@
 {
   "name": "@aauth/bootstrap",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "CLI for bootstrapping AAuth agent keys and configuration",
   "type": "module",
   "bin": {
