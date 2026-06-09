@@ -74,15 +74,19 @@ mkdir -p public/.well-known
 
 ### 5. Create or update `public/.well-known/aauth-agent.json`
 
+Field names follow the AAuth spec (`(#agent-provider-metadata)` in
+`draft-hardt-oauth-aauth-protocol.md`): `issuer`, `jwks_uri`, `client_name`,
+`logo_uri`, optional `logo_dark_uri`, `description`, `tos_uri`, `policy_uri`.
+
 ```json
 {
-  "id": "https://username.gitlab.io",
-  "name": "Username",
-  "jwks_uri": "https://username.gitlab.io/.well-known/jwks.json"
+  "issuer": "https://username.gitlab.io",
+  "jwks_uri": "https://username.gitlab.io/.well-known/jwks.json",
+  "client_name": "Username"
 }
 ```
 
-Optionally add `logo_uri` (GitLab avatar: `https://gitlab.com/uploads/-/system/user/avatar/USER_ID/avatar.png`), `tos_uri`, `policy_uri`.
+Optionally add `logo_uri` (GitLab avatar: `https://gitlab.com/uploads/-/system/user/avatar/USER_ID/avatar.png`), `logo_dark_uri`, `description`, `tos_uri`, `policy_uri`. **Do NOT use `id` or `name`** — older skill versions used those, but the spec is `issuer` and `client_name`.
 
 ### 6. Create `.gitlab-ci.yml`
 

@@ -33,8 +33,16 @@ the most recent entry (last in the array):
   and pass them to `create` (`--person-server`) and the matching platform skill
   so you republish to the same place.
 
-Confirm with the user before reusing — they may want a different URL. If
-`backups` is empty, this is a first-time setup.
+Confirm with the user before reusing — they may want a different URL.
+
+**`backups` is local-only — an empty array does NOT mean "no prior install
+anywhere."** It only reflects uninstalls that ran on THIS machine. A previous
+install + uninstall on a different device, or a manually-cleared
+`~/.aauth/backups/` directory, will leave `backups: []` here even though the
+hosting repo's git history may show prior AAuth commits. Before treating this as
+first-time setup, if the user names a hosting repo, also check the remote — see
+the platform skill (e.g. `github-pages`), which now pulls first and warns on
+recent uninstall commits.
 
 ## What `create` does
 
@@ -52,13 +60,20 @@ It fails if the agent provider already exists — delete it first to re-create.
 
 ## Keystore priority
 
-Prefer hardware over software (the private key never leaves the device):
+Prefer hardware over software (the private key never leaves the device). When
+multiple hardware keystores are available, prefer the one that's always present
+and doesn't require plugging anything in:
 
-1. **`yubikey-piv`** — YubiKey PIV slot 9e, no PIN, ES256.
-2. **`secure-enclave`** — macOS Secure Enclave (Apple Silicon), ES256.
+1. **`secure-enclave`** — macOS Secure Enclave (Apple Silicon), ES256. Always
+   present on Apple Silicon, non-exportable, no hardware to insert.
+2. **`yubikey-piv`** — YubiKey PIV slot 9e, no PIN, ES256. Portable across
+   machines, but requires the YubiKey to be plugged in to sign. Prefer when the
+   user explicitly wants a portable hardware key.
 3. **`software`** — OS keychain, EdDSA (default) or ES256. Use only if no hardware is present.
 
-Pick the keystore from the `keystores` array that `list` reported.
+Pick the keystore from the `keystores` array that `list` reported. If both
+`secure-enclave` and `yubikey-piv` are available, default to `secure-enclave`
+and offer YubiKey as an alternative for users who want a portable key.
 
 ## Determining the agent provider URL
 

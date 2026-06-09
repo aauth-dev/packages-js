@@ -44,6 +44,37 @@ Take the public key from `agentProviders[].keys[].publicJwk` in the output (it's
 - If not cloned, clone it with `git clone https://github.com/username/username.github.io.git`.
 - If the repo doesn't exist on GitHub, create it with `gh repo create username.github.io --public` then clone it.
 
+### 3a. Sync the local clone with the remote — REQUIRED before editing
+
+**Skipping this step has resurrected uninstalled keys in the past.** If the
+remote was modified from another machine (in particular, if `uninstall` ran on a
+different device and deleted `.well-known/jwks.json` / `aauth-agent.json`), the
+local clone is stale, and the "read existing JWKS and append" step below will
+silently re-publish keys the user intentionally removed.
+
+In the clone:
+
+```
+git fetch origin
+git log --oneline -n 10 origin/HEAD -- .well-known/
+```
+
+Then:
+
+- `git pull --ff-only` (or `--rebase` if needed) so local matches the remote
+  default branch. Do NOT proceed if the pull fails — investigate first.
+- Scan the recent commit log printed above for `uninstall`, `Remove AAuth`, or
+  any deletion of `.well-known/jwks.json` / `.well-known/aauth-agent.json`. If
+  you find any:
+  - **Treat the current install as a fresh start** — do not "merge" the new key
+    into a locally-cached JWKS. The intended remote state is "no keys."
+  - If `.well-known/` no longer exists on the remote, the local copy after `git
+    pull` will also not have it. Recreate from scratch with just the new key,
+    not by reading whatever stale tree you remember.
+  - Surface what you found to the user before editing anything ("the remote shows
+    an uninstall commit at <SHA> — proceeding will set up a fresh identity with
+    only the new key, not restore the old ones — confirm?").
+
 ### 4. Ensure `.nojekyll` exists
 
 GitHub Pages uses Jekyll by default, which ignores dotfiles like `.well-known/`. Create an empty `.nojekyll` file in the repo root if it doesn't already exist.
@@ -61,21 +92,30 @@ Each key should have `kty`, `crv`, `x`, `y` (for EC), `kid`, `use`, `alg`, and t
 
 ### 6. Create or update `.well-known/aauth-agent.json`
 
-This file publishes the agent's metadata. Use the GitHub user/org avatar as the agent logo:
+This file publishes the agent's metadata. Field names follow the AAuth spec
+(see `(#agent-provider-metadata)` in `draft-hardt-oauth-aauth-protocol.md`):
+`issuer`, `jwks_uri`, `client_name`, `logo_uri`, optional `logo_dark_uri`,
+`description`, `tos_uri`, `policy_uri`. Use the GitHub user/org avatar as the
+agent logo:
 - Get the GitHub avatar URL by running: `gh api /users/username --jq '.avatar_url'`
 - If `.well-known/aauth-agent.json` exists, read it and update the fields below.
 - If it doesn't exist, create it with:
 ```json
 {
-  "id": "https://username.github.io",
-  "name": "Username",
-  "logo_uri": "https://avatars.githubusercontent.com/u/USER_ID?v=4",
-  "jwks_uri": "https://username.github.io/.well-known/jwks.json"
+  "issuer": "https://username.github.io",
+  "jwks_uri": "https://username.github.io/.well-known/jwks.json",
+  "client_name": "Username",
+  "logo_uri": "https://avatars.githubusercontent.com/u/USER_ID?v=4"
 }
 ```
 - Set `logo_uri` to the avatar URL from `gh api`.
-- Set `name` to a human-readable agent name — ask the user, or default to the GitHub username/org name.
-- Optionally add `logo_uri_dark`, `tos_uri`, `policy_uri`.
+- Set `client_name` to a human-readable agent name — ask the user, or default to
+  the GitHub username/org name.
+- Optionally add `logo_dark_uri`, `description`, `tos_uri`, `policy_uri`.
+
+**Do NOT use `id` or `name`** — earlier versions of this skill used those
+field names, but the spec is `issuer` and `client_name`. If you find an existing
+file with `id`/`name`, migrate it to `issuer`/`client_name` while you're here.
 
 ### 7. Commit and push
 
@@ -126,10 +166,10 @@ After push, confirm both files are accessible at the public URLs. GitHub Pages m
 
 ```json
 {
-  "id": "https://dickhardt.github.io",
-  "name": "Dick Hardt",
-  "logo_uri": "https://avatars.githubusercontent.com/u/322034?v=4",
-  "jwks_uri": "https://dickhardt.github.io/.well-known/jwks.json"
+  "issuer": "https://dickhardt.github.io",
+  "jwks_uri": "https://dickhardt.github.io/.well-known/jwks.json",
+  "client_name": "Dick Hardt",
+  "logo_uri": "https://avatars.githubusercontent.com/u/322034?v=4"
 }
 ```
 

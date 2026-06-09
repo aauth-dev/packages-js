@@ -93,3 +93,25 @@ No agent providers means the machine is clean and ready to bootstrap fresh. The
 backup remains under `backups` in the `list` output — next time the user sets up,
 the `setup` skill can reuse the same agent URL, person server, and hosting (with
 fresh keys).
+
+## Cross-machine note: this uninstall is only visible on the remote, not on other machines
+
+Uninstalling here removes:
+
+- The published `.well-known/` files from the hosting repo (step 2).
+- This machine's local keys, config, and adds a backup entry under
+  `~/.aauth/backups/`.
+
+It does **not** modify any other machine that previously cloned the hosting
+repo. Another laptop with the GitHub Pages repo checked out will still have a
+stale local copy of `.well-known/jwks.json` containing the keys you just
+removed. If `setup` runs there and follows the (older) "read existing JWKS and
+append" instruction, it can silently resurrect the deleted keys when it pushes.
+
+The `github-pages` platform skill now requires `git pull` + a check for recent
+uninstall commits before publishing, which catches this. But if you wrote
+custom tooling around AAuth or are running an out-of-date skill version,
+remember: an empty `backups: []` on another machine does NOT mean the user
+never installed; it only means *that* machine never uninstalled. Confirm with
+the user before treating any setup as "first-time" when a hosting repo with
+git history exists.

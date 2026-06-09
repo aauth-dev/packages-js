@@ -73,15 +73,22 @@ mkdir -p .well-known
 
 ### 5. Create or update `.well-known/aauth-agent.json`
 
+Field names follow the AAuth spec (`(#agent-provider-metadata)` in
+`draft-hardt-oauth-aauth-protocol.md`): `issuer`, `jwks_uri`, `client_name`,
+`logo_uri`, optional `logo_dark_uri`, `description`, `tos_uri`, `policy_uri`.
+
 ```json
 {
-  "id": "https://project-name.pages.dev",
-  "name": "Agent Name",
-  "jwks_uri": "https://project-name.pages.dev/.well-known/jwks.json"
+  "issuer": "https://project-name.pages.dev",
+  "jwks_uri": "https://project-name.pages.dev/.well-known/jwks.json",
+  "client_name": "Agent Name"
 }
 ```
 
-Replace the URLs with the custom domain if using one. Optionally add `logo_uri`, `tos_uri`, `policy_uri`.
+Replace the URLs with the custom domain if using one. Optionally add `logo_uri`,
+`logo_dark_uri`, `description`, `tos_uri`, `policy_uri`. **Do NOT use `id` or
+`name`** — older skill versions used those, but the spec is `issuer` and
+`client_name`.
 
 ### 6. Deploy
 
