@@ -17,10 +17,10 @@ describe('colorizeJson / prettyJson', () => {
 
 describe('makeExplainRenderer', () => {
   function collect(events: AAuthEvent[]): Array<Record<string, unknown>> {
-    const lines: string[] = []
-    const render = makeExplainRenderer((l) => lines.push(l), false)
+    const objs: Array<Record<string, unknown>> = []
+    const render = makeExplainRenderer((o) => objs.push(o))
     for (const e of events) render(e)
-    return lines.map((l) => JSON.parse(l) as Record<string, unknown>)
+    return objs
   }
 
   // Helpers to read into the new nested shape.
@@ -86,6 +86,11 @@ describe('makeExplainRenderer', () => {
     expect(typeof objs[0].description).toBe('string')
     expect(objs[0].url).toBe('https://ps/auth')
     expect(objs[0].code).toBe('A1B2')
+    // The event self-assembles the CTA so renderers don't have to: the full
+    // approval URL (url + ?code=code) and a scannable ASCII QR.
+    expect(objs[0].approval_url).toBe('https://ps/auth?code=A1B2')
+    expect(typeof objs[0].qr).toBe('string')
+    expect((objs[0].qr as string).length).toBeGreaterThan(0)
     expect(objs[0].request).toBeUndefined()
     expect(objs[0].response).toBeUndefined()
   })
@@ -140,7 +145,7 @@ describe('makeExplainRenderer', () => {
       ['response', 'ps_metadata', undefined],
       ['request', 'ps_token_request', 'POST the resource token to the person server `token_endpoint` to mint an auth token.'],
       ['response', 'ps_token_request', undefined],
-      ['info', 'interaction_required', 'Direct the person to the interaction URL to approve. (URL + scannable QR follow on stderr for direct CLI users.)'],
+      ['info', 'interaction_required', 'Direct the person to the approval URL — show them the QR or open the link.'],
       ['request', 'consent_poll', 'Poll the pending URL — checking whether the person has acted.'],
       ['response', 'consent_poll', undefined],
       ['info', 'auth_token_received', 'The person approved — auth token issued.'],
@@ -195,6 +200,20 @@ describe('makeExplainRenderer', () => {
     expect(res(objs[1]).body).toEqual({ auth_token: 'at' })
   })
 
+  it('interaction_required carries assembled approval_url + QR and does not mention stderr', () => {
+    const objs = collect([
+      { step: 'interaction_required', phase: 'info', url: 'https://ps/auth', code: 'AB12CD' },
+    ])
+    const ev = objs[0]
+    expect(ev.approval_url).toBe('https://ps/auth?code=AB12CD')
+    expect(typeof ev.qr).toBe('string')
+    // QR scan target = approval_url, not the bare endpoint, so the scanner
+    // lands the human at the page that consumes the code.
+    expect((ev.qr as string).length).toBeGreaterThan(50)
+    // Description is the header — no parenthetical pointing at stderr.
+    expect(ev.description as string).not.toMatch(/stderr/i)
+  })
+
   it('leaves a non-JSON body as a raw string', () => {
     const objs = collect([
       { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
@@ -206,10 +225,10 @@ describe('makeExplainRenderer', () => {
 
 describe('makeDebugRenderer', () => {
   function collect(events: AAuthEvent[]): Array<Record<string, unknown>> {
-    const lines: string[] = []
-    const render = makeDebugRenderer((l) => lines.push(l), false)
+    const objs: Array<Record<string, unknown>> = []
+    const render = makeDebugRenderer((o) => objs.push(o))
     for (const e of events) render(e)
-    return lines.map((l) => JSON.parse(l) as Record<string, unknown>)
+    return objs
   }
 
   it('emits raw { request } then { response } per hop, with bodies, no descriptions/type', () => {

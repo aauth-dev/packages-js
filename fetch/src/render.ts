@@ -1,7 +1,26 @@
+import { createRequire } from 'node:module'
 import type { AAuthEvent, OnEvent } from '@aauth/mcp-agent'
 
 /** A JWK / arbitrary JSON value — only passed through to output. */
 type Json = unknown
+
+// qrcode-terminal is CommonJS — load it via require to get module.exports reliably.
+const require = createRequire(import.meta.url)
+type QrModule = { generate: (input: string, opts: { small?: boolean }, cb: (out: string) => void) => void }
+
+/**
+ * Render `url` as a small ASCII QR. qrcode-terminal's callback is sync in
+ * practice, so we capture the result and return it. Returns an empty string on
+ * any failure — a missing QR shouldn't break the event stream.
+ */
+export function qrAscii(url: string): string {
+  try {
+    const qrcode = require('qrcode-terminal') as QrModule
+    let out = ''
+    qrcode.generate(url, { small: true }, (qr) => { out = qr })
+    return out
+  } catch { return '' }
+}
 
 /**
  * Add ANSI syntax colors to a pretty-printed JSON string: keys blue, strings
@@ -114,7 +133,7 @@ const STEPS: Record<string, StepSpec> = {
   },
   interaction_required: {
     display: 'interaction_required',
-    info: 'Direct the person to the interaction URL to approve. (URL + scannable QR follow on stderr for direct CLI users.)',
+    info: 'Direct the person to the approval URL — show them the QR or open the link.',
   },
   consent_poll: {
     display: 'consent_poll',
@@ -158,10 +177,19 @@ function infoFields(e: AAuthEvent): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (typeof e.requirement === 'string') out.requirement = e.requirement
   if (typeof e.interaction_url === 'string') out.interaction_url = e.interaction_url
-  // interaction_required carries the approval URL and short code so the walkthrough
-  // (and any other event-stream consumer) can render a CTA without scraping stderr.
-  if (typeof e.url === 'string') out.url = e.url
-  if (typeof e.code === 'string') out.code = e.code
+  // interaction_required: surface the pieces (url, code), the assembled approval_url,
+  // and a scannable QR — so a log-only consumer can render the CTA without
+  // assembling anything itself or scraping stderr.
+  const url = typeof e.url === 'string' ? e.url : undefined
+  const code = typeof e.code === 'string' ? e.code : undefined
+  if (url) out.url = url
+  if (code) out.code = code
+  if (e.step === 'interaction_required' && url && code) {
+    const approvalUrl = `${url}?code=${code}`
+    out.approval_url = approvalUrl
+    const qr = qrAscii(approvalUrl)
+    if (qr) out.qr = qr
+  }
   return out
 }
 
@@ -201,9 +229,9 @@ function responseBody(e: AAuthEvent): unknown {
  * `step` and characterised by its `status` + `body`. No top-level `type` field —
  * presence of `request` / `response` discriminates.
  */
-export function makeExplainRenderer(emit: (line: string) => void, isTty: boolean): OnEvent {
+export function makeExplainRenderer(emit: (obj: Record<string, unknown>) => void): OnEvent {
   const started = new Map<string, { method?: string; url?: string }>()
-  const out = (obj: Record<string, unknown>) => emit(prettyJson(obj, isTty))
+  const out = (obj: Record<string, unknown>) => emit(obj)
 
   return (e: AAuthEvent) => {
     const step = e.step
@@ -245,9 +273,9 @@ export function makeExplainRenderer(emit: (line: string) => void, isTty: boolean
  * `{ response }` object (status, headers, body) — the response nested under a
  * property rather than tagged with a `type`.
  */
-export function makeDebugRenderer(emit: (line: string) => void, isTty: boolean): OnEvent {
+export function makeDebugRenderer(emit: (obj: Record<string, unknown>) => void): OnEvent {
   const started = new Map<string, { method?: string; url?: string }>()
-  const out = (obj: Record<string, unknown>) => emit(prettyJson(obj, isTty))
+  const out = (obj: Record<string, unknown>) => emit(obj)
 
   return (e: AAuthEvent) => {
     const step = e.step
