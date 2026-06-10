@@ -19,6 +19,7 @@ import {
   handlePreAuthed,
   handleAgentOnly,
   handleFullFlow,
+  initExplainLog,
 } from './handlers.js'
 
 const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
@@ -59,6 +60,12 @@ export async function run(): Promise<void> {
     const json = await readJsonInput()
     args = mergeJsonInput(args, json)
   }
+
+  // `--explain`: also tee event/consent output to
+  // `~/.aauth/logs/fetch/<ISO>.log` so renderers can read events from a stable
+  // path instead of capturing stderr. Best-effort; failure leaves stderr-only.
+  const logPath = initExplainLog(args.explain === true)
+  if (logPath) process.stderr.write(`Logging --explain events to ${logPath}\n`)
 
   // authorize command
   if (args.command === 'authorize') {

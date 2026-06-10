@@ -13,6 +13,7 @@ vi.mock('./handlers.js', () => ({
   handlePreAuthed: vi.fn(async () => {}),
   handleAgentOnly: vi.fn(async () => {}),
   handleFullFlow: vi.fn(async () => {}),
+  initExplainLog: vi.fn(() => undefined),
 }))
 
 // Mock only stdin reading; keep a simple real-ish merge.

@@ -15,6 +15,9 @@ import {
 } from '@aauth/mcp-agent'
 import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/mcp-agent'
 import { createRequire } from 'node:module'
+import { mkdirSync, openSync, writeSync, closeSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import open from 'open'
 import { makeExplainRenderer, makeDebugRenderer, prettyJson } from './render.js'
 import { promptValue } from './args.js'
@@ -27,13 +30,82 @@ const STDOUT_TTY = process.stdout.isTTY === true
 const STDERR_TTY = process.stderr.isTTY === true
 
 /**
- * Build the event renderer for the active output mode (pretty JSON → stderr):
+ * Tee target for `--explain` events: when set, every line normally written to
+ * stderr by the event renderer and the consent prompt is also appended to
+ * `~/.aauth/logs/fetch/<ISO-timestamp>.log` with ANSI escapes stripped. Lets
+ * agentic renderers (and humans) read events from a stable file path instead of
+ * having to capture stderr — which would otherwise trigger permission prompts
+ * mid-flow when the capture file lands somewhere like /tmp/.
+ *
+ * Initialised by {@link initExplainLog} at CLI startup; remains undefined if the
+ * caller didn't pass --explain, or if the log directory couldn't be created
+ * (don't fail the fetch because a side-channel log can't open).
+ */
+let teeFileWriter: ((text: string) => void) | undefined
+
+/**
+ * Strip ANSI color escapes from `text` so the log file is plain JSON. Renderers
+ * that grep the file don't want \x1b[…m fragments inside string values.
+ */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*m/g, '')
+}
+
+/**
+ * Set up the `--explain` log file. When `enabled`, creates
+ * `~/.aauth/logs/fetch/` if missing and opens
+ * `~/.aauth/logs/fetch/<ISO-timestamp>.log` for appending. Stores a writer in
+ * {@link teeFileWriter} so subsequent {@link teeStderr} calls duplicate
+ * stderr-bound output into the file.
+ *
+ * Best-effort: any filesystem error (no home, read-only FS) leaves the writer
+ * undefined and the fetch proceeds with stderr-only output.
+ *
+ * Returns the resolved log path so the CLI can print it once for the user.
+ */
+export function initExplainLog(enabled: boolean): string | undefined {
+  if (!enabled) return undefined
+  try {
+    const dir = join(homedir(), '.aauth', 'logs', 'fetch')
+    mkdirSync(dir, { recursive: true })
+    // Filesystem-safe timestamp: ISO with colons replaced (Windows compat) and
+    // sub-second precision dropped (collisions within the same second on a
+    // single invocation are not a concern — one process opens one file).
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace(/-\d{3}Z$/, 'Z')
+    const file = join(dir, `${stamp}.log`)
+    const fd = openSync(file, 'a')
+    teeFileWriter = (text: string) => {
+      try { writeSync(fd, stripAnsi(text)) } catch { /* best-effort */ }
+    }
+    process.on('exit', () => { try { closeSync(fd) } catch { /* best-effort */ } })
+    return file
+  } catch {
+    teeFileWriter = undefined
+    return undefined
+  }
+}
+
+/**
+ * Write `text` to stderr, and (when the explain log is active) also to the log
+ * file with ANSI escapes stripped. Use this instead of `process.stderr.write`
+ * for anything the renderer or consent prompt emits, so the log file is a
+ * complete record of what the user saw on stderr.
+ */
+function teeStderr(text: string): void {
+  process.stderr.write(text)
+  teeFileWriter?.(text)
+}
+
+/**
+ * Build the event renderer for the active output mode (pretty JSON → stderr,
+ * and the log file when --explain is set):
  *   --explain → teaching view (per-step request/response + descriptions + bodies)
  *   --debug / -v / --verbose → raw view (every hop's request/response + bodies)
  * Returns undefined when neither is set.
  */
 function eventRenderer(args: { explain?: boolean; debug?: boolean }): OnEvent | undefined {
-  const emit = (line: string) => process.stderr.write(line + '\n')
+  const emit = (line: string) => teeStderr(line + '\n')
   if (args.explain) return makeExplainRenderer(emit, STDERR_TTY)
   if (args.debug) return makeDebugRenderer(emit, STDERR_TTY)
   return undefined
@@ -202,14 +274,14 @@ function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; e
       throw new Error(`Consent required but --non-interactive set. URL: ${url}`)
     }
     if (shouldOpenBrowser) {
-      if (!quiet) process.stderr.write(`Opening ${url} to approve (code: ${code}).\n`)
+      if (!quiet) teeStderr(`Opening ${url} to approve (code: ${code}).\n`)
       open(url)
       return
     }
     // Default: surface the URL and a scannable QR (open the link, or scan it).
-    process.stderr.write(`Approve at: ${url}\n`)
+    teeStderr(`Approve at: ${url}\n`)
     const qrcode = require('qrcode-terminal') as QrModule
-    qrcode.generate(url, { small: true }, (qr) => process.stderr.write(`${qr}\n`))
+    qrcode.generate(url, { small: true }, (qr) => teeStderr(`${qr}\n`))
   }
 }
 
