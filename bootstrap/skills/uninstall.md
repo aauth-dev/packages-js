@@ -38,7 +38,12 @@ Do this **before** wiping local config — the config holds the `hosting` pointe
 
 For each agent provider in `list`:
 
-- Read its `hosting.platform` (e.g. `github-pages`).
+- Read its `hosting.platform` (e.g. `github-pages`). **If `hosting` is `null`** — older installs and manual publishes didn't record it — infer the platform from the agent URL host:
+  - `*.github.io` → `github-pages`
+  - `*.pages.dev` → `cloudflare-pages`
+  - `*.gitlab.io` → `gitlab-pages`
+  - `*.netlify.app` → `netlify`
+  - Anything else (custom domain) → ask the user which platform hosts the files.
 - Load the matching uninstall skill: `npx @aauth/bootstrap skill <platform>-uninstall` (e.g. `github-pages-uninstall`). That skill is the source of truth for *how* to take the files down on that platform — clone/sync the repo, delete the two files, commit, push, BLOCK until 404.
 - Run it. Do not improvise from the publish skill; the publish skill describes how to *put files up*, which is the wrong shape for taking them down.
 
@@ -87,13 +92,6 @@ That's the whole signal — the user shouldn't have to read the commit log or gr
 
 If you started any background task or monitor during this skill (e.g. tailing a deploy log, polling for 404), stop it before ending the turn. The user should never inherit a running task from a previous step.
 
-## Cross-machine note: this uninstall is only visible on the remote, not on other machines
+## Cross-machine note
 
-Uninstalling here removes:
-
-- The published `.well-known/` files from the hosting platform (step 2).
-- This machine's local keys, config, and adds a backup entry under `~/.aauth/backups/`.
-
-It does **not** modify any other machine that previously cloned the hosting repo. Another laptop with the GitHub Pages repo checked out will still have a stale local copy of `.well-known/jwks.json` containing the keys you just removed. If `setup` runs there and follows the (older) "read existing JWKS and append" instruction, it can silently resurrect the deleted keys when it pushes.
-
-The platform publish skills (e.g. `github-pages`) require `git pull` + a check for recent uninstall commits before publishing, which catches this. But if you wrote custom tooling around AAuth or are running an out-of-date skill version, remember: an empty `backups: []` on another machine does NOT mean the user never installed; it only means *that* machine never uninstalled. Confirm with the user before treating any setup as "first-time" when a hosting repo with git history exists.
+This uninstall removes the published `.well-known/` files and this machine's local keys + config. It does NOT touch other machines that cloned the hosting repo. The platform publish skills handle this on the next install (they `git pull` and check for recent uninstall commits before re-publishing), so you don't need to do anything special here — just be aware that `backups: []` on another machine doesn't prove the user never installed.

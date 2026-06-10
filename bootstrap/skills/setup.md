@@ -6,18 +6,15 @@ when: User wants to create an AAuth agent provider identity, generate a key, or 
 
 # Skill: Set up an AAuth agent provider identity
 
-## CRITICAL: Run `list` first — do not assume anything
+## Run `list` first
 
-Before giving the user ANY guidance, run this and use the output to see what
-keystores this machine has and what is already configured:
+Run this and use the output to see what keystores this machine has and what is already configured:
 
 ```
 npx @aauth/bootstrap list
 ```
 
-The `keystores` array is the source of truth for what this machine supports. Do
-NOT suggest a software/EdDSA key if a hardware keystore (secure-enclave,
-yubikey-piv) is present — prefer hardware.
+The `keystores` array is the source of truth for what this machine supports. Prefer hardware (secure-enclave, yubikey-piv) over software when available.
 
 ## Check for a prior setup to reuse (`backups`)
 
@@ -149,7 +146,7 @@ npx @aauth/bootstrap skill <platform-name>
 Follow the skill to publish `jwks.json` (containing `keys[0].publicJwk` from
 step 2) and `aauth-agent.json`.
 
-### 5. Verify
+### 5. Confirm the local config
 
 ```
 npx @aauth/bootstrap list
@@ -157,14 +154,22 @@ npx @aauth/bootstrap list
 
 Confirm the provider, its key, person server, and agentId are present.
 
-### 6. Use it
+### 6. Verify with a signed call — the install isn't proven until this works
 
-Mint an agent token, or just make an authenticated request:
+Local config + a successful `git push` are not proof. A signed call that comes back with the agent's `sub` is. Run:
 
 ```
-npx @aauth/bootstrap token
 npx @aauth/fetch https://whoami.aauth.dev
 ```
+
+Expect a body like `{ "sub": "aauth:local@<agent-url>", "ps": "<person-server>" }`. If you see your `sub`, the install works end-to-end — the key signs, the JWKS resolves on the public URL, and the resource accepts the signature.
+
+If you get an error instead, debug before continuing. Common causes:
+- Pages hasn't finished propagating yet — wait a minute and retry.
+- `.nojekyll` is missing — GitHub Pages is hiding the `.well-known/` directory.
+- The JWKS URL returns 404 — the publish step didn't land. Re-check the platform skill.
+
+This is the single source of truth for "did setup work." Do not declare success without it.
 
 ## How key resolution works
 

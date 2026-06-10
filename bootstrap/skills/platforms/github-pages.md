@@ -40,8 +40,8 @@ Take the public key from `agentProviders[].keys[].publicJwk` in the output (it's
 
 ### 3. Locate or create the GitHub Pages repo
 
-- Look for `username.github.io` cloned locally.
-- If not cloned, clone it with `git clone https://github.com/username/username.github.io.git`.
+- Ask the user whether they have a local clone (paths vary by user — don't guess).
+- If they don't, clone to a known location (e.g. `/tmp/username.github.io`) with `gh repo clone username/username.github.io`.
 - If the repo doesn't exist on GitHub, create it with `gh repo create username.github.io --public` then clone it.
 
 ### 3a. Sync the local clone with the remote — REQUIRED before editing
