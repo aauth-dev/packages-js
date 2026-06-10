@@ -1,6 +1,6 @@
 {
   "name": "@aauth/fetch",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "CLI for making AAuth-authenticated HTTP requests",
   "type": "module",
   "bin": {

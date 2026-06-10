@@ -93,13 +93,13 @@ const STEPS: Record<string, StepSpec> = {
   },
   retry_with_auth_token: {
     display: 'auth_token_request',
-    req: 'Call the resource — `Signature-Key` now carries the person-issued auth token (`typ=aa-auth+jwt`), not the agent token.',
+    req: 'Call the resource — `Signature-Key` now carries the person-issued auth token, not the agent token.',
     res: "Received the resource's response.",
   },
   // Pre-authed reuse (--auth-token/--signing-key): also an auth-token call.
   auth_token_request: {
     display: 'auth_token_request',
-    req: 'Call the resource — `Signature-Key` carries a person-issued auth token (`typ=aa-auth+jwt`).',
+    req: 'Call the resource — `Signature-Key` carries a person-issued auth token.',
     res: "Received the resource's response.",
   },
   r3_authorize_request: {
@@ -122,7 +122,7 @@ const STEPS: Record<string, StepSpec> = {
   },
   ps_token_request: {
     display: 'ps_token_request',
-    req: 'POST the resource token to the person server `token_endpoint` to mint an auth token.',
+    req: 'POST the resource token to the person server `token_endpoint` to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.',
     res: (s) =>
       s === 202
         ? 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`).'
@@ -134,7 +134,7 @@ const STEPS: Record<string, StepSpec> = {
   },
   consent_poll: {
     display: 'consent_poll',
-    req: 'Poll the pending URL — checking whether the person has acted.',
+    req: 'Poll the pending URL — checking whether the person has acted. `Prefer: wait=45` long-polls so the response returns immediately on consent rather than burning round-trips.',
     res: 'Still pending.',
   },
   consent_resolved: {

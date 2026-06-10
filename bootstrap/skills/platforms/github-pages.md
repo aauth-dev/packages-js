@@ -27,7 +27,7 @@ The user wants to publish their AAuth agent metadata and public keys via GitHub 
 
 ### 1. Determine the agent URL
 
-Ask the user for their GitHub Pages URL if not obvious. It will be `https://username.github.io`.
+The URL will be `https://username.github.io`. Pre-fill the username from `gh auth status` when there's a single authenticated account — but still ask the user to confirm (multi-account setups need the choice). If `gh` is unauthenticated, just ask.
 
 ### 2. Collect public keys to publish
 
@@ -121,6 +121,10 @@ Files will be published at:
 ### 8. Verify publication
 
 After push, confirm both files are accessible at the public URLs. GitHub Pages may take a minute to update.
+
+### A note on `hosting` in the bootstrap config
+
+This skill doesn't write `hosting.platform = github-pages` into the agent's bootstrap config — `npx @aauth/bootstrap list` will show `hosting: null`. That's fine: the uninstall skill infers the platform from the agent URL host (`*.github.io` → `github-pages`), so the round-trip works for the standard pattern. If the user later moves to a custom domain pointing at GitHub Pages, they'll be asked to confirm the platform on uninstall.
 
 ## Example JWKS file
 

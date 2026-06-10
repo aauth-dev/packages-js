@@ -13,7 +13,9 @@ This returns the machine to a clean, pre-bootstrap state. There are two kinds of
 
 ## How this skill flows
 
-The whole walkthrough is **one named confirmation, then two automatic teardown steps**. Don't stack additional yes/no questions in front of it — the user already knows the consequence they're agreeing to.
+**One named confirmation, then two automatic teardown steps.** Don't stack additional yes/no questions in front of it — the user already knows the consequence they're agreeing to.
+
+If the caller already asked the user to confirm uninstall (e.g. the walkthrough's §4 Keep/Uninstall choice), **skip step 1's confirmation** — the user already chose. Build the consequence statement from `list` and proceed straight to step 2.
 
 ## 1. See what's there (and decide whether to proceed)
 

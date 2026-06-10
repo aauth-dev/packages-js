@@ -143,12 +143,12 @@ describe('makeExplainRenderer', () => {
       ['info', 'requirement_parsed', 'Parsed `AAuth-Requirement` — must exchange the resource token for an auth token at the person server.'],
       ['request', 'ps_metadata', "Fetch the person server's metadata at `/.well-known/aauth-person.json`."],
       ['response', 'ps_metadata', undefined],
-      ['request', 'ps_token_request', 'POST the resource token to the person server `token_endpoint` to mint an auth token.'],
+      ['request', 'ps_token_request', 'POST the resource token to the person server `token_endpoint` to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.'],
       ['response', 'ps_token_request', undefined],
       ['info', 'interaction_required', 'Direct the person to the approval URL — show them the QR or open the link.'],
-      ['request', 'consent_poll', 'Poll the pending URL — checking whether the person has acted.'],
+      ['request', 'consent_poll', 'Poll the pending URL — checking whether the person has acted. `Prefer: wait=45` long-polls so the response returns immediately on consent rather than burning round-trips.'],
       ['response', 'consent_poll', undefined],
-      ['request', 'auth_token_request', 'Call the resource — `Signature-Key` now carries the person-issued auth token (`typ=aa-auth+jwt`), not the agent token.'],
+      ['request', 'auth_token_request', 'Call the resource — `Signature-Key` now carries the person-issued auth token, not the agent token.'],
       ['response', 'auth_token_request', undefined],
     ])
   })
@@ -188,7 +188,7 @@ describe('makeExplainRenderer', () => {
       { step: 'consent_poll', phase: 'start', url: 'https://ps/pending' },
       { step: 'consent_poll', phase: 'done', status: 200 },
     ])
-    expect(objs[0].description).toBe('Poll the pending URL — checking whether the person has acted.')
+    expect(objs[0].description).toBe('Poll the pending URL — checking whether the person has acted. `Prefer: wait=45` long-polls so the response returns immediately on consent rather than burning round-trips.')
     expect(objs[2].description).toBeUndefined()
     expect(objs[4].description).toBeUndefined()
     for (const o of objs) expect(o.step).toBe('consent_poll')
@@ -207,7 +207,7 @@ describe('makeExplainRenderer', () => {
     expect(objs[1].step).toBe('authorize_request')
     expect(objs[1].response).toBeDefined()
     expect(objs[2].step).toBe('ps_token_request')
-    expect(objs[2].description).toBe('POST the resource token to the person server `token_endpoint` to mint an auth token.')
+    expect(objs[2].description).toBe('POST the resource token to the person server `token_endpoint` to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.')
     expect(objs[3].step).toBe('ps_token_request')
     expect(objs[3].response).toBeDefined()
   })
