@@ -18,26 +18,28 @@ The bootstrap `uninstall` skill loads this skill BEFORE deleting local keys, so 
 
 ### 1. Locate or clone the GitHub Pages repo
 
-Look for an existing `username.github.io` clone first (the user may already have one — common locations: `~/github/`, `~/code/`, `~/src/`). If none:
+Ask the user whether they have a local clone (paths vary — don't guess). Store the path as `REPO` for the rest of this skill. If they don't:
 
-```bash
-gh repo clone username/username.github.io
 ```
+gh repo clone username/username.github.io /tmp/username.github.io
+# REPO=/tmp/username.github.io
+```
+
+Run all git commands with `git -C "$REPO"` so you don't need to `cd`.
 
 ### 2. Sync with the remote
 
-```bash
-cd username.github.io
-git fetch origin
-git pull --ff-only
+```
+git -C "$REPO" fetch origin
+git -C "$REPO" pull --ff-only
 ```
 
 Do NOT proceed if the pull fails — investigate first. A non-fast-forward means someone else changed the repo; bring it up to date before deleting anything.
 
 ### 3. Check what's actually there
 
-```bash
-ls -la .well-known/ 2>/dev/null
+```
+ls -la "$REPO/.well-known/" 2>/dev/null
 ```
 
 - **Both files present** → continue to step 4.
@@ -46,24 +48,24 @@ ls -la .well-known/ 2>/dev/null
 
 ### 4. Delete the two AAuth files
 
-```bash
-git rm .well-known/jwks.json .well-known/aauth-agent.json
+```
+git -C "$REPO" rm .well-known/jwks.json .well-known/aauth-agent.json
 ```
 
 Delete ONLY these two files. Do not touch other content in `.well-known/` or anywhere else in the repo — many users host real content here.
 
 ### 5. Commit with the canonical uninstall message
 
-```bash
-git commit -m "Remove AAuth JWKS and agent metadata (uninstall)"
+```
+git -C "$REPO" commit -m "Remove AAuth JWKS and agent metadata (uninstall)"
 ```
 
 This exact phrasing is what the `github-pages` publish skill scans for when it decides whether to treat a future install as "first-time" — i.e. to avoid silently resurrecting deleted keys from a stale local clone on another machine. Don't change the wording.
 
 ### 6. Push and BLOCK until both URLs return 404
 
-```bash
-git push origin <default-branch>
+```
+git -C "$REPO" push
 ```
 
 GitHub Pages can take up to a minute to update its cache. Poll until both URLs return 404 before reporting success — a successful `git push` is NOT proof the world has changed:

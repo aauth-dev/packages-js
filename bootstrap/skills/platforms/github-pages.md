@@ -40,49 +40,38 @@ Take the public key from `agentProviders[].keys[].publicJwk` in the output (it's
 
 ### 3. Locate or create the GitHub Pages repo
 
-- Ask the user whether they have a local clone (paths vary by user — don't guess).
-- If they don't, clone to a known location (e.g. `/tmp/username.github.io`) with `gh repo clone username/username.github.io`.
+- Ask the user whether they have a local clone (paths vary by user — don't guess). Store the path as `REPO` for the rest of this skill.
+- If they don't, clone to a known location: `gh repo clone username/username.github.io /tmp/username.github.io` and use `REPO=/tmp/username.github.io`.
 - If the repo doesn't exist on GitHub, create it with `gh repo create username.github.io --public` then clone it.
+
+Run all git commands with `git -C "$REPO"` so you don't need to `cd` (Claude Code's bash sessions are configured to discourage `cd`).
 
 ### 3a. Sync the local clone with the remote — REQUIRED before editing
 
-**Skipping this step has resurrected uninstalled keys in the past.** If the
-remote was modified from another machine (in particular, if `uninstall` ran on a
-different device and deleted `.well-known/jwks.json` / `aauth-agent.json`), the
-local clone is stale, and the "read existing JWKS and append" step below will
-silently re-publish keys the user intentionally removed.
-
-In the clone:
+**Skipping this step has resurrected uninstalled keys in the past.** If the remote was modified from another machine (in particular, if `uninstall` ran on a different device and deleted `.well-known/jwks.json` / `aauth-agent.json`), the local clone is stale, and the "read existing JWKS and append" step below will silently re-publish keys the user intentionally removed.
 
 ```
-git fetch origin
-git log --oneline -n 10 origin/HEAD -- .well-known/
+git -C "$REPO" fetch origin
+git -C "$REPO" log --oneline -n 10 origin/HEAD -- .well-known/
+git -C "$REPO" pull --ff-only
 ```
 
-Then:
+Do NOT proceed if the pull fails — investigate first.
 
-- `git pull --ff-only` (or `--rebase` if needed) so local matches the remote
-  default branch. Do NOT proceed if the pull fails — investigate first.
-- Scan the recent commit log printed above for `uninstall`, `Remove AAuth`, or
-  any deletion of `.well-known/jwks.json` / `.well-known/aauth-agent.json`. If
-  you find any:
-  - **Treat the current install as a fresh start** — do not "merge" the new key
-    into a locally-cached JWKS. The intended remote state is "no keys."
-  - If `.well-known/` no longer exists on the remote, the local copy after `git
-    pull` will also not have it. Recreate from scratch with just the new key,
-    not by reading whatever stale tree you remember.
-  - Surface what you found to the user before editing anything ("the remote shows
-    an uninstall commit at <SHA> — proceeding will set up a fresh identity with
-    only the new key, not restore the old ones — confirm?").
+Then decide: are you on a **fresh-start path** or a **merge path**?
+
+- **Fresh-start path** — after pull, `.well-known/jwks.json` does NOT exist locally (and the log shows it was removed by a prior uninstall). Recreate from scratch with just the new key. **No confirm needed** — this is exactly what an uninstall+reinstall looks like; the user already opted into a fresh identity by running setup again.
+- **Merge path** — after pull, `.well-known/jwks.json` exists locally AND the log shows a recent uninstall commit. This is the dangerous case — you'd be merging the new key into a JWKS that the uninstall thought it had cleared. Surface it: "the remote shows an uninstall commit at \<SHA\> but the JWKS is still present locally — proceeding would merge the new key with the existing ones — confirm?"
+- **Normal path** — no uninstall commits in the log. Continue without confirming.
 
 ### 4. Ensure `.nojekyll` exists
 
-GitHub Pages uses Jekyll by default, which ignores dotfiles like `.well-known/`. Create an empty `.nojekyll` file in the repo root if it doesn't already exist.
+GitHub Pages uses Jekyll by default, which ignores dotfiles like `.well-known/`. Create `$REPO/.nojekyll` (empty file) if it doesn't already exist.
 
 ### 5. Create or update `.well-known/jwks.json`
 
-In the GitHub Pages repo:
-- If `.well-known/jwks.json` exists, read it and parse the `keys` array.
+Work with `$REPO/.well-known/jwks.json`:
+- If it exists, read it and parse the `keys` array.
 - If it doesn't exist, create the `.well-known/` directory and start with `{ "keys": [] }`.
 - Add all public JWKs from step 2 to the `keys` array.
 - If a key with the same `kid` already exists, replace it. Otherwise append.
@@ -119,7 +108,13 @@ file with `id`/`name`, migrate it to `issuer`/`client_name` while you're here.
 
 ### 7. Commit and push
 
-Commit the changes and push so the files are published at:
+```
+git -C "$REPO" add .nojekyll .well-known/jwks.json .well-known/aauth-agent.json
+git -C "$REPO" commit -m "Publish AAuth agent metadata and JWKS"
+git -C "$REPO" push
+```
+
+Files will be published at:
 - `https://username.github.io/.well-known/jwks.json`
 - `https://username.github.io/.well-known/aauth-agent.json`
 
