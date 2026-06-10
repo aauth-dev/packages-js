@@ -116,9 +116,9 @@ describe('makeExplainRenderer', () => {
 
   // Locks the vocabulary for a full default-flow consent trace. Each event maps
   // to (step, kind, description) — kind is which key carries the payload.
-  // Reflects the post-cleanup emission order: ps_consent_pending is gone (the
-  // 202 response of ps_token_request carries that beat), and the happy-path
-  // consent_resolved is gone (auth_token_received carries it).
+  // auth_token_received and consent_resolved are recap-only info events that
+  // the renderer drops; their meaning is folded into the next request's
+  // description.
   it('maps a full consent trace to the display vocabulary', () => {
     const objs = collect([
       { step: 'signed_request', phase: 'start', url: 'https://r', method: 'GET' },
@@ -138,7 +138,7 @@ describe('makeExplainRenderer', () => {
     const kind = (o: Record<string, unknown>): string =>
       o.request !== undefined ? 'request' : o.response !== undefined ? 'response' : 'info'
     expect(objs.map((o) => [kind(o), o.step, o.description])).toEqual([
-      ['request', 'agent_token_request', 'Call the resource with your agent token — about to be challenged for a person-authorized token.'],
+      ['request', 'agent_token_request', 'Call the resource with your agent token.'],
       ['response', 'agent_token_request', undefined],
       ['info', 'requirement_parsed', 'Parsed `AAuth-Requirement` — must exchange the resource token for an auth token at the person server.'],
       ['request', 'ps_metadata', "Fetch the person server's metadata at `/.well-known/aauth-person.json`."],
@@ -148,15 +148,14 @@ describe('makeExplainRenderer', () => {
       ['info', 'interaction_required', 'Direct the person to the approval URL — show them the QR or open the link.'],
       ['request', 'consent_poll', 'Poll the pending URL — checking whether the person has acted.'],
       ['response', 'consent_poll', undefined],
-      ['info', 'auth_token_received', 'The person approved — auth token issued.'],
       ['request', 'auth_token_request', 'Call the resource — `Signature-Key` now carries the person-issued auth token (`typ=aa-auth+jwt`), not the agent token.'],
       ['response', 'auth_token_request', undefined],
     ])
   })
 
-  // signed_request on 200 (identity-based access) should NOT use the
-  // about-to-be-challenged framing.
-  it('signed_request describes identity-based access on 200, the challenge dance on 401', () => {
+  // signed_request's REQUEST describes the call itself the same way regardless
+  // of status — the response description carries the branch (challenge vs. 200).
+  it('signed_request describes the call the same way; response carries the branch', () => {
     const ok = collect([
       { step: 'signed_request', phase: 'start', url: 'https://r', method: 'GET' },
       { step: 'signed_request', phase: 'done', status: 200 },
@@ -165,8 +164,34 @@ describe('makeExplainRenderer', () => {
       { step: 'signed_request', phase: 'start', url: 'https://r', method: 'GET' },
       { step: 'signed_request', phase: 'done', status: 401 },
     ])
-    expect(ok[0].description).toBe('Call the resource with your agent token — identity-based access.')
-    expect(challenged[0].description).toBe('Call the resource with your agent token — about to be challenged for a person-authorized token.')
+    expect(ok[0].description).toBe('Call the resource with your agent token.')
+    expect(challenged[0].description).toBe('Call the resource with your agent token.')
+    // The response's status-specific description (`status` of objs[1]) is checked separately;
+    // here we only assert that requests no longer forward-narrate.
+    expect(ok[0].description).not.toMatch(/identity-based|challenged/)
+  })
+
+  it('suppresses recap-only info events (auth_token_received, consent_resolved)', () => {
+    const objs = collect([
+      { step: 'auth_token_received', phase: 'info' },
+      { step: 'consent_resolved', phase: 'info' },
+    ])
+    expect(objs).toEqual([])
+  })
+
+  it('drops the description on repeated consent_poll requests', () => {
+    const objs = collect([
+      { step: 'consent_poll', phase: 'start', url: 'https://ps/pending' },
+      { step: 'consent_poll', phase: 'done', status: 202 },
+      { step: 'consent_poll', phase: 'start', url: 'https://ps/pending' },
+      { step: 'consent_poll', phase: 'done', status: 202 },
+      { step: 'consent_poll', phase: 'start', url: 'https://ps/pending' },
+      { step: 'consent_poll', phase: 'done', status: 200 },
+    ])
+    expect(objs[0].description).toBe('Poll the pending URL — checking whether the person has acted.')
+    expect(objs[2].description).toBeUndefined()
+    expect(objs[4].description).toBeUndefined()
+    for (const o of objs) expect(o.step).toBe('consent_poll')
   })
 
   // The R3 entry step + the ps_token_request 200 (consent already on file) branch.

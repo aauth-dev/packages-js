@@ -85,14 +85,11 @@ const STEPS: Record<string, StepSpec> = {
   // the agent-token call may get a 401; the auth-token call is the authorized one.
   signed_request: {
     display: 'agent_token_request',
-    req: (s) =>
-      s === 401
-        ? 'Call the resource with your agent token — about to be challenged for a person-authorized token.'
-        : 'Call the resource with your agent token — identity-based access.',
+    req: 'Call the resource with your agent token.',
     res: (s) =>
       s === 401
-        ? 'Received `AAuth-Requirement: requirement=auth-token` carrying a resource token to exchange at the person server.'
-        : "Received the resource's response.",
+        ? 'Received `AAuth-Requirement: requirement=auth-token` — the resource token in the header must be exchanged at the person server for a person-issued auth token.'
+        : "Received the resource's response — identity-based access.",
   },
   retry_with_auth_token: {
     display: 'auth_token_request',
@@ -229,8 +226,19 @@ function responseBody(e: AAuthEvent): unknown {
  * `step` and characterised by its `status` + `body`. No top-level `type` field —
  * presence of `request` / `response` discriminates.
  */
+// Info steps whose `description` is pure recap of the preceding response —
+// emitting them adds prose between code blocks without new data. The next
+// request's description already says "Signature-Key now carries the auth token,"
+// which subsumes "the person approved" and "polling terminated."
+const SUPPRESSED_INFO_STEPS = new Set(['auth_token_received', 'consent_resolved'])
+
 export function makeExplainRenderer(emit: (obj: Record<string, unknown>) => void): OnEvent {
   const started = new Map<string, { method?: string; url?: string }>()
+  // Track which (step, description) pairs we've already emitted so repeated
+  // events (notably consent_poll's heartbeat) don't redundantly print the same
+  // teaching line over and over — the description fires once, then the request
+  // bodies alone tell the heartbeat story.
+  const seenDescriptions = new Set<string>()
   const out = (obj: Record<string, unknown>) => emit(obj)
 
   return (e: AAuthEvent) => {
@@ -240,7 +248,16 @@ export function makeExplainRenderer(emit: (obj: Record<string, unknown>) => void
       return
     }
     if (e.phase === 'info') {
-      out({ step: displayStep(step), description: describe(step, 'info'), ...infoFields(e) })
+      if (SUPPRESSED_INFO_STEPS.has(step)) return
+      const desc = describe(step, 'info')
+      const obj: Record<string, unknown> = { step: displayStep(step) }
+      const descKey = `info:${step}:${desc}`
+      if (!seenDescriptions.has(descKey)) {
+        obj.description = desc
+        seenDescriptions.add(descKey)
+      }
+      Object.assign(obj, infoFields(e))
+      out(obj)
       return
     }
     // phase 'done': emit the request (with real headers + body) then the response.
@@ -256,7 +273,15 @@ export function makeExplainRenderer(emit: (obj: Record<string, unknown>) => void
     if (start.url) request.url = start.url
     if (e.request_headers) request.headers = e.request_headers
     if (reqBody !== undefined) request.body = reqBody
-    out({ step: displayStep(step), description: describe(step, 'request', status), request })
+    const reqDesc = describe(step, 'request', status)
+    const reqObj: Record<string, unknown> = { step: displayStep(step) }
+    const reqDescKey = `req:${step}:${reqDesc}`
+    if (!seenDescriptions.has(reqDescKey)) {
+      reqObj.description = reqDesc
+      seenDescriptions.add(reqDescKey)
+    }
+    reqObj.request = request
+    out(reqObj)
 
     const resp: Record<string, unknown> = {}
     if (status !== undefined) resp.status = status
