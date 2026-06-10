@@ -55,7 +55,7 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
 
   // Notify about initial interaction url and code if present
   if (interactionUrl && interactionCode) {
-    onEvent?.({ step: 'consent_prompt', phase: 'info', url: interactionUrl, code: interactionCode })
+    onEvent?.({ step: 'interaction_required', phase: 'info', url: interactionUrl, code: interactionCode })
     if (onInteraction) onInteraction(interactionUrl, interactionCode)
   }
 
@@ -90,7 +90,13 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
 
     // Terminal responses
     if (status === 200 || status === 400 || status === 401 || status === 403 || status === 408 || status === 410 || status === 500) {
-      onEvent?.({ step: 'consent_resolved', phase: 'info', status })
+      // On 200, skip the redundant consent_resolved info — token-exchange emits
+      // auth_token_received next ("The person approved — auth token issued."),
+      // which is the same protocol moment. Only emit consent_resolved for
+      // non-200 terminal statuses (denial, timeout, gone, errors).
+      if (status !== 200) {
+        onEvent?.({ step: 'consent_resolved', phase: 'info', status })
+      }
       return { response, error: await parseErrorBody(response) }
     }
 
@@ -120,7 +126,7 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
         try {
           const challenge = parseAAuthHeader(aauthHeader)
           if (challenge.requirement === 'interaction' && challenge.url && challenge.code) {
-            onEvent?.({ step: 'consent_prompt', phase: 'info', url: challenge.url, code: challenge.code })
+            onEvent?.({ step: 'interaction_required', phase: 'info', url: challenge.url, code: challenge.code })
             if (onInteraction) onInteraction(challenge.url, challenge.code)
           }
         } catch {

@@ -159,7 +159,10 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   }
 
   if (response.status === 202) {
-    onEvent?.({ step: 'ps_consent_pending', phase: 'info' })
+    // The 202's res description ("User interaction required before an auth
+    // token is issued.") and the interaction_required event that follows from
+    // pollDeferred together carry this beat — no separate ps_consent_pending
+    // info needed.
     const locationUrl = response.headers.get('location')
     if (!locationUrl) {
       throw new Error('202 response missing Location header')

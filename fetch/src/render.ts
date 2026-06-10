@@ -38,19 +38,25 @@ export function prettyJson(value: Json, isTty: boolean): string {
  * emit internal step names; here we map them to the `step` shown in `-v` and the
  * `description` for each kind of event.
  *
+ * Display names track the AAuth spec's vocabulary (#requirement-auth-token,
+ * #ps-token-endpoint, #user-interaction). Both `req` and `res` may be a
+ * function of status so the same internal step renders the right teaching
+ * line for the branch the protocol actually took (e.g. `signed_request`
+ * teaches identity-based access on 200, the auth-token dance on 401).
+ *
  * - `display` — the step label shown to the user. Named by target + purpose, not
  *   "signed" (every request is signed). Two internal steps can share a display
- *   name: the initial resource call and its auth-token retry are both
- *   `resource_request` (the same logical operation), distinguished by their
- *   distinct internal names so each still gets its own description.
- * - `req` / `info` — the description for a request / info event.
+ *   name when they're the same logical operation (e.g. the pre-authed
+ *   auth_token_request and the retry_with_auth_token).
+ * - `req` / `info` — the description for a request / info event; may be a
+ *   function of the response status.
  * - `res` — the description for a response; a function when it varies by status.
  *   Never the bare status code (that's already in `status`); it states what came
  *   back and what it sets up next.
  */
 interface StepSpec {
   display: string
-  req?: string
+  req?: string | ((status?: number) => string)
   info?: string
   res?: string | ((status?: number) => string)
 }
@@ -60,21 +66,24 @@ const STEPS: Record<string, StepSpec> = {
   // the agent-token call may get a 401; the auth-token call is the authorized one.
   signed_request: {
     display: 'agent_token_request',
-    req: 'Call the resource with your agent token — self-asserted identity, no person authorization yet.',
+    req: (s) =>
+      s === 401
+        ? 'Call the resource with your agent token — about to be challenged for a person-authorized token.'
+        : 'Call the resource with your agent token — identity-based access.',
     res: (s) =>
       s === 401
-        ? 'The resource needs a person-authorized token — returns a challenge to exchange.'
+        ? 'Received `AAuth-Requirement: requirement=auth-token` carrying a resource token to exchange at the person server.'
         : "Received the resource's response.",
   },
   retry_with_auth_token: {
     display: 'auth_token_request',
-    req: 'Call the resource with the person-authorized auth token.',
+    req: 'Call the resource — `Signature-Key` now carries the person-issued auth token (`typ=aa-auth+jwt`), not the agent token.',
     res: "Received the resource's response.",
   },
   // Pre-authed reuse (--auth-token/--signing-key): also an auth-token call.
   auth_token_request: {
     display: 'auth_token_request',
-    req: 'Call the resource with the person-authorized auth token.',
+    req: 'Call the resource — `Signature-Key` carries a person-issued auth token (`typ=aa-auth+jwt`).',
     res: "Received the resource's response.",
   },
   r3_authorize_request: {
@@ -83,46 +92,42 @@ const STEPS: Record<string, StepSpec> = {
     res: 'Received a resource token scoped to those operations.',
   },
   challenge_received: {
-    display: 'challenge',
-    info: 'Parsed it — exchange the resource token for an auth token.',
+    display: 'requirement_parsed',
+    info: 'Parsed `AAuth-Requirement` — must exchange the resource token for an auth token at the person server.',
   },
   ps_metadata_request: {
     display: 'ps_metadata',
-    req: 'Ask your person server for its endpoints.',
+    req: "Fetch the person server's metadata at `/.well-known/aauth-person.json`.",
     res: "Received the person server's endpoints.",
   },
   ps_metadata_cached: {
     display: 'ps_metadata',
-    info: "Read the person server's endpoints from config — no fetch needed.",
+    info: 'Person server endpoints come from its `/.well-known/aauth-person.json` metadata — using a locally cached copy.',
   },
   ps_token_request: {
-    display: 'token_exchange',
-    req: 'Send the resource token to the person server to mint an auth token.',
+    display: 'ps_token_request',
+    req: 'POST the resource token to the person server `token_endpoint` to mint an auth token.',
     res: (s) =>
       s === 202
-        ? 'Consent required before an auth token is issued.'
+        ? 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`).'
         : 'Received the auth token — consent was already on file.',
   },
-  ps_consent_pending: {
-    display: 'consent_required',
-    info: 'Consent required — opening the approval URL for the person.',
-  },
-  consent_prompt: {
-    display: 'consent_prompt',
-    info: 'Waiting for the person to approve…',
+  interaction_required: {
+    display: 'interaction_required',
+    info: 'Direct the person to the interaction URL to approve. (URL + scannable QR follow on stderr for direct CLI users.)',
   },
   consent_poll: {
     display: 'consent_poll',
-    req: 'Check whether the person has approved yet.',
-    res: 'Not yet — still waiting.',
+    req: 'Poll the pending URL — checking whether the person has acted.',
+    res: 'Still pending.',
   },
   consent_resolved: {
-    display: 'consent_granted',
-    info: 'The person approved.',
+    display: 'consent_resolved',
+    info: 'Polling terminated.',
   },
   auth_token_received: {
-    display: 'auth_token',
-    info: 'Auth token received.',
+    display: 'auth_token_received',
+    info: 'The person approved — auth token issued.',
   },
 }
 
@@ -134,7 +139,12 @@ function displayStep(step: string): string {
 /** Description for an event, by its kind. Falls back gracefully for unknown steps. */
 function describe(step: string, kind: 'request' | 'response' | 'info', status?: number): string {
   const spec = STEPS[step]
-  if (kind === 'request') return spec?.req ?? `Request: ${displayStep(step)}.`
+  if (kind === 'request') {
+    const r = spec?.req
+    if (typeof r === 'function') return r(status)
+    if (typeof r === 'string') return r
+    return `Request: ${displayStep(step)}.`
+  }
   if (kind === 'info') return spec?.info ?? `${displayStep(step)}.`
   // response
   const r = spec?.res
@@ -148,6 +158,10 @@ function infoFields(e: AAuthEvent): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (typeof e.requirement === 'string') out.requirement = e.requirement
   if (typeof e.interaction_url === 'string') out.interaction_url = e.interaction_url
+  // interaction_required carries the approval URL and short code so the walkthrough
+  // (and any other event-stream consumer) can render a CTA without scraping stderr.
+  if (typeof e.url === 'string') out.url = e.url
+  if (typeof e.code === 'string') out.code = e.code
   return out
 }
 
@@ -214,7 +228,7 @@ export function makeExplainRenderer(emit: (line: string) => void, isTty: boolean
     if (start.url) request.url = start.url
     if (e.request_headers) request.headers = e.request_headers
     if (reqBody !== undefined) request.body = reqBody
-    out({ step: displayStep(step), description: describe(step, 'request'), request })
+    out({ step: displayStep(step), description: describe(step, 'request', status), request })
 
     const resp: Record<string, unknown> = {}
     if (status !== undefined) resp.status = status
