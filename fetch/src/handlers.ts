@@ -32,7 +32,7 @@ const STDERR_TTY = process.stderr.isTTY === true
 /**
  * Tee target for `--explain` events: when set, every line normally written to
  * stderr by the event renderer and the consent prompt is also appended to
- * `~/.aauth/logs/fetch/<ISO-timestamp>.log` with ANSI escapes stripped. Lets
+ * `~/.aauth/fetch/logs/<ISO-timestamp>.log` with ANSI escapes stripped. Lets
  * agentic renderers (and humans) read events from a stable file path instead of
  * having to capture stderr — which would otherwise trigger permission prompts
  * mid-flow when the capture file lands somewhere like /tmp/.
@@ -54,8 +54,8 @@ function stripAnsi(text: string): string {
 
 /**
  * Set up the `--explain` log file. When `enabled`, creates
- * `~/.aauth/logs/fetch/` if missing and opens
- * `~/.aauth/logs/fetch/<ISO-timestamp>.log` for appending. Stores a writer in
+ * `~/.aauth/fetch/logs/` if missing and opens
+ * `~/.aauth/fetch/logs/<ISO-timestamp>.log` for appending. Stores a writer in
  * {@link teeFileWriter} so subsequent {@link teeStderr} calls duplicate
  * stderr-bound output into the file.
  *
@@ -67,7 +67,7 @@ function stripAnsi(text: string): string {
 export function initExplainLog(enabled: boolean): string | undefined {
   if (!enabled) return undefined
   try {
-    const dir = join(homedir(), '.aauth', 'logs', 'fetch')
+    const dir = join(homedir(), '.aauth', 'fetch', 'logs')
     mkdirSync(dir, { recursive: true })
     // Filesystem-safe timestamp: ISO with colons replaced (Windows compat) and
     // sub-second precision dropped (collisions within the same second on a

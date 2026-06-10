@@ -62,7 +62,7 @@ export async function run(): Promise<void> {
   }
 
   // `--explain`: also tee event/consent output to
-  // `~/.aauth/logs/fetch/<ISO>.log` so renderers can read events from a stable
+  // `~/.aauth/fetch/logs/<ISO>.log` so renderers can read events from a stable
   // path instead of capturing stderr. Best-effort; failure leaves stderr-only.
   const logPath = initExplainLog(args.explain === true)
   if (logPath) process.stderr.write(`Logging --explain events to ${logPath}\n`)
