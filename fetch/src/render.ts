@@ -67,43 +67,76 @@ export function prettyJson(value: Json, isTty: boolean): string {
  *   "signed" (every request is signed). Two internal steps can share a display
  *   name when they're the same logical operation (e.g. the pre-authed
  *   auth_token_request and the retry_with_auth_token).
+ * - `summary` — one-line gist of the whole exchange in `actor → target ·
+ *   token → outcome` form. Emitted on the request (and some info) events so a
+ *   renderer can lead each section with it; status-aware because the request
+ *   event is emitted once the response is known.
  * - `req` / `info` — the description for a request / info event; may be a
  *   function of the response status.
  * - `res` — the description for a response; a function when it varies by status.
  *   Never the bare status code (that's already in `status`); it states what came
- *   back and what it sets up next.
+ *   back and what it sets up next. This is where the flow branch is taught
+ *   (identity-based access vs. entering the three-party flow) — the response is
+ *   the moment the branch becomes fact.
  */
 interface StepSpec {
   display: string
+  summary?: string | ((status?: number) => string)
   req?: string | ((status?: number) => string)
   info?: string
   res?: string | ((status?: number) => string)
 }
+
+/** True for a 2xx status (identity/authorized success branches). */
+const ok = (s?: number): boolean => s !== undefined && s >= 200 && s < 300
 
 const STEPS: Record<string, StepSpec> = {
   // The two resource calls are named by the token they carry (not by position):
   // the agent-token call may get a 401; the auth-token call is the authorized one.
   signed_request: {
     display: 'agent_token_request',
+    summary: (s) =>
+      s === 401
+        ? 'agent → resource · agent-token → 401 + resource-token'
+        : ok(s)
+          ? `agent → resource · agent-token → ${s} (identity-based access)`
+          : `agent → resource · agent-token → ${s ?? '…'}`,
     req: 'Call the resource with your agent token.',
     res: (s) =>
       s === 401
-        ? 'Received `AAuth-Requirement: requirement=auth-token` — the resource token in the header must be exchanged at the person server for a person-issued auth token.'
-        : "Received the resource's response — identity-based access.",
+        ? 'The resource requires a person-issued auth token — this begins the three-party flow (agent ↔ person server ↔ resource). The `AAuth-Requirement` header carries a resource token: the agent presents it to the person server to get authorized.'
+        : ok(s)
+          ? 'Identity-based access: the resource accepted the signature alone as proof of the agent identity — no person server round-trip, no consent.'
+          : "Received the resource's response.",
   },
   retry_with_auth_token: {
     display: 'auth_token_request',
+    summary: (s) =>
+      ok(s)
+        ? `agent → resource · auth-token → ${s} + person claims`
+        : `agent → resource · auth-token → ${s ?? '…'}`,
     req: 'Call the resource — `Signature-Key` now carries the person-issued auth token, not the agent token.',
-    res: "Received the resource's response.",
+    res: (s) =>
+      ok(s)
+        ? 'The resource verified the person-issued auth token — it now knows who is calling (`agent`) and on whose behalf (`sub`, plus claims the person server vouched for).'
+        : "Received the resource's response.",
   },
   // Pre-authed reuse (--auth-token/--signing-key): also an auth-token call.
   auth_token_request: {
     display: 'auth_token_request',
+    summary: (s) =>
+      ok(s)
+        ? `agent → resource · auth-token → ${s} + person claims`
+        : `agent → resource · auth-token → ${s ?? '…'}`,
     req: 'Call the resource — `Signature-Key` carries a person-issued auth token.',
-    res: "Received the resource's response.",
+    res: (s) =>
+      ok(s)
+        ? 'The resource verified the person-issued auth token — it now knows who is calling (`agent`) and on whose behalf (`sub`, plus claims the person server vouched for).'
+        : "Received the resource's response.",
   },
   r3_authorize_request: {
     display: 'authorize_request',
+    summary: 'agent → resource · operations request (agent-token) → resource-token',
     req: "POST the requested operations to the resource's authorize endpoint, signed with your agent token.",
     res: 'Received a resource token scoped to those operations.',
   },
@@ -113,6 +146,7 @@ const STEPS: Record<string, StepSpec> = {
   },
   ps_metadata_request: {
     display: 'ps_metadata',
+    summary: 'agent → person server · metadata discovery',
     req: "Fetch the person server's metadata at `/.well-known/aauth-person.json`.",
     res: "Received the person server's endpoints.",
   },
@@ -122,20 +156,39 @@ const STEPS: Record<string, StepSpec> = {
   },
   ps_token_request: {
     display: 'ps_token_request',
+    summary: (s) =>
+      s === 202
+        ? 'agent → person server · resource-token → 202 pending + approval code'
+        : ok(s)
+          ? `agent → person server · resource-token → ${s} + auth-token (consent on file)`
+          : `agent → person server · resource-token → ${s ?? '…'}`,
     req: 'POST the resource token to the person server `token_endpoint` to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.',
     res: (s) =>
       s === 202
-        ? 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`).'
+        ? 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`) — the person must approve in a browser; the agent polls the pending `location` until they do.'
         : 'Received the auth token — consent was already on file.',
   },
   interaction_required: {
     display: 'interaction_required',
+    summary: 'person → person server · approve in browser',
     info: 'Direct the person to the approval URL — show them the QR or open the link.',
   },
   consent_poll: {
     display: 'consent_poll',
+    // 202 = still pending; any other 2xx (the final 200) = approved.
+    summary: (s) =>
+      s === 202
+        ? 'agent → person server · poll → 202 still pending'
+        : ok(s)
+          ? `agent → person server · poll → ${s} + auth-token (person approved)`
+          : `agent → person server · poll → ${s ?? '…'}`,
     req: 'Poll the pending URL — checking whether the person has acted. `Prefer: wait=45` long-polls so the response returns immediately on consent rather than burning round-trips.',
-    res: 'Still pending.',
+    res: (s) =>
+      s === 202
+        ? 'Still pending — the person has not acted yet.'
+        : ok(s)
+          ? 'The person approved — the body carries the freshly issued auth token, bound (`cnf`) to the same ephemeral key the agent has been signing with.'
+          : 'Received the polling response.',
   },
   consent_resolved: {
     display: 'consent_resolved',
@@ -150,6 +203,13 @@ const STEPS: Record<string, StepSpec> = {
 /** The step label shown in `-v` (mapped from the internal name). */
 function displayStep(step: string): string {
   return STEPS[step]?.display ?? step
+}
+
+/** The one-line gist of a step's exchange (undefined for steps without one). */
+function summarize(step: string, status?: number): string | undefined {
+  const s = STEPS[step]?.summary
+  if (typeof s === 'function') return s(status)
+  return s
 }
 
 /** Description for an event, by its kind. Falls back gracefully for unknown steps. */
@@ -216,15 +276,18 @@ function responseBody(e: AAuthEvent): unknown {
  * object on stderr, keyed by `step`:
  *   - phase 'start' is buffered (the real signed headers aren't known until the
  *     response arrives) and emitted as part of the request event once 'done' fires;
- *   - phase 'done' emits a request event `{ step, description, request: { method,
- *     url, headers, body } }` then a response event `{ step, response: { status,
- *     headers, body } }`;
- *   - phase 'info' emits `{ step, description, ... }`.
+ *   - phase 'done' emits a request event `{ step, summary?, description?,
+ *     request: { method, url, headers, body } }` then a response event
+ *     `{ step, description?, response: { status, headers, body } }`;
+ *   - phase 'info' emits `{ step, summary?, description?, ... }`.
  *
- * A response pairs with the immediately preceding request by `step`. Only the
- * request (and info) carry a `description`; the response is identified by its
- * `step` and characterised by its `status` + `body`. No top-level `type` field —
- * presence of `request` / `response` discriminates.
+ * A response pairs with the immediately preceding request by `step`. The
+ * request's `summary` is the one-line gist of the whole exchange (status-aware —
+ * the request is emitted once the response is known); the response's
+ * `description` teaches the branch the flow actually took. Each distinct
+ * summary/description prints once per step — repeats (the consent_poll
+ * heartbeat) carry only their payload. No top-level `type` field — presence of
+ * `request` / `response` discriminates.
  */
 // Info steps whose `description` is pure recap of the preceding response —
 // emitting them adds prose between code blocks without new data. The next
@@ -234,12 +297,17 @@ const SUPPRESSED_INFO_STEPS = new Set(['auth_token_received', 'consent_resolved'
 
 export function makeExplainRenderer(emit: (obj: Record<string, unknown>) => void): OnEvent {
   const started = new Map<string, { method?: string; url?: string }>()
-  // Track which (step, description) pairs we've already emitted so repeated
-  // events (notably consent_poll's heartbeat) don't redundantly print the same
-  // teaching line over and over — the description fires once, then the request
-  // bodies alone tell the heartbeat story.
-  const seenDescriptions = new Set<string>()
+  // Track which (step, line) pairs we've already emitted so repeated events
+  // (notably consent_poll's heartbeat) don't redundantly print the same
+  // summary / teaching line over and over — each distinct line fires once, then
+  // the request/response payloads alone tell the heartbeat story.
+  const seen = new Set<string>()
   const out = (obj: Record<string, unknown>) => emit(obj)
+  const once = (obj: Record<string, unknown>, field: 'summary' | 'description', key: string, text: string | undefined) => {
+    if (!text || seen.has(key)) return
+    obj[field] = text
+    seen.add(key)
+  }
 
   return (e: AAuthEvent) => {
     const step = e.step
@@ -249,13 +317,11 @@ export function makeExplainRenderer(emit: (obj: Record<string, unknown>) => void
     }
     if (e.phase === 'info') {
       if (SUPPRESSED_INFO_STEPS.has(step)) return
-      const desc = describe(step, 'info')
       const obj: Record<string, unknown> = { step: displayStep(step) }
-      const descKey = `info:${step}:${desc}`
-      if (!seenDescriptions.has(descKey)) {
-        obj.description = desc
-        seenDescriptions.add(descKey)
-      }
+      const sum = summarize(step)
+      once(obj, 'summary', `sum:${step}:${sum}`, sum)
+      const desc = describe(step, 'info')
+      once(obj, 'description', `info:${step}:${desc}`, desc)
       Object.assign(obj, infoFields(e))
       out(obj)
       return
@@ -273,13 +339,11 @@ export function makeExplainRenderer(emit: (obj: Record<string, unknown>) => void
     if (start.url) request.url = start.url
     if (e.request_headers) request.headers = e.request_headers
     if (reqBody !== undefined) request.body = reqBody
-    const reqDesc = describe(step, 'request', status)
     const reqObj: Record<string, unknown> = { step: displayStep(step) }
-    const reqDescKey = `req:${step}:${reqDesc}`
-    if (!seenDescriptions.has(reqDescKey)) {
-      reqObj.description = reqDesc
-      seenDescriptions.add(reqDescKey)
-    }
+    const sum = summarize(step, status)
+    once(reqObj, 'summary', `sum:${step}:${sum}`, sum)
+    const reqDesc = describe(step, 'request', status)
+    once(reqObj, 'description', `req:${step}:${reqDesc}`, reqDesc)
     reqObj.request = request
     out(reqObj)
 
@@ -287,7 +351,11 @@ export function makeExplainRenderer(emit: (obj: Record<string, unknown>) => void
     if (status !== undefined) resp.status = status
     if (response?.headers) resp.headers = response.headers
     if (respBody !== undefined) resp.body = respBody
-    out({ step: displayStep(step), response: resp })
+    const respObj: Record<string, unknown> = { step: displayStep(step) }
+    const resDesc = describe(step, 'response', status)
+    once(respObj, 'description', `res:${step}:${resDesc}`, resDesc)
+    respObj.response = resp
+    out(respObj)
   }
 }
 

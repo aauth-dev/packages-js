@@ -278,37 +278,77 @@ if consent turns out to be required).
 
 Both write to stderr, so stdout stays clean for `jq`. Pick by intent:
 
-- **`--explain`** — the *teaching* view. Each protocol step is a pretty JSON
-  object keyed by `step`, carrying one of: `request` (with method, url, RFC 9421
-  signed headers, body), `response` (status, headers, body), or — for info
-  events — a top-level `description`. A response object pairs with the
-  immediately preceding request by `step`.
+- **`--explain`** — the *teaching* view: per-step events with summaries and
+  descriptions (detailed below).
 - **`--debug`** (also `-v` / `--verbose`) — the *raw wire* view. Every HTTP hop is
   a `{ request }` object (method, url, headers, body) followed by a `{ response }`
   object (status, headers, body). No descriptions, no `info` events — just what
   went over the wire.
 
-In `--explain`:
+### Where `--explain` events go
 
-- **`step`** — which protocol step this is, named by what it targets / the token
-  it carries. A request and its response share a step. Vocabulary:
+- **stderr at a TTY** — pretty-printed, colorized, for direct human reading.
+- **stderr piped or captured** (agent task output, CI log, `2>file`) — compact
+  JSONL, one JSON object per line. The captured stream is itself parseable; no
+  separate file needed. The plain-text consent prompt ("Approve at:" + QR) is
+  suppressed too — the `interaction_required` event carries `approval_url` and
+  `qr` instead.
+- **A JSONL log file**, always: `--explain-log <path>` if given, else
+  `~/.aauth/fetch/logs/<ISO-timestamp>.jsonl` (filenames sort by launch time).
 
-| step | what it is |
-|------|------------|
-| `agent_token_request` | the call to the resource signed with your agent token (may get a 401 challenge) |
-| `auth_token_request` | the call to the resource signed with the person-authorized auth token (the retry, or a pre-authed reuse) |
-| `challenge` | parsed the 401 — exchange the resource token for an auth token |
-| `authorize_request` | (R3) POST operations to the resource's authorize endpoint |
-| `ps_metadata` | discover the person server's endpoints |
-| `token_exchange` | trade the resource token for an auth token at the person server |
-| `consent_required` | the person must consent; the approval URL is opened |
-| `consent_prompt` | waiting for the person to approve |
-| `consent_poll` | poll for the consent result (repeats while waiting) |
-| `consent_granted` | the person approved |
-| `auth_token` | the auth token was received |
+### Event shape
 
-- **`description`** — a one-line beat in the flow. Appears on requests and info
-  events; responses omit it (their `status` + `body` carry the same information).
+Each line/object is keyed by `step` and is one of:
+
+- **Request event** — `{ step, summary?, description?, request: { method, url,
+  headers, body? } }`. Headers are the real RFC 9421 signed headers.
+- **Response event** — `{ step, description?, response: { status, headers,
+  body? } }`. Pairs with the immediately preceding request by `step`.
+- **Info event** — `{ step, summary?, description?, …named fields }`. E.g.
+  `requirement_parsed` carries `requirement`; `interaction_required` carries
+  `url`, `code`, `approval_url`, and a scannable ASCII `qr`.
+
+Three narration fields, all emitted by fetch — render them, don't paraphrase:
+
+- **`summary`** — the one-line gist of the whole exchange, in
+  `actor → target · token → outcome` form (e.g.
+  `agent → resource · agent-token → 401 + resource-token`). Status-aware. Lead
+  a section with it.
+- **`description`** on a request — what this call is doing and why.
+- **`description`** on a response — the branch the flow actually took
+  (identity-based access on a 2xx; entering the three-party flow on a 401; the
+  consent outcome on a poll).
+
+Each distinct summary/description prints **once per step**: repeated events
+(the `consent_poll` heartbeat) carry only their payload, and a branch change
+(the final poll's 200) brings fresh lines.
+
+Step vocabulary, in flow order: `agent_token_request` (call signed with your
+agent token; a 2xx here is identity-based access, a 401 starts the three-party
+flow) → `requirement_parsed` → `ps_metadata` → `ps_token_request` (202 =
+consent needed, 200 = consent on file) → `interaction_required` →
+`consent_poll` (repeats; the final 200's body carries the issued `auth_token`)
+→ `auth_token_request` (the authorized call). R3 flows start with
+`authorize_request` instead of a 401.
+
+### Following along (for agents narrating a flow)
+
+When rendering a flow for a human, one section per exchange: the `summary` as
+the section's header line, the `description` as a quoted line, then the
+`request` / `response` payloads as fenced JSON. Two rules keep it readable:
+
+- **Elide repeated JWTs by role.** Three token roles ride in these events, each
+  ~500+ chars: the **agent-token** (the `signature-key` JWT in
+  `agent_token_request`, `ps_token_request`, `consent_poll`), the
+  **resource-token** (first in the 401's `aauth-requirement` header, again in
+  `ps_token_request`'s body), and the **auth-token** (first in the final
+  `consent_poll` 200 body, again in `auth_token_request`'s `signature-key`).
+  Render the *first* JWT of each role verbatim — it is the substance of that
+  step — and elide later ones to `"…agent-token…"` etc. The `step` and field
+  names tell you which role is in flight; no decoding needed.
+- **The consent CTA is pre-assembled.** Render `interaction_required`'s
+  `approval_url` (clickable), `code`, and `qr` (in a fenced code block, no
+  language tag) the moment the event arrives — the human is waiting on it.
 
 ## Error handling
 
@@ -320,11 +360,10 @@ Errors are output as JSON to stderr:
 When consent is needed, the approval URL is printed on stderr (`Approve at: https://…`)
 along with a scannable QR code — open the link or scan it from your phone. fetch does
 **not** open a browser by default (an agent / CI / SSH session has no GUI to open one
-on); pass `--browser` to auto-open it on a machine that does. With `--explain`, a
-`consent_required` event also appears in the stream:
-```json
-{"step": "consent_required", "description": "Consent required — opening the approval URL for the person."}
-```
+on); pass `--browser` to auto-open it on a machine that does. With `--explain`, the
+`interaction_required` event carries the same CTA as structured fields
+(`approval_url`, `code`, `qr`) — and when stderr is captured (not a TTY), the
+plain-text prompt is suppressed in favor of that event.
 
 ## Environment variables
 

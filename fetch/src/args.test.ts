@@ -111,6 +111,11 @@ describe('parseArgs', () => {
     expect(parseArgs(argv('https://x', '--explain')).debug).toBe(false)
   })
 
+  it('parses --explain-log', () => {
+    expect(parseArgs(argv('https://x', '--explain', '--explain-log', '/tmp/run.log')).explainLog).toBe('/tmp/run.log')
+    expect(parseArgs(argv('https://x', '--explain')).explainLog).toBeUndefined()
+  })
+
   it('treats --help / -h / --version as flags (no process.exit)', () => {
     expect(parseArgs(argv('--help')).help).toBe(true)
     expect(parseArgs(argv('-h')).help).toBe(true)

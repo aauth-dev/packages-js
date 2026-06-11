@@ -61,11 +61,12 @@ export async function run(): Promise<void> {
     args = mergeJsonInput(args, json)
   }
 
-  // `--explain`: also tee event/consent output to
-  // `~/.aauth/fetch/logs/<ISO>.log` so renderers can read events from a stable
-  // path instead of capturing stderr. Best-effort; failure leaves stderr-only.
-  const logPath = initExplainLog(args.explain === true)
-  if (logPath) process.stderr.write(`Logging --explain events to ${logPath}\n`)
+  // `--explain`: also tee events to a JSONL log (`--explain-log <path>`, or
+  // `~/.aauth/fetch/logs/<ISO>.log`) so renderers can read them from a stable
+  // path. Best-effort; failure leaves stderr-only. The path banner prints only
+  // at a TTY — captured stderr stays pure JSONL for machine consumers.
+  const logPath = initExplainLog(args.explain === true, args.explainLog)
+  if (logPath && process.stderr.isTTY) process.stderr.write(`Logging --explain events to ${logPath}\n`)
 
   // authorize command
   if (args.command === 'authorize') {

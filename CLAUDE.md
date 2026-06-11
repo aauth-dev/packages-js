@@ -49,8 +49,16 @@ doesn't force its dependents to bump.
 To ship a change:
 
 1. Bump the `version` in the `package.json` of **only the package(s) you
-   changed**. If you used a new feature of a sibling workspace package, also
-   tighten that dependency's range (e.g. `"@aauth/mcp-agent": "^1.1.0"`).
+   changed** — from that package's directory run:
+   ```
+   npm version patch --no-git-tag-version
+   ```
+   (`minor`/`major` as appropriate. The `--no-git-tag-version` flag is
+   REQUIRED: plain `npm version` would commit and tag the whole monorepo with
+   a `vX.Y.Z` tag that belongs to one package — release tags here are
+   date/time markers, not versions.) If you used a new feature of a sibling
+   workspace package, also tighten that dependency's range (e.g.
+   `"@aauth/mcp-agent": "^1.1.0"`).
 2. Update the matching `version` (and any changed dep range) in
    `package-lock.json` **by hand** — edit the workspace entry's `version` field.
    **Do NOT run `npm install` to regenerate the lockfile on macOS**: it prunes

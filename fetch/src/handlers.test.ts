@@ -316,15 +316,18 @@ describe('handleAgentOnly', () => {
       stdout.restore()
     }
 
-    const joined = lines.join('')
-    expect(joined).toContain('"step": "agent_token_request"')
-    expect(joined).toContain('"request"')
-    expect(joined).toContain('"response"')
-    expect(joined).toContain('"description"')
-    expect(joined).toContain('"status": 200')
-    expect(joined).toContain('"data": "ok"') // body plumbed through
+    // stderr is not a TTY here → compact JSONL (one parseable object per line),
+    // so a captured stream needs no separate log-file discovery.
+    const events = lines.filter((l) => l.trim().startsWith('{')).map((l) => JSON.parse(l) as Record<string, unknown>)
+    expect(events.length).toBeGreaterThanOrEqual(2)
+    expect(events[0].step).toBe('agent_token_request')
+    expect(events[0].request).toBeDefined()
+    expect(events[0].description).toBeDefined()
+    const resp = events.find((e) => e.response !== undefined)?.response as Record<string, unknown>
+    expect(resp.status).toBe(200)
+    expect(resp.body).toEqual({ data: 'ok' }) // body plumbed through
     // teaching view: no top-level type discriminator (request/response are nested keys)
-    expect(joined).not.toContain('"type"')
+    for (const e of events) expect(e.type).toBeUndefined()
   })
 
   it('with --debug, writes raw { request } / { response } objects (with body), no descriptions', async () => {
@@ -347,14 +350,17 @@ describe('handleAgentOnly', () => {
       stdout.restore()
     }
 
-    const joined = lines.join('')
-    expect(joined).toContain('"request"')
-    expect(joined).toContain('"response"')
-    expect(joined).toContain('"status": 200')
-    expect(joined).toContain('"data": "ok"')
+    // stderr is not a TTY here → compact JSONL
+    const events = lines.filter((l) => l.trim().startsWith('{')).map((l) => JSON.parse(l) as Record<string, unknown>)
+    expect(events.some((e) => e.request !== undefined)).toBe(true)
+    const resp = events.find((e) => e.response !== undefined)?.response as Record<string, unknown>
+    expect(resp.status).toBe(200)
+    expect(resp.body).toEqual({ data: 'ok' })
     // raw view — no teaching vocabulary
-    expect(joined).not.toContain('"description"')
-    expect(joined).not.toContain('"type"')
+    for (const e of events) {
+      expect(e.description).toBeUndefined()
+      expect(e.type).toBeUndefined()
+    }
     // body still on stdout
     expect(stdout.output[0]).toContain('"data": "ok"')
   })

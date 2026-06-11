@@ -120,7 +120,13 @@ Files will be published at:
 
 ### 8. Verify publication
 
-After push, confirm both files are accessible at the public URLs. GitHub Pages may take a minute to update.
+After push, confirm both files are accessible at the public URLs. GitHub Pages may take a minute to build — and its CDN can cache the *pre-publish 404* for a few minutes beyond that. Poll with a cache-buster to prove publication without waiting out the CDN:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' "https://username.github.io/.well-known/jwks.json?cb=$(date +%s)"
+```
+
+A `200` here means the files are published. The *plain* URL (what resources actually fetch) can lag a couple of minutes behind while the cached 404 expires — so if the setup skill's `whoami` verify step fails right after publish, that's the cache, not a broken install: wait a minute and retry rather than re-publishing.
 
 ### A note on `hosting` in the bootstrap config
 

@@ -93,7 +93,11 @@ Person server (passed during consent) / consent handling:
 
 Output (response body → stdout; these add detail on stderr, clean for `… | jq`):
   --explain                   Teaching view: per-step request/response with
-                              descriptions, real RFC 9421 signed headers, and bodies.
+                              summaries, descriptions, real RFC 9421 signed
+                              headers, and bodies. Pretty + colorized at a TTY;
+                              compact JSONL when piped/captured.
+  --explain-log <path>        Write the --explain event stream (JSONL) to this
+                              file (default: ~/.aauth/fetch/logs/<timestamp>.jsonl).
   --debug, -v, --verbose      Raw wire view: every HTTP hop as { request } /
                               { response } objects (with bodies); no descriptions.
 ```

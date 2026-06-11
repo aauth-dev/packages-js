@@ -49,8 +49,10 @@ describe('makeExplainRenderer', () => {
     expect(objs[1].step).toBe('agent_token_request')
     expect(res(objs[1])).toMatchObject({ status: 401 })
     expect((res(objs[1]).headers as Record<string, string>)['aauth-requirement']).toBe('auth-token')
-    // response events carry no description — the request's description framed the step
-    expect(objs[1].description).toBeUndefined()
+    // the response description teaches the branch the flow took (401 → three-party)
+    expect(objs[1].description).toMatch(/three-party/)
+    // the request carries the status-aware one-line gist of the exchange
+    expect(objs[0].summary).toBe('agent → resource · agent-token → 401 + resource-token')
   })
 
   it('names the two resource calls by token: agent_token_request vs auth_token_request', () => {
@@ -103,14 +105,14 @@ describe('makeExplainRenderer', () => {
     expect(objs[0].response).toBeUndefined()
   })
 
-  it('every request and info event carries a description; responses do not', () => {
+  it('every request, response, and info event carries a description', () => {
     const objs = collect([
       { step: 'signed_request', phase: 'start', url: 'https://x', method: 'GET' },
       { step: 'signed_request', phase: 'done', status: 200 },
       { step: 'challenge_received', phase: 'info', requirement: 'auth-token' },
     ])
     expect(objs[0].description).toBeTruthy() // request
-    expect(objs[1].description).toBeUndefined() // response
+    expect(objs[1].description).toBeTruthy() // response — teaches the branch taken
     expect(objs[2].description).toBeTruthy() // info
   })
 
@@ -139,17 +141,26 @@ describe('makeExplainRenderer', () => {
       o.request !== undefined ? 'request' : o.response !== undefined ? 'response' : 'info'
     expect(objs.map((o) => [kind(o), o.step, o.description])).toEqual([
       ['request', 'agent_token_request', 'Call the resource with your agent token.'],
-      ['response', 'agent_token_request', undefined],
+      ['response', 'agent_token_request', 'The resource requires a person-issued auth token — this begins the three-party flow (agent ↔ person server ↔ resource). The `AAuth-Requirement` header carries a resource token: the agent presents it to the person server to get authorized.'],
       ['info', 'requirement_parsed', 'Parsed `AAuth-Requirement` — must exchange the resource token for an auth token at the person server.'],
       ['request', 'ps_metadata', "Fetch the person server's metadata at `/.well-known/aauth-person.json`."],
-      ['response', 'ps_metadata', undefined],
+      ['response', 'ps_metadata', "Received the person server's endpoints."],
       ['request', 'ps_token_request', 'POST the resource token to the person server `token_endpoint` to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.'],
-      ['response', 'ps_token_request', undefined],
+      ['response', 'ps_token_request', 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`) — the person must approve in a browser; the agent polls the pending `location` until they do.'],
       ['info', 'interaction_required', 'Direct the person to the approval URL — show them the QR or open the link.'],
       ['request', 'consent_poll', 'Poll the pending URL — checking whether the person has acted. `Prefer: wait=45` long-polls so the response returns immediately on consent rather than burning round-trips.'],
-      ['response', 'consent_poll', undefined],
+      ['response', 'consent_poll', 'The person approved — the body carries the freshly issued auth token, bound (`cnf`) to the same ephemeral key the agent has been signing with.'],
       ['request', 'auth_token_request', 'Call the resource — `Signature-Key` now carries the person-issued auth token, not the agent token.'],
-      ['response', 'auth_token_request', undefined],
+      ['response', 'auth_token_request', 'The resource verified the person-issued auth token — it now knows who is calling (`agent`) and on whose behalf (`sub`, plus claims the person server vouched for).'],
+    ])
+    // The summaries form the recap: one gist line per exchange, in order.
+    expect(objs.filter((o) => o.summary !== undefined).map((o) => o.summary)).toEqual([
+      'agent → resource · agent-token → 401 + resource-token',
+      'agent → person server · metadata discovery',
+      'agent → person server · resource-token → 202 pending + approval code',
+      'person → person server · approve in browser',
+      'agent → person server · poll → 200 + auth-token (person approved)',
+      'agent → resource · auth-token → 200 + person claims',
     ])
   })
 
@@ -166,9 +177,14 @@ describe('makeExplainRenderer', () => {
     ])
     expect(ok[0].description).toBe('Call the resource with your agent token.')
     expect(challenged[0].description).toBe('Call the resource with your agent token.')
-    // The response's status-specific description (`status` of objs[1]) is checked separately;
-    // here we only assert that requests no longer forward-narrate.
+    // here we assert that requests don't forward-narrate the branch...
     expect(ok[0].description).not.toMatch(/identity-based|challenged/)
+    // ...the response description does: identity-based access vs the three-party flow
+    expect(ok[1].description).toMatch(/Identity-based access/)
+    expect(challenged[1].description).toMatch(/three-party flow/)
+    // and the summary carries the branch as the one-line gist
+    expect(ok[0].summary).toBe('agent → resource · agent-token → 200 (identity-based access)')
+    expect(challenged[0].summary).toBe('agent → resource · agent-token → 401 + resource-token')
   })
 
   it('suppresses recap-only info events (auth_token_received, consent_resolved)', () => {
@@ -179,7 +195,7 @@ describe('makeExplainRenderer', () => {
     expect(objs).toEqual([])
   })
 
-  it('drops the description on repeated consent_poll requests', () => {
+  it('drops repeated descriptions/summaries on consent_poll heartbeats; the 200 prints fresh ones', () => {
     const objs = collect([
       { step: 'consent_poll', phase: 'start', url: 'https://ps/pending' },
       { step: 'consent_poll', phase: 'done', status: 202 },
@@ -189,8 +205,15 @@ describe('makeExplainRenderer', () => {
       { step: 'consent_poll', phase: 'done', status: 200 },
     ])
     expect(objs[0].description).toBe('Poll the pending URL — checking whether the person has acted. `Prefer: wait=45` long-polls so the response returns immediately on consent rather than burning round-trips.')
+    expect(objs[0].summary).toBe('agent → person server · poll → 202 still pending')
+    expect(objs[1].description).toBe('Still pending — the person has not acted yet.')
+    // heartbeat repeats: same lines suppressed
     expect(objs[2].description).toBeUndefined()
-    expect(objs[4].description).toBeUndefined()
+    expect(objs[2].summary).toBeUndefined()
+    expect(objs[3].description).toBeUndefined()
+    // the final 200 carries NEW lines (different branch) — they print
+    expect(objs[4].summary).toBe('agent → person server · poll → 200 + auth-token (person approved)')
+    expect(objs[5].description).toMatch(/The person approved/)
     for (const o of objs) expect(o.step).toBe('consent_poll')
   })
 

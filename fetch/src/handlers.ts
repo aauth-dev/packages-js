@@ -16,7 +16,7 @@ import {
 import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/mcp-agent'
 import { mkdirSync, openSync, writeSync, closeSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import open from 'open'
 import { makeExplainRenderer, makeDebugRenderer, prettyJson, qrAscii } from './render.js'
 import { promptValue } from './args.js'
@@ -27,7 +27,7 @@ const STDERR_TTY = process.stderr.isTTY === true
 /**
  * JSONL sink for `--explain` events: when set, each event object is serialized
  * compactly (one JSON object per line) and appended to
- * `~/.aauth/fetch/logs/<ISO-timestamp>.log`. Lets agentic renderers (and humans)
+ * `~/.aauth/fetch/logs/<ISO-timestamp>.jsonl`. Lets agentic renderers (and humans)
  * read the event stream from a stable file path instead of capturing stderr —
  * which would otherwise trigger permission prompts when the capture file lands
  * somewhere like /tmp/.
@@ -43,9 +43,10 @@ const STDERR_TTY = process.stderr.isTTY === true
 let logWriter: ((obj: Record<string, unknown>) => void) | undefined
 
 /**
- * Set up the `--explain` log file. When `enabled`, creates
+ * Set up the `--explain` log file. When `enabled`, opens `path` (from
+ * `--explain-log`, parent dirs created) — or, by default, creates
  * `~/.aauth/fetch/logs/` if missing and opens
- * `~/.aauth/fetch/logs/<ISO-timestamp>.log` for appending. Stores a JSONL
+ * `~/.aauth/fetch/logs/<ISO-timestamp>.jsonl` for appending. Stores a JSONL
  * writer in {@link logWriter} so the event renderer can serialize each event
  * object as one compact line.
  *
@@ -54,16 +55,23 @@ let logWriter: ((obj: Record<string, unknown>) => void) | undefined
  *
  * Returns the resolved log path so the CLI can print it once for the user.
  */
-export function initExplainLog(enabled: boolean): string | undefined {
+export function initExplainLog(enabled: boolean, path?: string): string | undefined {
   if (!enabled) return undefined
   try {
-    const dir = join(homedir(), '.aauth', 'fetch', 'logs')
-    mkdirSync(dir, { recursive: true })
-    // Filesystem-safe timestamp: ISO with colons replaced (Windows compat) and
-    // sub-second precision dropped (collisions within the same second on a
-    // single invocation are not a concern — one process opens one file).
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace(/-\d{3}Z$/, 'Z')
-    const file = join(dir, `${stamp}.log`)
+    let file: string
+    if (path) {
+      mkdirSync(dirname(path), { recursive: true })
+      file = path
+    } else {
+      const dir = join(homedir(), '.aauth', 'fetch', 'logs')
+      mkdirSync(dir, { recursive: true })
+      // Filesystem-safe timestamp: ISO with colons replaced (Windows compat) and
+      // sub-second precision dropped (collisions within the same second on a
+      // single invocation are not a concern — one process opens one file).
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace(/-\d{3}Z$/, 'Z')
+      // .jsonl — the file is one compact JSON object per line, nothing else.
+      file = join(dir, `${stamp}.jsonl`)
+    }
     const fd = openSync(file, 'a')
     logWriter = (obj: Record<string, unknown>) => {
       try { writeSync(fd, JSON.stringify(obj) + '\n') } catch { /* best-effort */ }
@@ -89,7 +97,11 @@ export function initExplainLog(enabled: boolean): string | undefined {
  */
 function eventRenderer(args: { explain?: boolean; debug?: boolean }): OnEvent | undefined {
   const emit = (obj: Record<string, unknown>) => {
-    process.stderr.write(prettyJson(obj, STDERR_TTY) + '\n')
+    // At a TTY: pretty-printed + colorized for direct human reading. Piped or
+    // captured (agent task output, CI log): one compact JSON object per line,
+    // so the captured stream is itself parseable JSONL — same shape as the log
+    // file, no separate file discovery needed.
+    process.stderr.write(STDERR_TTY ? prettyJson(obj, true) + '\n' : JSON.stringify(obj) + '\n')
     logWriter?.(obj)
   }
   if (args.explain) return makeExplainRenderer(emit)
@@ -266,7 +278,11 @@ function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; e
     }
     // Default: surface the URL and a scannable QR on stderr for the human. The
     // --explain log file never sees these — the event JSON already carries
-    // them in the interaction_required event (`approval_url`, `qr`).
+    // them in the interaction_required event (`approval_url`, `qr`). When a
+    // renderer is active AND stderr is captured (not a TTY), skip the plain
+    // text too: the consumer is parsing JSONL, and prose lines would corrupt
+    // the stream.
+    if (quiet && !STDERR_TTY) return
     process.stderr.write(`Approve at: ${url}\n`)
     const qr = qrAscii(url)
     if (qr) process.stderr.write(`${qr}\n`)

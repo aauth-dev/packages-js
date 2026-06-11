@@ -47,6 +47,8 @@ export interface FetchArgs {
   // Output / meta
   /** --explain: teaching view — per-step request/response with descriptions + bodies. */
   explain: boolean
+  /** --explain-log: file to write the --explain JSONL event stream to (default: ~/.aauth/fetch/logs/<timestamp>.jsonl). */
+  explainLog?: string
   /** --debug (also -v/--verbose): raw view — every HTTP hop's request/response with bodies. */
   debug: boolean
   help: boolean
@@ -176,7 +178,9 @@ export const FLAGS: FlagSpec[] = [
 
   // Output
   { long: 'explain', kind: 'boolean', field: 'explain', group: 'Output',
-    summary: 'Teaching view: per-step request/response on stderr with descriptions, real RFC 9421 signed headers, and bodies' },
+    summary: 'Teaching view: per-step request/response on stderr with summaries, descriptions, real RFC 9421 signed headers, and bodies' },
+  { long: 'explain-log', kind: 'value', field: 'explainLog', metavar: '<path>', group: 'Output',
+    summary: 'Write the --explain event stream (JSONL) to this file (default: ~/.aauth/fetch/logs/<timestamp>.jsonl)' },
   { long: 'debug', short: 'v', aliases: ['verbose'], kind: 'boolean', field: 'debug', group: 'Output',
     summary: 'Raw wire view: every HTTP hop on stderr as { request } / { response } objects (with bodies); no descriptions' },
 ]
