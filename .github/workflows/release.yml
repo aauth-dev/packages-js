@@ -23,6 +23,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: (cd interaction-code && npm run build)
       - run: npm test
 
   # Only (re)build + publish the native hardware-keys packages when their version
@@ -77,7 +78,7 @@ jobs:
       - run: npm ci
       - name: Build packages (dependency order)
         run: |
-          for pkg in local-keys mcp-agent mcp-server bootstrap fetch mcp-openclaw mcp-stdio; do
+          for pkg in interaction-code local-keys mcp-agent mcp-server bootstrap fetch mcp-openclaw mcp-stdio; do
             echo "Building $pkg..."
             (cd "$pkg" && npm run build)
           done
@@ -87,7 +88,7 @@ jobs:
       # all-must-match gate.
       - name: Publish changed packages with provenance
         run: |
-          for pkg in local-keys mcp-agent mcp-server bootstrap fetch mcp-openclaw mcp-stdio; do
+          for pkg in interaction-code local-keys mcp-agent mcp-server bootstrap fetch mcp-openclaw mcp-stdio; do
             version=$(node -p "require('./$pkg/package.json').version")
             published=$(npm view "@aauth/$pkg" version 2>/dev/null || echo "0.0.0")
             if [ "$version" = "$published" ]; then
