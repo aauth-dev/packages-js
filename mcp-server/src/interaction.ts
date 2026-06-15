@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { generateCode } from '@aauth/interaction-code'
 import { buildAAuthHeader } from './aauth-header.js'
 
 export interface PendingRequest<T = unknown> {
@@ -14,12 +15,10 @@ export interface InteractionManagerOptions {
   baseUrl: string
   interactionUrl: string  // the interaction endpoint URL for AAuth-Requirement header
   pendingPath?: string   // default: '/pending'
-  codeLength?: number    // default: 8
   ttl?: number           // default: 600s
 }
 
 const DEFAULT_PENDING_PATH = '/pending'
-const DEFAULT_CODE_LENGTH = 8
 const DEFAULT_TTL = 600
 
 /**
@@ -35,14 +34,12 @@ export class InteractionManager {
   private baseUrl: string
   private interactionUrl: string
   private pendingPath: string
-  private codeLength: number
   private ttl: number
 
   constructor(options: InteractionManagerOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '')
     this.interactionUrl = options.interactionUrl.replace(/\/$/, '')
     this.pendingPath = options.pendingPath ?? DEFAULT_PENDING_PATH
-    this.codeLength = options.codeLength ?? DEFAULT_CODE_LENGTH
     this.ttl = options.ttl ?? DEFAULT_TTL
   }
 
@@ -51,7 +48,7 @@ export class InteractionManager {
    */
   createPending<T = unknown>(): { headers: Record<string, string>; pending: PendingRequest<T> } {
     const id = randomBytes(16).toString('hex')
-    const code = generateCode(this.codeLength)
+    const code = generateCode()
 
     let resolve!: (value: T) => void
     let reject!: (reason: unknown) => void
@@ -135,12 +132,3 @@ export class InteractionManager {
   }
 }
 
-function generateCode(length: number): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  const bytes = randomBytes(length)
-  let code = ''
-  for (let i = 0; i < length; i++) {
-    code += chars[bytes[i] % chars.length]
-  }
-  return code
-}

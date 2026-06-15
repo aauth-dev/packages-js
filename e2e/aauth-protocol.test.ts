@@ -429,7 +429,7 @@ describe('Deferred/interaction grant', () => {
     const { headers, pending } = manager.createPending()
 
     expect(pending.code).toBeDefined()
-    expect(pending.code.length).toBe(8)
+    expect(pending.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/)
     expect(headers.Location).toMatch(/\/pending\//)
     expect(headers['AAuth-Requirement']).toContain('requirement=interaction')
     expect(headers['AAuth-Requirement']).toContain(`url="${INTERACTION_URL}"`)

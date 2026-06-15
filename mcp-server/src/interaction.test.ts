@@ -15,7 +15,7 @@ describe('InteractionManager', () => {
     const { headers, pending } = manager.createPending()
 
     expect(pending.id).toBeTruthy()
-    expect(pending.code).toHaveLength(8)
+    expect(pending.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/)
     expect(pending.createdAt).toBeGreaterThan(0)
     expect(pending.promise).toBeInstanceOf(Promise)
 
@@ -100,15 +100,9 @@ describe('InteractionManager', () => {
     expect(headers.Location).toContain('/api/pending/')
   })
 
-  it('uses custom code length', () => {
-    const custom = new InteractionManager({
-      baseUrl: 'https://resource.example',
-      interactionUrl: 'https://resource.example/interact',
-      codeLength: 12,
-    })
-
-    const { pending } = custom.createPending()
-    expect(pending.code).toHaveLength(12)
+  it('generates XXXX-XXXX format codes', () => {
+    const { pending } = manager.createPending()
+    expect(pending.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/)
   })
 
   it('strips trailing slash from baseUrl', () => {

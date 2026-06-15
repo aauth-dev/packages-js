@@ -1,7 +1,7 @@
 {
-  "name": "@aauth/mcp-server",
-  "version": "1.0.0",
-  "description": "AAuth server-side building blocks: challenge headers, interaction management, resource tokens",
+  "name": "@aauth/interaction-code",
+  "version": "0.1.0",
+  "description": "AAuth interaction code generation and canonicalization (Crockford base32, spec §2.6)",
   "type": "module",
   "exports": {
     ".": {
@@ -18,8 +18,9 @@
   },
   "keywords": [
     "aauth",
-    "mcp",
-    "server"
+    "interaction-code",
+    "crockford",
+    "base32"
   ],
   "author": "Dick Hardt <dick.hardt@hello.coop>",
   "license": "MIT",
@@ -29,11 +30,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/aauth-dev/packages-js",
-    "directory": "mcp-server"
-  },
-  "dependencies": {
-    "@aauth/interaction-code": "^0.1.0",
-    "jose": "^5.0.0"
+    "directory": "interaction-code"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
