@@ -29,6 +29,8 @@ export interface FetchArgs {
   // Authorize
   operations?: string
   scope?: string
+  /** --account: upstream account at the resource this authorization is for (AAuth `account` extension). */
+  account?: string
 
   // Person-server hints (sent during consent)
   loginHint?: string
@@ -152,9 +154,11 @@ export const FLAGS: FlagSpec[] = [
 
   // Authorize
   { long: 'operations', kind: 'value', field: 'operations', metavar: '<ids>', group: 'Authorize',
-    summary: 'R3 operationIds to authorize (comma-separated)', json: 'operations' },
+    summary: 'R3 operation ids to authorize (comma-separated). Gateway resources qualify each as service:operationId', json: 'operations' },
   { long: 'scope', kind: 'value', field: 'scope', metavar: '<scope>', group: 'Authorize',
     summary: 'Requested scopes', json: 'scope' },
+  { long: 'account', kind: 'value', field: 'account', metavar: '<account>', group: 'Authorize',
+    summary: 'Upstream account at the resource to bind this authorization to (e.g. a Google email)', json: 'account' },
 
   // Person-server hints (passed during consent)
   { long: 'login-hint', kind: 'value', field: 'loginHint', metavar: '<hint>', group: 'PersonServer',

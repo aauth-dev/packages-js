@@ -298,7 +298,7 @@ function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; e
  */
 export async function handleAuthorize(
   args: {
-    url: string; agentProvider?: string; operations?: string; scope?: string;
+    url: string; agentProvider?: string; operations?: string; scope?: string; account?: string;
     browser?: boolean; nonInteractive: boolean; explain: boolean; debug: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
     promptLogin?: boolean; promptConsent?: boolean;
@@ -325,11 +325,30 @@ export async function handleAuthorize(
 
   if (args.operations) {
     const operationIds = args.operations.split(',').map(s => s.trim())
+    // Qualified ids (service:operationId) select the openapi-gateway vocabulary
+    // — the resource fronts multiple OpenAPI-described services (AAuth R3
+    // §OpenAPI Gateway Vocabulary). All-or-none: mixing bare and qualified ids
+    // is ambiguous.
+    const qualified = operationIds.filter(id => id.includes(':'))
+    if (qualified.length && qualified.length !== operationIds.length) {
+      return fail('Mixed operation id forms: qualify every id as service:operationId (gateway) or none (plain openapi)')
+    }
     const r3Body = {
-      r3_operations: {
-        vocabulary: 'urn:aauth:vocabulary:openapi',
-        operations: operationIds.map(id => ({ operationId: id })),
-      },
+      r3_operations: qualified.length
+        ? {
+            vocabulary: 'urn:aauth:vocabulary:openapi-gateway',
+            operations: operationIds.map(id => {
+              const i = id.indexOf(':')
+              return { service: id.slice(0, i), operationId: id.slice(i + 1) }
+            }),
+          }
+        : {
+            vocabulary: 'urn:aauth:vocabulary:openapi',
+            operations: operationIds.map(id => ({ operationId: id })),
+          },
+      // AAuth `account` extension (dickhardt/AAuth#52): bind the authorization
+      // to one of the user's accounts at the resource (e.g. a Google email).
+      ...(args.account ? { account: args.account } : {}),
     }
     onEvent?.({ step: 'r3_authorize_request', phase: 'start', url: args.url, method: 'POST' })
     const response = await signedFetch(args.url, {

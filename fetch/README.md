@@ -38,6 +38,12 @@ npx @aauth/fetch authorize "https://whoami.aauth.dev?scope=email"
 # For R3 resources, POST to the authorize endpoint with operations:
 npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes,createNote
+
+# Gateway resources (multiple services behind one proxy) qualify ids by
+# service, and can bind the grant to one of your accounts at the resource:
+npx @aauth/fetch authorize https://googleapis-com.proxy.aauth.dev/authorize \
+  --operations gmail:gmail.users.messages.send,calendar:calendar.events.list \
+  --account dick@example.com
 ```
 
 Returns the auth token and ephemeral signing key. Or capture the credential *with*
@@ -83,8 +89,11 @@ Modes:
                               `response` is the body (same as bare fetch)
 
 Authorize (with the `authorize` command):
-  --operations <ops>          R3 operationIds (comma-separated)
+  --operations <ops>          R3 operation ids (comma-separated); gateway
+                              resources qualify each as service:operationId
   --scope <scope>             Requested scopes
+  --account <account>         Upstream account at the resource to bind the
+                              authorization to (e.g. a Google email)
 
 Person server (passed during consent) / consent handling:
   --login-hint / --domain-hint / --tenant / --justification
