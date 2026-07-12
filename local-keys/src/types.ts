@@ -149,4 +149,8 @@ export interface CreateAgentTokenOptions {
   /** Local part of agent identifier, e.g. "claude" → aauth:claude@domain. Overrides config. */
   local?: string
   tokenLifetime?: number
+  /** Person server for the token's `ps` claim. Overrides the agent config's
+   *  personServerUrl — pass when the caller targets a non-default PS (e.g.
+   *  `--person-server`), so resources audience the resource token correctly. */
+  personServerUrl?: string
 }

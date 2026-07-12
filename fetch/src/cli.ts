@@ -77,7 +77,7 @@ export async function run(): Promise<void> {
     const personServer = resolvePersonServer(args.agentProvider, args.personServer)
     const cachedMetadata = resolvePersonServerMetadata(personServer)
     const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(personServer, m)
-    const getKeyMaterial = buildGetKeyMaterial(args)
+    const getKeyMaterial = buildGetKeyMaterial(args, personServer)
     const url = args.url
     await runWithMetadataSelfHeal(personServer, cachedMetadata, (metadata) =>
       handleAuthorize({ ...args, url }, getKeyMaterial, personServer, metadata, onMetadata),
@@ -93,7 +93,7 @@ export async function run(): Promise<void> {
 
   // Default fetch (or its modifier modes).
   const personServer = resolvePersonServer(args.agentProvider, args.personServer)
-  const getKeyMaterial = buildGetKeyMaterial(args)
+  const getKeyMaterial = buildGetKeyMaterial(args, personServer)
   const init = buildRequestInit(args)
   const url = args.url
 

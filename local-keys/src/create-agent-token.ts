@@ -21,7 +21,7 @@ const cache = new Map<string, CacheEntry>()
 export async function createAgentToken(
   options: CreateAgentTokenOptions,
 ): Promise<AgentTokenResult> {
-  const { tokenLifetime = 3600, local } = options
+  const { tokenLifetime = 3600, local, personServerUrl } = options
   let { agentUrl, agentId } = options
 
   // Default agentUrl from config or keychain
@@ -59,7 +59,9 @@ export async function createAgentToken(
     }
   }
 
-  const cacheKey = `${agentUrl}::${agentId}`
+  // ps claim participates in the key: tokens for different person servers
+  // must not be served from each other's cache slots.
+  const cacheKey = `${agentUrl}::${agentId}::${personServerUrl ?? ''}`
 
   const cached = cache.get(cacheKey)
   if (cached) {
@@ -73,6 +75,7 @@ export async function createAgentToken(
     agentUrl,
     sub: agentId,
     lifetime: tokenLifetime,
+    ...(personServerUrl ? { personServerUrl } : {}),
   })
 
   const now = Math.floor(Date.now() / 1000)

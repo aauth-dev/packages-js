@@ -216,8 +216,10 @@ export async function runWithMetadataSelfHeal(
   }
 }
 
-export function buildGetKeyMaterial(args: { agentProvider?: string; local?: string }): GetKeyMaterial {
-  return () => createAgentToken({ agentUrl: args.agentProvider, local: args.local })
+export function buildGetKeyMaterial(args: { agentProvider?: string; local?: string }, personServer?: string): GetKeyMaterial {
+  // The agent token's ps claim must name the PS we exchange at — resources
+  // audience the resource token to it (aud mismatch at the PS otherwise).
+  return () => createAgentToken({ agentUrl: args.agentProvider, local: args.local, ...(personServer ? { personServerUrl: personServer } : {}) })
 }
 
 export function buildRequestInit(args: { method: string; data?: string; headers: string[] }): RequestInit {
