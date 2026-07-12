@@ -258,6 +258,16 @@ function fail(message: string, extra?: Record<string, unknown>): void {
   process.exitCode = 1
 }
 
+// --poll-timeout: seconds to wait for the person's consent (default lives in
+// pollDeferred: 900). Invalid input throws rather than silently producing a
+// NaN deadline that would time out immediately.
+function pollTimeoutSeconds(args: { pollTimeout?: string }): number | undefined {
+  if (args.pollTimeout === undefined) return undefined
+  const n = Number(args.pollTimeout)
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`--poll-timeout must be a positive number of seconds, got: ${args.pollTimeout}`)
+  return n
+}
+
 // === interaction (consent) ===
 
 function makeOnInteraction(args: { browser?: boolean; nonInteractive: boolean; explain?: boolean; debug?: boolean }) {
@@ -303,7 +313,7 @@ export async function handleAuthorize(
     url: string; agentProvider?: string; operations?: string; scope?: string; account?: string;
     browser?: boolean; nonInteractive: boolean; explain: boolean; debug: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
-    promptLogin?: boolean; promptConsent?: boolean;
+    promptLogin?: boolean; promptConsent?: boolean; pollTimeout?: string;
   },
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
@@ -425,6 +435,7 @@ export async function handleAuthorize(
     domainHint: args.domainHint,
     prompt: promptValue(args),
     capabilities: capabilities as string[],
+    maxPollDuration: pollTimeoutSeconds(args),
     onEvent,
     getKeyMaterial: pinnedGetKeyMaterial,
     onInteraction: makeOnInteraction(args),
@@ -487,7 +498,7 @@ export async function handleFullFlow(
   args: {
     url: string; agentProvider?: string; browser?: boolean; nonInteractive: boolean; explain: boolean; debug: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
-    promptLogin?: boolean; promptConsent?: boolean;
+    promptLogin?: boolean; promptConsent?: boolean; pollTimeout?: string;
     emit?: boolean; opaqueToken?: string;
   },
   init: RequestInit,
@@ -525,6 +536,7 @@ export async function handleFullFlow(
     domainHint: args.domainHint,
     prompt: promptValue(args),
     capabilities: args.nonInteractive ? [] : ['interaction'],
+    maxPollDuration: pollTimeoutSeconds(args),
     onEvent,
     onInteraction: makeOnInteraction(args),
   })

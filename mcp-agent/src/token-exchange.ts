@@ -36,6 +36,8 @@ export interface TokenExchangeOptions {
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
+  /** Total consent-poll timeout in seconds (default 900) — see pollDeferred. */
+  maxPollDuration?: number
   /**
    * Optional: when provided, agent_token is decoded and included in
    * ps_token_request:start and ps_metadata_request:start events for full
@@ -188,6 +190,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
       onInteraction,
       onClarification,
       onEvent,
+      maxPollDuration: options.maxPollDuration,
       sentTracker,
     })
 

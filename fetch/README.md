@@ -78,6 +78,9 @@ AAuth:
   --agent-provider <url>      Agent provider to sign as (default: from config)
   --local <name>              Local part of agent identifier (default: from config)
   --person-server <url>       Override person server URL
+  --poll-timeout <seconds>    Seconds to wait for the person to approve consent
+                              (default: 900 — covers a human consent ceremony
+                              including a chained upstream OAuth)
 
 Modes:
   --agent-only                Sign with agent token only; don't handle 401

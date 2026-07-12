@@ -36,6 +36,8 @@ export interface AAuthFetchOptions {
   capabilities?: Capability[]
   mission?: AAuthMission
   prompt?: string
+  /** Total consent-poll timeout in seconds (default 900) — see pollDeferred. */
+  maxPollDuration?: number
 }
 
 interface CachedToken {
@@ -75,6 +77,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     capabilities,
     mission,
     prompt,
+    maxPollDuration,
   } = options
 
   // Shared mutable holder for the latest signed-request capture. signed-fetch
@@ -193,6 +196,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           onInteraction,
           onClarification,
           onEvent,
+          maxPollDuration,
           getKeyMaterial,
           sentTracker,
         })

@@ -41,6 +41,8 @@ export interface FetchArgs {
   promptLogin: boolean
   /** --prompt-consent: force the consent prompt even if consent is already on file (OIDC prompt=consent). */
   promptConsent: boolean
+  /** --poll-timeout: total seconds to wait for the person's consent before giving up (default 900). */
+  pollTimeout?: string
 
   // Interaction (local consent handling)
   browser?: boolean // true = --browser (open browser); default/undefined = print URL + QR
@@ -132,6 +134,8 @@ export const FLAGS: FlagSpec[] = [
     summary: 'Local part of the agent id (default: from config)', json: 'local', env: 'AAUTH_LOCAL' },
   { long: 'person-server', kind: 'value', field: 'personServer', metavar: '<url>', group: 'AAuth',
     summary: 'Person server for token exchange (default: from config)', json: 'personServer', env: 'AAUTH_PERSON_SERVER' },
+  { long: 'poll-timeout', kind: 'value', field: 'pollTimeout', metavar: '<seconds>', group: 'AAuth',
+    summary: 'Seconds to wait for the person to approve consent (default: 900)', json: 'pollTimeout', env: 'AAUTH_POLL_TIMEOUT' },
 
   // Mode (modifiers)
   { long: 'agent-only', kind: 'boolean', field: 'agentOnly', group: 'Mode',

@@ -10,7 +10,7 @@ export interface DeferredOptions {
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
-  maxPollDuration?: number // total timeout in seconds, default 300
+  maxPollDuration?: number // total timeout in seconds, default 900
   /** Shared sent-request tracker; see TokenExchangeOptions. */
   sentTracker?: { latest?: CapturedSent }
 }
@@ -26,7 +26,9 @@ export interface DeferredResult {
   error?: AAuthError
 }
 
-const DEFAULT_MAX_POLL_DURATION = 300
+// A human completing consent — possibly including a chained upstream OAuth on
+// another device — regularly exceeds 5 minutes; 300s timed out real sessions.
+const DEFAULT_MAX_POLL_DURATION = 900
 const DEFAULT_PREFER_WAIT = 45
 
 /**
