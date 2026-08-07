@@ -257,7 +257,7 @@ FLAGS
 EXAMPLE
   $ npx @aauth/bootstrap token
   {
-    "signingKey": { "kty": "OKP", "crv": "Ed25519", "x": "…", "d": "…" },
+    "signingKey": { "kty": "OKP", "crv": "Ed25519", "x": "…", "d": "…", "alg": "Ed25519" },
     "signatureKey": { "type": "jwt", "jwt": "eyJhbGci…" }
   }`,
 

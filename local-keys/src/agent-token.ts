@@ -59,6 +59,11 @@ async function signWithSoftwareKey(
   const { publicKey: ephPub, privateKey: ephPriv } = await generateKeyPair(ephAlg, ephOpts)
   const ephPrivJwk = await exportJWK(ephPriv)
   const ephPubJwk = await exportJWK(ephPub)
+  // @hellocoop/httpsig 2.0 (signature-key -08 / RFC 9864) requires every JWK to
+  // carry a fully-specified alg; the polymorphic 'EdDSA' is rejected.
+  const ephJwkAlg = ephAlg === 'ES256' ? 'ES256' : 'Ed25519'
+  ephPrivJwk.alg = ephJwkAlg
+  ephPubJwk.alg = ephJwkAlg
 
   const rootKey = await importJWK(rootJwk, alg)
   const now = Math.floor(Date.now() / 1000)
@@ -104,6 +109,11 @@ async function signWithHardwareKey(
   const { publicKey: ephPub, privateKey: ephPriv } = await generateKeyPair(ephAlg, ephOpts)
   const ephPrivJwk = await exportJWK(ephPriv)
   const ephPubJwk = await exportJWK(ephPub)
+  // @hellocoop/httpsig 2.0 (signature-key -08 / RFC 9864) requires every JWK to
+  // carry a fully-specified alg; the polymorphic 'EdDSA' is rejected.
+  const ephJwkAlg = ephAlg === 'ES256' ? 'ES256' : 'Ed25519'
+  ephPrivJwk.alg = ephJwkAlg
+  ephPubJwk.alg = ephJwkAlg
 
   const now = Math.floor(Date.now() / 1000)
 
