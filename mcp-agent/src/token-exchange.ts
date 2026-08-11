@@ -1,9 +1,8 @@
 import type { FetchLike, GetKeyMaterial, OnEvent, CapturedSent } from './types.js'
 import { pollDeferred } from './deferred.js'
 import type { AAuthError } from './deferred.js'
-import { parseAAuthHeader } from './aauth-header.js'
-import { decodeJwtPayload } from './decode-jwt.js'
-import { summarizeResponseHeaders, decodeSignatureKey, peekResponseBody } from './log-helpers.js'
+import { parseRequirementHeader } from '@aauth/protocol'
+import { summarizeResponseHeaders, decodeSignatureKey, peekResponseBody, decodeJwtPayloadSafe } from './log-helpers.js'
 
 export class TokenExchangeError extends Error {
   constructor(
@@ -57,8 +56,24 @@ export interface TokenExchangeResult {
   expiresIn: number
 }
 
+/**
+ * Person-server metadata, from `/.well-known/aauth-person.json`.
+ *
+ * `auth_token_endpoint` was named `token_endpoint` before protocol -11, and
+ * `person_token_endpoint` is new in -11. Both are REQUIRED: a PS that does not
+ * publish `person_token_endpoint` cannot issue the person token a resource now
+ * demands before it will issue a resource token, so it is non-conformant and
+ * the whole flow is dead at that server.
+ */
 export interface AuthServerMetadata {
-  token_endpoint: string
+  auth_token_endpoint: string
+  person_token_endpoint: string
+  mission_endpoint?: string
+  permission_endpoint?: string
+  audit_endpoint?: string
+  interaction_endpoint?: string
+  mission_control_endpoint?: string
+  revocation_endpoint?: string
   jwks_uri?: string
 }
 
@@ -68,9 +83,14 @@ const PREFER_WAIT = 45
  * Exchange a resource token for an auth token via the auth server.
  *
  * 1. Fetches auth server metadata (/.well-known/aauth-person.json)
- * 2. POSTs to token_endpoint with resource_token + hints, Prefer: wait=45
+ * 2. POSTs to auth_token_endpoint with resource_token + hints, Prefer: wait=45
  * 3. If 200: returns tokens directly
  * 4. If 202: polls via pollDeferred until terminal response
+ *
+ * `mission_s256` is not a parameter here: the mission reaches the PS inside the
+ * resource token, which copied it from the person token the agent presented
+ * (#person-token-endpoint). The agent names the mission once, when it requests
+ * the person token.
  */
 export async function exchangeToken(options: TokenExchangeOptions): Promise<TokenExchangeResult> {
   const {
@@ -91,14 +111,15 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
 
   // 1. Auth server metadata — use the cached copy if provided, else fetch it
   // (and hand the fresh copy back via onMetadata so the caller can persist it).
-  let metadata: AuthServerMetadata
-  if (options.authServerMetadata) {
-    metadata = options.authServerMetadata
-    onEvent?.({ step: 'ps_metadata_cached', phase: 'info' })
-  } else {
-    metadata = await fetchMetadata(signedFetch, authServerUrl, onEvent, getKeyMaterial, sentTracker)
-    options.onMetadata?.(metadata)
-  }
+  const metadata = await resolveAuthServerMetadata({
+    signedFetch,
+    authServerUrl,
+    authServerMetadata: options.authServerMetadata,
+    onMetadata: options.onMetadata,
+    onEvent,
+    getKeyMaterial,
+    sentTracker,
+  })
 
   const { capabilities, prompt } = options
 
@@ -122,12 +143,12 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     onEvent({
       step: 'ps_token_request',
       phase: 'start',
-      url: metadata.token_endpoint,
+      url: metadata.auth_token_endpoint,
       agent_token: agentToken,
     })
   }
   const tokenBody = JSON.stringify(body)
-  const response = await signedFetch(metadata.token_endpoint, {
+  const response = await signedFetch(metadata.auth_token_endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -155,7 +176,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
       step: 'auth_token_received',
       phase: 'info',
       expiresIn: parsed.expiresIn,
-      authToken: decodeJwtPayload(parsed.authToken),
+      authToken: decodeJwtPayloadSafe(parsed.authToken),
     })
     return parsed
   }
@@ -175,7 +196,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     let interactionCode: string | undefined
     const aauthHeader = response.headers.get('aauth-requirement')
     if (aauthHeader) {
-      const challenge = parseAAuthHeader(aauthHeader)
+      const challenge = parseRequirementHeader(aauthHeader)
       if (challenge.requirement === 'interaction' && challenge.url && challenge.code) {
         interactionUrl = challenge.url
         interactionCode = challenge.code
@@ -200,7 +221,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
         step: 'auth_token_received',
         phase: 'info',
         expiresIn: parsed.expiresIn,
-        authToken: decodeJwtPayload(parsed.authToken),
+        authToken: decodeJwtPayloadSafe(parsed.authToken),
       })
       return parsed
     }
@@ -211,13 +232,49 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   throw new TokenExchangeError(response.status)
 }
 
-async function fetchMetadata(
-  signedFetch: FetchLike,
-  authServerUrl: string,
-  onEvent?: OnEvent,
-  getKeyMaterial?: GetKeyMaterial,
-  sentTracker?: { latest?: CapturedSent },
+export interface AuthServerMetadataOptions {
+  signedFetch: FetchLike
+  authServerUrl: string
+  /** Cached metadata; when provided, the /.well-known fetch is skipped. */
+  authServerMetadata?: AuthServerMetadata
+  /** Called with freshly-fetched metadata so callers can persist it. */
+  onMetadata?: (metadata: AuthServerMetadata) => void
+  onEvent?: OnEvent
+  getKeyMaterial?: GetKeyMaterial
+  sentTracker?: { latest?: CapturedSent }
+}
+
+/**
+ * Return the person server's metadata, from the caller's cache when it has one
+ * and from `/.well-known/aauth-person.json` otherwise. Shared by the auth-token
+ * exchange and the person-token client so one flow fetches the document once.
+ */
+export async function resolveAuthServerMetadata(
+  options: AuthServerMetadataOptions,
 ): Promise<AuthServerMetadata> {
+  if (options.authServerMetadata) {
+    options.onEvent?.({ step: 'ps_metadata_cached', phase: 'info' })
+    return options.authServerMetadata
+  }
+  const metadata = await fetchAuthServerMetadata(options)
+  options.onMetadata?.(metadata)
+  return metadata
+}
+
+/**
+ * Fetch and validate `/.well-known/aauth-person.json`.
+ *
+ * Both `auth_token_endpoint` and `person_token_endpoint` are REQUIRED in -11;
+ * a document missing either is rejected here rather than half-way through a
+ * flow that cannot complete.
+ */
+export async function fetchAuthServerMetadata({
+  signedFetch,
+  authServerUrl,
+  onEvent,
+  getKeyMaterial,
+  sentTracker,
+}: AuthServerMetadataOptions): Promise<AuthServerMetadata> {
   const metadataUrl = `${authServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
   if (onEvent) {
     const agentToken = getKeyMaterial
@@ -244,8 +301,14 @@ async function fetchMetadata(
   }
 
   const metadata = await response.json() as Record<string, unknown>
-  if (!metadata.token_endpoint) {
-    throw new Error('Auth server metadata missing token_endpoint')
+  if (!metadata.auth_token_endpoint) {
+    throw new Error('Auth server metadata missing auth_token_endpoint')
+  }
+  if (!metadata.person_token_endpoint) {
+    // A PS with no person token endpoint cannot mint the person token a
+    // resource requires before it issues a resource token — nothing downstream
+    // of this document can succeed.
+    throw new Error('Auth server metadata missing person_token_endpoint — person server is not AAuth -11 conformant')
   }
 
   return metadata as unknown as AuthServerMetadata
@@ -264,7 +327,8 @@ function parseTokenResponse(body: Record<string, unknown>): TokenExchangeResult 
   }
 }
 
-function resolveUrl(base: string, url: string): string {
+/** Resolve a possibly-relative `Location` against the server it came from. */
+export function resolveUrl(base: string, url: string): string {
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url
   }

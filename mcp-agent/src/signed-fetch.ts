@@ -1,12 +1,42 @@
 import { fetch as httpSigFetch } from '@hellocoop/httpsig'
-import type { SentRequest } from '@hellocoop/httpsig'
-import { buildCapabilitiesHeader, buildMissionHeader } from './aauth-header.js'
+import type { SentRequest, HttpSigFetchOptions } from '@hellocoop/httpsig'
+import { buildCapabilitiesHeader } from '@aauth/protocol'
+import type { Capability } from '@aauth/protocol'
 import type { GetKeyMaterial, FetchLike, CapturedSent } from './types.js'
-import type { Capability, AAuthMission } from './aauth-header.js'
+
+/**
+ * Covered components for a request that carries a body to a PS or AS endpoint.
+ *
+ * Protocol -11 (#covered-components): on such a request the signature MUST
+ * additionally cover `content-digest` and `content-type`, because PS and AS
+ * request bodies carry the members that decide what is authorized
+ * (`resource`, `mission_s256`, `justification`, …) and only the tokens among
+ * them are self-protecting. @hellocoop/httpsig generates the Content-Digest
+ * header only when the covered-component list names it, so the list has to be
+ * passed explicitly — its DEFAULT_COMPONENTS_BODY omits `content-digest`.
+ *
+ * Resources are deliberately excluded: they declare what they need through
+ * `additional_signature_components` in their metadata, so a blanket body
+ * mandate toward a resource would be wrong.
+ */
+export const PS_COMPONENTS_BODY: readonly string[] = [
+  '@method',
+  '@authority',
+  '@path',
+  'content-type',
+  'content-digest',
+  'signature-key',
+]
 
 export interface SignedFetchOptions {
   capabilities?: Capability[]
-  mission?: AAuthMission
+  /**
+   * Set on a fetch aimed at PS or AS endpoints. Requests carrying a body then
+   * sign `content-digest` and `content-type` as well (PS_COMPONENTS_BODY).
+   * Leave unset for resource-facing fetches — a resource states its own extra
+   * components via `additional_signature_components`.
+   */
+  signBody?: boolean
   /**
    * Called synchronously after each signed request returns, with the actual
    * on-the-wire headers + body. Used by the AAuth flow to capture the
@@ -35,7 +65,7 @@ function captureSent(sent: SentRequest): CapturedSent {
 }
 
 export function createSignedFetch(getKeyMaterial: GetKeyMaterial, options?: SignedFetchOptions): FetchLike {
-  const hasExtraHeaders = (options?.capabilities?.length ?? 0) > 0 || !!options?.mission
+  const capabilities = options?.capabilities ?? []
 
   return async (url: string | URL, init?: RequestInit): Promise<Response> => {
     const { signingKey, signatureKey } = await getKeyMaterial()
@@ -44,49 +74,27 @@ export function createSignedFetch(getKeyMaterial: GetKeyMaterial, options?: Sign
       ? { type: 'jwt' as const, jwt: signatureKey.jwt }
       : signatureKey
 
-    const wantSent = !!options?.onSigned
-
-    if (hasExtraHeaders) {
-      const headers = new Headers(init?.headers)
-      if (options?.capabilities?.length) {
-        headers.set('aauth-capabilities', buildCapabilitiesHeader(options.capabilities))
-      }
-      if (options?.mission) {
-        headers.set('aauth-mission', buildMissionHeader(options.mission))
-      }
-      if (wantSent) {
-        const { response, sent } = await httpSigFetch(url, {
-          ...init,
-          headers,
-          signingKey,
-          signatureKey: httpSigKey,
-          returnSent: true,
-        })
-        options!.onSigned!(captureSent(sent))
-        return response
-      }
-      return await httpSigFetch(url, {
-        ...init,
-        headers,
-        signingKey,
-        signatureKey: httpSigKey,
-      })
-    }
-
-    if (wantSent) {
-      const { response, sent } = await httpSigFetch(url, {
-        ...init,
-        signingKey,
-        signatureKey: httpSigKey,
-        returnSent: true,
-      })
-      options!.onSigned!(captureSent(sent))
-      return response
-    }
-    return await httpSigFetch(url, {
+    const fetchInit: HttpSigFetchOptions = {
       ...init,
       signingKey,
       signatureKey: httpSigKey,
-    })
+    }
+
+    if (capabilities.length) {
+      const headers = new Headers(init?.headers)
+      headers.set('aauth-capabilities', buildCapabilitiesHeader(capabilities))
+      fetchInit.headers = headers
+    }
+
+    if (options?.signBody && init?.body != null) {
+      fetchInit.components = [...PS_COMPONENTS_BODY]
+    }
+
+    if (options?.onSigned) {
+      const { response, sent } = await httpSigFetch(url, { ...fetchInit, returnSent: true })
+      options.onSigned(captureSent(sent))
+      return response
+    }
+    return await httpSigFetch(url, fetchInit)
   }
 }

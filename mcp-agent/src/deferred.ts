@@ -1,4 +1,4 @@
-import { parseAAuthHeader } from './aauth-header.js'
+import { parseRequirementHeader } from '@aauth/protocol'
 import { summarizeResponseHeaders, peekResponseBody } from './log-helpers.js'
 import type { FetchLike, OnEvent, CapturedSent } from './types.js'
 
@@ -126,7 +126,7 @@ export async function pollDeferred(options: DeferredOptions): Promise<DeferredRe
       const aauthHeader = response.headers.get('aauth-requirement')
       if (aauthHeader) {
         try {
-          const challenge = parseAAuthHeader(aauthHeader)
+          const challenge = parseRequirementHeader(aauthHeader)
           if (challenge.requirement === 'interaction' && challenge.url && challenge.code) {
             onEvent?.({ step: 'interaction_required', phase: 'info', url: challenge.url, code: challenge.code })
             if (onInteraction) onInteraction(challenge.url, challenge.code)
