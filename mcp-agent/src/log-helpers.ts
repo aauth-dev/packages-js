@@ -1,6 +1,22 @@
 import type { SignatureKeyJwt, SignatureKeyJktJwt, SignatureKeyHwk, CapturedSent } from './types.js'
 import type { SentRequest } from '@hellocoop/httpsig'
-import { decodeJwtPayload } from './decode-jwt.js'
+import { decodeJwtPayload } from '@aauth/protocol'
+
+/**
+ * Decode a JWT payload for --log narration, swallowing malformed input.
+ *
+ * `@aauth/protocol`'s decodeJwtPayload throws on a token it cannot decode.
+ * Narration is best-effort — a token we cannot read must not abort a protocol
+ * flow — so every logging path goes through this wrapper. Security decisions
+ * never read a decoded payload; they verify signatures.
+ */
+export function decodeJwtPayloadSafe(jwt: string): Record<string, unknown> | undefined {
+  try {
+    return decodeJwtPayload(jwt)
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Response headers exposed in --log events. Filtered to AAuth-relevant set so
@@ -42,7 +58,7 @@ export function decodeSignatureKey(
   sk: SignatureKeyJwt | SignatureKeyJktJwt | SignatureKeyHwk,
 ): Record<string, unknown> | undefined {
   const jwt = jwtFromSignatureKey(sk)
-  return jwt ? decodeJwtPayload(jwt) : undefined
+  return jwt ? decodeJwtPayloadSafe(jwt) : undefined
 }
 
 /**

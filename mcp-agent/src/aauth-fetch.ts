@@ -1,13 +1,20 @@
 import { fetch as httpSigFetch, DEFAULT_COMPONENTS_GET, DEFAULT_COMPONENTS_BODY } from '@hellocoop/httpsig'
 import { createSignedFetch } from './signed-fetch.js'
-import { parseAAuthHeader, buildCapabilitiesHeader, buildMissionHeader } from './aauth-header.js'
+import { parseRequirementHeader } from '@aauth/protocol'
+import type { Capability } from '@aauth/protocol'
 import { exchangeToken } from './token-exchange.js'
 import type { AuthServerMetadata } from './token-exchange.js'
+import { createPersonTokenCache } from './person-token.js'
+import type { PersonTokenCache } from './person-token.js'
 import { pollDeferred } from './deferred.js'
-import { decodeJwtPayload } from './decode-jwt.js'
-import { summarizeResponseHeaders, decodeSignatureKey, captureSentFromHttpsig, peekResponseBody } from './log-helpers.js'
+import {
+  summarizeResponseHeaders,
+  decodeSignatureKey,
+  captureSentFromHttpsig,
+  peekResponseBody,
+  decodeJwtPayloadSafe,
+} from './log-helpers.js'
 import type { GetKeyMaterial, FetchLike, OnEvent, CapturedSent } from './types.js'
-import type { Capability, AAuthMission } from './aauth-header.js'
 
 export interface AAuthFetchOptions {
   getKeyMaterial: GetKeyMaterial
@@ -19,6 +26,8 @@ export interface AAuthFetchOptions {
   /** Called with the auth token minted during a challenge exchange, so the caller
    * can surface it as a reusable credential (e.g. `fetch --with-token`). */
   onAuthToken?: (authToken: string, expiresIn: number) => void
+  /** Called with each person token minted for a resource. */
+  onPersonToken?: (personToken: string, resource: string) => void
   /** Called with an opaque AAuth-Access token received from a resource (two-party
    * mode), including rolling-refresh replacements, so the caller can surface it
    * for reuse. */
@@ -34,7 +43,15 @@ export interface AAuthFetchOptions {
   tenant?: string
   domainHint?: string
   capabilities?: Capability[]
-  mission?: AAuthMission
+  /**
+   * The mission the agent is operating under — the base64url SHA-256 of the
+   * approved mission blob. Forwarded to the PS when a person token is
+   * requested; from there the PS stamps it into the person token, the resource
+   * copies it into the resource token, and the PS or AS copies it into the auth
+   * token. There is no `AAuth-Mission` header in -11; a mission only ever
+   * reaches a resource inside a token.
+   */
+  missionS256?: string
   prompt?: string
   /** Total consent-poll timeout in seconds (default 900) — see pollDeferred. */
   maxPollDuration?: number
@@ -65,6 +82,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     authServerMetadata,
     onMetadata,
     onAuthToken,
+    onPersonToken,
     onOpaqueToken,
     opaqueToken: seedOpaqueToken,
     onInteraction,
@@ -75,7 +93,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     tenant,
     domainHint,
     capabilities,
-    mission,
+    missionS256,
     prompt,
     maxPollDuration,
   } = options
@@ -88,7 +106,29 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
   const sentTracker: { latest: CapturedSent | undefined } = { latest: undefined }
   const onSigned = onEvent ? (sent: CapturedSent) => { sentTracker.latest = sent } : undefined
 
-  const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, mission, onSigned })
+  // Two flavours of signed fetch. Resource-facing requests sign the base
+  // components only — a resource states any extra it needs through
+  // `additional_signature_components`. PS/AS-facing requests additionally sign
+  // `content-digest` and `content-type` on any request with a body, which -11
+  // makes unconditional at those endpoints.
+  const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, onSigned })
+  const psSignedFetch = createSignedFetch(getKeyMaterial, { capabilities, signBody: true, onSigned })
+
+  const personTokens: PersonTokenCache | undefined = configuredAuthServer
+    ? createPersonTokenCache({
+      signedFetch: psSignedFetch,
+      personServerUrl: configuredAuthServer,
+      personServerMetadata: authServerMetadata,
+      onMetadata,
+      onInteraction,
+      onClarification,
+      onEvent,
+      maxPollDuration,
+      getKeyMaterial,
+      sentTracker,
+    })
+    : undefined
+
   const tokenCache = new Map<string, CachedToken>()
   const opaqueCache = new Map<string, CachedOpaque>()
 
@@ -106,7 +146,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     const cached = findCachedToken(tokenCache, resourceOrigin)
     if (cached) {
       // Use cached auth token — sign with auth token instead of agent token
-      const response = await fetchWithAuthToken(url, init, cached.authToken, getKeyMaterial, onSigned)
+      const response = await fetchWithToken(url, init, cached.authToken, getKeyMaterial, onSigned)
       // If the cached token is rejected, fall through to challenge flow
       if (response.status !== 401) {
         cacheOpaqueToken(opaqueCache, resourceOrigin, response, onOpaqueToken)
@@ -139,7 +179,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         agent_token: decodeSignatureKey(km.signatureKey),
       })
     }
-    const response = await signedFetch(url, init)
+    let response = await signedFetch(url, init)
     const responseBody = onEvent ? await peekResponseBody(response) : undefined
     onEvent?.({
       step: 'signed_request',
@@ -152,6 +192,38 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         ...(responseBody !== undefined ? { body: responseBody } : {}),
       },
     })
+
+    // 401 requirement=person-token: the resource wants the person's identity
+    // before it will serve or issue anything. Get one from the PS for this
+    // resource and retry with it in place of the agent token. An agent with no
+    // person server cannot satisfy this and returns the 401 to its caller.
+    if (response.status === 401 && personTokens) {
+      const requirementHeader = response.headers.get('aauth-requirement')
+      if (requirementHeader && parseRequirementHeader(requirementHeader).requirement === 'person-token') {
+        onEvent?.({ step: 'challenge_received', phase: 'info', requirement: 'person-token' })
+        const personToken = await personTokens.get(resourceOrigin, missionS256)
+        onPersonToken?.(personToken, resourceOrigin)
+        onEvent?.({
+          step: 'retry_with_person_token',
+          phase: 'start',
+          url: urlStr,
+          person_token: decodeJwtPayloadSafe(personToken),
+        })
+        response = await fetchWithToken(url, init, personToken, getKeyMaterial, onSigned)
+        const retryBody = onEvent ? await peekResponseBody(response) : undefined
+        onEvent?.({
+          step: 'retry_with_person_token',
+          phase: 'done',
+          status: response.status,
+          request_headers: sentTracker.latest?.headers,
+          request_body: sentTracker.latest?.body,
+          response: {
+            headers: summarizeResponseHeaders(response.headers),
+            ...(retryBody !== undefined ? { body: retryBody } : {}),
+          },
+        })
+      }
+    }
 
     // 200: success — check for AAuth-Access token
     if (response.status === 200) {
@@ -166,14 +238,14 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         return response // Not an AAuth challenge
       }
 
-      const challenge = parseAAuthHeader(aauthHeader)
+      const challenge = parseRequirementHeader(aauthHeader)
 
       if (challenge.requirement === 'auth-token' && challenge.resourceToken) {
         onEvent?.({
           step: 'challenge_received',
           phase: 'info',
           requirement: 'auth-token',
-          resourceToken: decodeJwtPayload(challenge.resourceToken),
+          resourceToken: decodeJwtPayloadSafe(challenge.resourceToken),
         })
         // The agent sends the resource token to its own auth server
         const authServerUrl = configuredAuthServer
@@ -182,7 +254,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
         }
 
         const result = await exchangeToken({
-          signedFetch,
+          signedFetch: psSignedFetch,
           authServerUrl,
           authServerMetadata,
           onMetadata,
@@ -216,9 +288,9 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           step: 'retry_with_auth_token',
           phase: 'start',
           url: urlStr,
-          auth_token: decodeJwtPayload(result.authToken),
+          auth_token: decodeJwtPayloadSafe(result.authToken),
         })
-        const retryResponse = await fetchWithAuthToken(
+        const retryResponse = await fetchWithToken(
           url, init, result.authToken, getKeyMaterial, onSigned,
         )
         const retryBody = onEvent ? await peekResponseBody(retryResponse) : undefined
@@ -271,7 +343,7 @@ async function handleResourceInteraction(
   const aauthHeader = response.headers.get('aauth-requirement')
   if (aauthHeader) {
     try {
-      const challenge = parseAAuthHeader(aauthHeader)
+      const challenge = parseRequirementHeader(aauthHeader)
       if (challenge.requirement === 'interaction' && challenge.url && challenge.code) {
         interactionUrl = challenge.url
         interactionCode = challenge.code
@@ -294,13 +366,15 @@ async function handleResourceInteraction(
 }
 
 /**
- * Send a signed request using the auth token as the signature key.
- * The auth token replaces the agent token in the Signature-Key header.
+ * Send a signed request presenting `token` as the signature key — a person
+ * token or an auth token, in place of the agent token. Both are presented the
+ * same way (`Signature-Key: sig=jwt;jwt="…"`) and both carry the request's
+ * signing key in `cnf.jwk`, so verification proceeds identically.
  */
-async function fetchWithAuthToken(
+async function fetchWithToken(
   url: string | URL,
   init: RequestInit | undefined,
-  authToken: string,
+  token: string,
   getKeyMaterial: GetKeyMaterial,
   onSigned?: (sent: CapturedSent) => void,
 ): Promise<Response> {
@@ -309,7 +383,7 @@ async function fetchWithAuthToken(
     const { response, sent } = await httpSigFetch(url, {
       ...init,
       signingKey,
-      signatureKey: { type: 'jwt', jwt: authToken },
+      signatureKey: { type: 'jwt', jwt: token },
       returnSent: true,
     })
     onSigned(captureSentFromHttpsig(sent))
@@ -318,7 +392,7 @@ async function fetchWithAuthToken(
   return await httpSigFetch(url, {
     ...init,
     signingKey,
-    signatureKey: { type: 'jwt', jwt: authToken },
+    signatureKey: { type: 'jwt', jwt: token },
   })
 }
 

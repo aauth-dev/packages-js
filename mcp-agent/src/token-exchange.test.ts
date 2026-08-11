@@ -14,7 +14,8 @@ describe('exchangeToken', () => {
   let mockFetch: ReturnType<typeof vi.fn>
 
   const metadata = {
-    token_endpoint: 'https://auth.example/aauth/token',
+    auth_token_endpoint: 'https://auth.example/aauth/token',
+    person_token_endpoint: 'https://auth.example/aauth/person',
     jwks_uri: 'https://auth.example/aauth/jwks',
   }
 
@@ -86,7 +87,7 @@ describe('exchangeToken', () => {
     const result = await exchangeToken({
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
-      authServerMetadata: { token_endpoint: 'https://auth.example/aauth/token' },
+      authServerMetadata: metadata,
       resourceToken: 'eyJ.resource.token',
     })
 
@@ -109,7 +110,7 @@ describe('exchangeToken', () => {
     await exchangeToken({
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
-      authServerMetadata: { token_endpoint: 'https://auth.example/aauth/token' },
+      authServerMetadata: metadata,
       resourceToken: 'rt',
       onEvent,
       onMetadata,
@@ -136,7 +137,8 @@ describe('exchangeToken', () => {
     })
 
     expect(onMetadata).toHaveBeenCalledWith(expect.objectContaining({
-      token_endpoint: 'https://auth.example/aauth/token',
+      auth_token_endpoint: 'https://auth.example/aauth/token',
+      person_token_endpoint: 'https://auth.example/aauth/person',
     }))
   })
 
@@ -218,6 +220,30 @@ describe('exchangeToken', () => {
     })
   })
 
+  it('does not send mission_s256 — the mission travels inside the resource token', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(metadata), { status: 200 }))
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      auth_token: 'tok', expires_in: 3600,
+    }), { status: 200 }))
+
+    await exchangeToken({
+      signedFetch: mockFetch,
+      authServerUrl: 'https://auth.example',
+      // A resource token minted under a mission carries mission_s256, copied
+      // from the person token the agent presented. The auth token request
+      // itself has no mission parameter (#agent-token-request).
+      resourceToken: 'eyJ.resource.token.with.mission_s256',
+      justification: 'book the flights',
+    })
+
+    const body = JSON.parse(mockFetch.mock.calls[1][1].body)
+    expect(body).not.toHaveProperty('mission_s256')
+    expect(body).toEqual({
+      resource_token: 'eyJ.resource.token.with.mission_s256',
+      justification: 'book the flights',
+    })
+  })
+
   it('throws on failed metadata fetch', async () => {
     mockFetch.mockResolvedValueOnce(new Response('not found', { status: 404 }))
 
@@ -228,7 +254,7 @@ describe('exchangeToken', () => {
     })).rejects.toThrow('Failed to fetch auth server metadata: 404')
   })
 
-  it('throws on metadata missing token_endpoint', async () => {
+  it('throws on metadata missing auth_token_endpoint', async () => {
     mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ jwks_uri: 'x' }), {
       status: 200,
     }))
@@ -237,7 +263,22 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
-    })).rejects.toThrow('Auth server metadata missing token_endpoint')
+    })).rejects.toThrow('Auth server metadata missing auth_token_endpoint')
+  })
+
+  it('rejects a PS with no person_token_endpoint as non-conformant', async () => {
+    // -11 makes person_token_endpoint REQUIRED: without it the PS cannot mint
+    // the person token a resource demands before issuing a resource token, so
+    // nothing downstream of this document can succeed.
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      auth_token_endpoint: 'https://auth.example/aauth/token',
+    }), { status: 200 }))
+
+    await expect(exchangeToken({
+      signedFetch: mockFetch,
+      authServerUrl: 'https://auth.example',
+      resourceToken: 'rt',
+    })).rejects.toThrow('missing person_token_endpoint')
   })
 
   it('throws on unexpected token endpoint status', async () => {

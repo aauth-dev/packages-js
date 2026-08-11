@@ -8,7 +8,7 @@ vi.mock('@hellocoop/httpsig', () => ({
   fetch: mockHttpSigFetch,
 }))
 
-import { createSignedFetch } from './signed-fetch.js'
+import { createSignedFetch, PS_COMPONENTS_BODY } from './signed-fetch.js'
 
 describe('createSignedFetch', () => {
   const fakeKeyMaterial = {
@@ -92,20 +92,7 @@ describe('createSignedFetch', () => {
     expect(headers.get('aauth-capabilities')).toBe('interaction, clarification')
   })
 
-  it('sets AAuth-Mission header when mission provided', async () => {
-    mockHttpSigFetch.mockResolvedValue(new Response())
-
-    const signedFetch = createSignedFetch(getKeyMaterial, {
-      mission: { approver: 'https://ps.example', s256: 'abc123' },
-    })
-    await signedFetch('https://example.com')
-
-    const call = mockHttpSigFetch.mock.calls[0]
-    const headers = new Headers(call[1].headers)
-    expect(headers.get('aauth-mission')).toBe('approver="https://ps.example"; s256="abc123"')
-  })
-
-  it('does not set AAuth-Capabilities or AAuth-Mission when not provided', async () => {
+  it('does not set AAuth-Capabilities when not provided', async () => {
     mockHttpSigFetch.mockResolvedValue(new Response())
 
     const signedFetch = createSignedFetch(getKeyMaterial)
@@ -114,6 +101,65 @@ describe('createSignedFetch', () => {
     const call = mockHttpSigFetch.mock.calls[0]
     const headers = new Headers(call[1].headers)
     expect(headers.has('aauth-capabilities')).toBe(false)
+  })
+
+  it('does not send an AAuth-Mission header — the header was removed in -11', async () => {
+    mockHttpSigFetch.mockResolvedValue(new Response())
+
+    const signedFetch = createSignedFetch(getKeyMaterial, { capabilities: ['interaction'] })
+    await signedFetch('https://example.com')
+
+    const call = mockHttpSigFetch.mock.calls[0]
+    const headers = new Headers(call[1].headers)
     expect(headers.has('aauth-mission')).toBe(false)
+  })
+
+  describe('PS/AS body signing', () => {
+    it('covers content-digest and content-type on a PS request with a body', async () => {
+      mockHttpSigFetch.mockResolvedValue(new Response())
+
+      const psFetch = createSignedFetch(getKeyMaterial, { signBody: true })
+      await psFetch('https://ps.example/person', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource: 'https://resource.example',
+          mission_s256: 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk',
+        }),
+      })
+
+      const components: string[] = mockHttpSigFetch.mock.calls[0][1].components
+      expect(components).toEqual([...PS_COMPONENTS_BODY])
+      expect(components).toContain('content-digest')
+      expect(components).toContain('content-type')
+      // The four base components stay mandatory.
+      expect(components).toEqual(expect.arrayContaining([
+        '@method', '@authority', '@path', 'signature-key',
+      ]))
+    })
+
+    it('passes no component list on a bodyless PS request', async () => {
+      mockHttpSigFetch.mockResolvedValue(new Response())
+
+      const psFetch = createSignedFetch(getKeyMaterial, { signBody: true })
+      await psFetch('https://ps.example/.well-known/aauth-person.json', { method: 'GET' })
+
+      expect(mockHttpSigFetch.mock.calls[0][1].components).toBeUndefined()
+    })
+
+    it('never mandates body components toward a resource', async () => {
+      mockHttpSigFetch.mockResolvedValue(new Response())
+
+      const resourceFetch = createSignedFetch(getKeyMaterial)
+      await resourceFetch('https://resource.example/api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"q":1}',
+      })
+
+      // A resource declares what it needs via additional_signature_components;
+      // the agent must not impose content-digest on it.
+      expect(mockHttpSigFetch.mock.calls[0][1].components).toBeUndefined()
+    })
   })
 })
