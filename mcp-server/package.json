@@ -1,7 +1,7 @@
 {
-  "name": "@aauth/mcp-server",
-  "version": "1.0.0",
-  "description": "AAuth server-side building blocks: challenge headers, interaction management, resource tokens",
+  "name": "@aauth/resource",
+  "version": "2.0.0",
+  "description": "AAuth resource-side reference implementation: token verification, resource tokens, R3 documents and per-call proposals, challenge headers, interaction management",
   "type": "module",
   "exports": {
     ".": {
@@ -14,12 +14,14 @@
   ],
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
     "aauth",
-    "mcp",
-    "server"
+    "resource",
+    "r3",
+    "authorization"
   ],
   "author": "Dick Hardt <dick.hardt@hello.coop>",
   "license": "MIT",
@@ -29,10 +31,11 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/aauth-dev/packages-js",
-    "directory": "mcp-server"
+    "directory": "resource"
   },
   "dependencies": {
     "@aauth/interaction-code": "^0.1.0",
+    "@aauth/protocol": "^1.0.0",
     "jose": "^5.0.0"
   },
   "devDependencies": {

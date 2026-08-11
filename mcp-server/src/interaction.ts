@@ -1,6 +1,6 @@
-import { randomBytes } from 'node:crypto'
 import { generateCode } from '@aauth/interaction-code'
-import { buildAAuthHeader } from './aauth-header.js'
+import { buildAAuthHeader } from './challenge.js'
+import { randomToken } from './util.js'
 
 export interface PendingRequest<T = unknown> {
   id: string
@@ -47,7 +47,7 @@ export class InteractionManager {
    * Create a pending request. Returns 202 response headers and the pending handle.
    */
   createPending<T = unknown>(): { headers: Record<string, string>; pending: PendingRequest<T> } {
-    const id = randomBytes(16).toString('hex')
+    const id = randomToken(16)
     const code = generateCode()
 
     let resolve!: (value: T) => void
