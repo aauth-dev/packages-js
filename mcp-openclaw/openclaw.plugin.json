@@ -19,6 +19,14 @@
         "type": "number",
         "description": "Token lifetime in seconds (default: 3600)"
       },
+      "person_server": {
+        "type": "string",
+        "description": "Person server URL (default: the agent token's ps claim)"
+      },
+      "mission_s256": {
+        "type": "string",
+        "description": "Mission the agent is operating under, stamped into person tokens"
+      },
       "mcp_servers": {
         "type": "object",
         "description": "Map of server names to URLs",
