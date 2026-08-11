@@ -24,8 +24,21 @@ export {
   writeCachedMetadata,
   evictCachedMetadata,
   parseMaxAge,
+  isPersonServerMetadata,
+  missingPersonServerMembers,
   PS_METADATA_FILE,
+  CACHE_SCHEMA_VERSION,
 } from './metadata-cache.js'
+export type { PersonServerMetadata } from './metadata-cache.js'
+export {
+  deriveFullySpecifiedAlg,
+  assertFullySpecifiedAlg,
+  hasFullySpecifiedAlg,
+  withFullySpecifiedAlg,
+  publicJwkWithAlg,
+  normalizeAlgId,
+} from './jwk-alg.js'
+export type { FullySpecifiedAlg, AlgBearingJwk } from './jwk-alg.js'
 export { resolveKey, checkKeyAvailability } from './resolve-key.js'
 export { machineLabel, yubikeyLabel } from './device-label.js'
 export { KeyDeletionUnsupportedError } from './types.js'

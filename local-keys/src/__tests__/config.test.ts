@@ -91,7 +91,7 @@ describe('Config', () => {
     writeConfig({ agents: {} })
     addKeyToAgent('https://gone.example', 'kid1', {
       backend: 'software',
-      algorithm: 'EdDSA',
+      algorithm: 'Ed25519',
       keyId: 'kid1',
       deviceLabel: 'macbook-pro',
     })

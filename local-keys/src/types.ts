@@ -3,7 +3,15 @@ import type { JWK } from 'jose'
 // === Key Backend Types ===
 
 export type KeyBackend = 'software' | 'yubikey-piv' | 'secure-enclave'
-export type KeyAlgorithm = 'EdDSA' | 'ES256' | 'RS256'
+
+/**
+ * Signing algorithms, as fully-specified identifiers (RFC 9864).
+ *
+ * `Ed25519` replaces the polymorphic `EdDSA` used before AAuth -11 — see
+ * `jwk-alg.ts`. Config files written by earlier versions still record `EdDSA`;
+ * `normalizeAlgId` maps those on read.
+ */
+export type KeyAlgorithm = 'Ed25519' | 'ES256' | 'RS256'
 
 export interface BackendInfo {
   backend: KeyBackend
