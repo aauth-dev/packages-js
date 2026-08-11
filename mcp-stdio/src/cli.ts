@@ -57,9 +57,10 @@ const innerFetch = createAAuthFetch({
     }),
   // The PS whose metadata carries `person_token_endpoint` (person-token hop) and
   // `auth_token_endpoint` (the -11 name for what -10 called `token_endpoint`).
-  // INTEGRATION: `@aauth/mcp-agent` 2.0.0 spelled this option `authServerUrl`.
-  // If `@aauth/agent` 3.0.0 keeps that spelling, rename this one key.
-  ...(personServerUrl ? { personServerUrl } : {}),
+  // `@aauth/agent` 3.0.0 keeps `authServerUrl` on `createAAuthFetch` (it names
+  // `personServerUrl` only on `requestPersonToken`), so this is one PS URL under
+  // the option name that package actually accepts.
+  ...(personServerUrl ? { authServerUrl: personServerUrl } : {}),
   // pollDeferred and the PS/resource interaction paths call this as
   // (url, code) — the interaction endpoint first, the user-visible code second.
   onInteraction: (url: string, code: string) => {

@@ -154,9 +154,10 @@ async function cmdCreate(positional: string[], flags: Record<string, string | bo
   let publicJwk: Jwk
 
   if (keystore === 'software') {
-    // `EdDSA` here selects the curve for key generation; the JWKs that come back
-    // are re-stamped with the fully-specified `Ed25519` before anything sees them.
-    const generated = await generateKey(algorithm === 'ES256' ? 'ES256' : 'EdDSA')
+    // `Ed25519` selects the curve for key generation and is the fully-specified
+    // `alg` (RFC 9864) the JWKs come back stamped with. `@aauth/local-keys`
+    // 2.0.0 no longer accepts the polymorphic `EdDSA` here.
+    const generated = await generateKey(algorithm === 'ES256' ? 'ES256' : 'Ed25519')
     const pub = withFullySpecifiedAlg(generated.publicJwk) as Record<string, unknown>
     const privateJwk = withFullySpecifiedAlg(generated.privateJwk) as KeychainData['keys'][string]
     kid = pub.kid as string

@@ -9,11 +9,14 @@ import {
 import {
   createAAuthFetch,
   createSignedFetch,
-  parseAAuthHeader,
   exchangeToken,
   TokenExchangeError,
 } from '@aauth/agent'
-import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/agent'
+import type { GetKeyMaterial, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/agent'
+// The challenge parser and the capability vocabulary moved to `@aauth/protocol`
+// in -11; `parseAAuthHeader` is `parseRequirementHeader` there.
+import { parseRequirementHeader } from '@aauth/protocol'
+import type { Capability } from '@aauth/protocol'
 import { mkdirSync, openSync, writeSync, closeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -436,7 +439,7 @@ export async function handleAuthorize(
     }
     const aauthHeader = response.headers.get('aauth-requirement')
     if (!aauthHeader) return fail('401 response without AAuth-Requirement header')
-    const challenge = parseAAuthHeader(aauthHeader)
+    const challenge = parseRequirementHeader(aauthHeader)
     if (challenge.requirement !== 'auth-token' || !challenge.resourceToken) {
       return fail(`Unexpected challenge requirement: ${challenge.requirement}`)
     }

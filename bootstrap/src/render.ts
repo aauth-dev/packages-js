@@ -122,7 +122,7 @@ EXAMPLE
   $ npx @aauth/bootstrap list
   {
     "keystores": [
-      { "keystore": "software", "description": "Software keys stored in OS keychain", "algorithms": ["EdDSA", "ES256"] }
+      { "keystore": "software", "description": "Software keys stored in OS keychain", "algorithms": ["Ed25519", "ES256"] }
     ],
     "agentProviders": [
       {

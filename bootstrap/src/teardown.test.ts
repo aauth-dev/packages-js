@@ -41,7 +41,7 @@ const softwareAgent = (url: string): AgentConfig => ({
   agentServerUrl: `${url}/.well-known/aauth-agent.json`,
   jwksUri: `${url}/.well-known/jwks.json`,
   hosting: { platform: 'github-pages', repo: 'me/me.github.io' },
-  keys: { '2026-05-22_ab': { backend: 'software', algorithm: 'EdDSA', keyId: url, deviceLabel: 'mac' } },
+  keys: { '2026-05-22_ab': { backend: 'software', algorithm: 'Ed25519', keyId: url, deviceLabel: 'mac' } },
 })
 
 let dir: string

@@ -4,7 +4,7 @@ import { UnsupportedRequirementError } from '@aauth/protocol'
 const {
   mockConnect, mockListTools, mockCallTool, MockClient,
   mockTransportClose, MockStreamableHTTPClientTransport,
-  mockCreateSignedFetch, mockGetPersonToken, signedRequests, responseQueue,
+  mockCreateSignedFetch, mockRequestPersonToken, signedRequests, responseQueue,
 } = vi.hoisted(() => {
   const mockConnect = vi.fn().mockResolvedValue(undefined)
   const mockListTools = vi.fn()
@@ -30,12 +30,12 @@ const {
       return responseQueue.shift() ?? new Response(null, { status: 200 })
     }),
   )
-  const mockGetPersonToken = vi.fn()
+  const mockRequestPersonToken = vi.fn()
 
   return {
     mockConnect, mockListTools, mockCallTool, MockClient,
     mockTransportClose, MockStreamableHTTPClientTransport,
-    mockCreateSignedFetch, mockGetPersonToken, signedRequests, responseQueue,
+    mockCreateSignedFetch, mockRequestPersonToken, signedRequests, responseQueue,
   }
 })
 
@@ -49,7 +49,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 
 vi.mock('@aauth/agent', () => ({
   createSignedFetch: mockCreateSignedFetch,
-  getPersonToken: mockGetPersonToken,
+  requestPersonToken: mockRequestPersonToken,
 }))
 
 import { ServerManager } from './server-manager.js'
@@ -100,7 +100,7 @@ describe('ServerManager', () => {
     mockListTools.mockResolvedValue({
       tools: [{ name: 'read_file' }, { name: 'write_file' }],
     })
-    mockGetPersonToken.mockResolvedValue({
+    mockRequestPersonToken.mockResolvedValue({
       personToken: PERSON_TOKEN,
       expiresIn: 3600,
     })
@@ -219,7 +219,7 @@ describe('ServerManager', () => {
       await manager.connectAll()
       await transportFetch()('https://files.example.com/mcp')
 
-      expect(mockGetPersonToken).not.toHaveBeenCalled()
+      expect(mockRequestPersonToken).not.toHaveBeenCalled()
       expect(signedRequests.at(-1)?.signatureKey).toEqual({ type: 'jwt', jwt: AGENT_TOKEN })
     })
 
@@ -233,8 +233,8 @@ describe('ServerManager', () => {
 
       await manager.connectAll()
 
-      expect(mockGetPersonToken).toHaveBeenCalledOnce()
-      expect(mockGetPersonToken.mock.calls[0][0]).toMatchObject({
+      expect(mockRequestPersonToken).toHaveBeenCalledOnce()
+      expect(mockRequestPersonToken.mock.calls[0][0]).toMatchObject({
         // The PS comes from the agent token's `ps` claim, the resource is the
         // MCP server's origin — it becomes the person token's `aud`.
         personServerUrl: 'https://ps.example',
@@ -252,7 +252,7 @@ describe('ServerManager', () => {
 
       await manager.connectAll()
 
-      expect(mockGetPersonToken).toHaveBeenCalledOnce()
+      expect(mockRequestPersonToken).toHaveBeenCalledOnce()
     })
 
     it('replaces the agent token in the signature key once held', async () => {
@@ -278,7 +278,7 @@ describe('ServerManager', () => {
 
       await manager.connectAll()
 
-      expect(mockGetPersonToken.mock.calls[0][0]).toMatchObject({
+      expect(mockRequestPersonToken.mock.calls[0][0]).toMatchObject({
         personServerUrl: 'https://other-ps.example',
       })
     })
@@ -291,7 +291,7 @@ describe('ServerManager', () => {
         person_token_endpoint: 'https://ps.example/person',
       }
       const onPersonServerMetadata = vi.fn()
-      mockGetPersonToken.mockImplementation(async (options: {
+      mockRequestPersonToken.mockImplementation(async (options: {
         onMetadata?: (m: typeof metadata) => void
       }) => {
         options.onMetadata?.(metadata)
@@ -307,7 +307,7 @@ describe('ServerManager', () => {
 
       await manager.connectAll()
       expect(onPersonServerMetadata).toHaveBeenCalledWith(metadata)
-      expect(mockGetPersonToken.mock.calls[0][0].personServerMetadata).toBeUndefined()
+      expect(mockRequestPersonToken.mock.calls[0][0].personServerMetadata).toBeUndefined()
 
       // A later person token request reuses the cached copy — no second
       // /.well-known fetch at the PS.
@@ -320,8 +320,8 @@ describe('ServerManager', () => {
       )
       await transportFetch()('https://files.example.com/mcp')
 
-      expect(mockGetPersonToken).toHaveBeenCalledTimes(2)
-      expect(mockGetPersonToken.mock.calls[1][0].personServerMetadata).toEqual(metadata)
+      expect(mockRequestPersonToken).toHaveBeenCalledTimes(2)
+      expect(mockRequestPersonToken.mock.calls[1][0].personServerMetadata).toEqual(metadata)
     })
   })
 
@@ -332,7 +332,7 @@ describe('ServerManager', () => {
         getKeyMaterial,
       })
       await manager.connectAll()
-      expect(mockGetPersonToken).not.toHaveBeenCalled()
+      expect(mockRequestPersonToken).not.toHaveBeenCalled()
 
       responseQueue.push(
         new Response(null, {
@@ -348,8 +348,8 @@ describe('ServerManager', () => {
       })
 
       expect(response.status).toBe(200)
-      expect(mockGetPersonToken).toHaveBeenCalledOnce()
-      expect(mockGetPersonToken.mock.calls[0][0]).toMatchObject({
+      expect(mockRequestPersonToken).toHaveBeenCalledOnce()
+      expect(mockRequestPersonToken.mock.calls[0][0]).toMatchObject({
         resource: 'https://files.example.com',
       })
       // First attempt on the agent token, retry on the person token.
@@ -376,7 +376,7 @@ describe('ServerManager', () => {
       await expect(
         transportFetch()('https://files.example.com/mcp'),
       ).rejects.toThrow(UnsupportedRequirementError)
-      expect(mockGetPersonToken).not.toHaveBeenCalled()
+      expect(mockRequestPersonToken).not.toHaveBeenCalled()
     })
 
     it('passes through a 401 with no AAuth-Requirement header', async () => {
@@ -391,7 +391,7 @@ describe('ServerManager', () => {
       const response = await transportFetch()('https://files.example.com/mcp')
 
       expect(response.status).toBe(401)
-      expect(mockGetPersonToken).not.toHaveBeenCalled()
+      expect(mockRequestPersonToken).not.toHaveBeenCalled()
     })
   })
 
@@ -427,7 +427,7 @@ describe('ServerManager', () => {
 
       expect(manager.getSkippedServers()).toEqual([])
       expect(MockStreamableHTTPClientTransport).toHaveBeenCalledOnce()
-      expect(mockGetPersonToken).not.toHaveBeenCalled()
+      expect(mockRequestPersonToken).not.toHaveBeenCalled()
     })
 
     it('connects when the resource publishes no metadata', async () => {

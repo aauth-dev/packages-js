@@ -23,8 +23,8 @@ const { mockExchangeToken } = vi.hoisted(() => ({
   mockExchangeToken: vi.fn(),
 }))
 
-const { mockParseAAuthHeader } = vi.hoisted(() => ({
-  mockParseAAuthHeader: vi.fn(),
+const { mockParseRequirementHeader } = vi.hoisted(() => ({
+  mockParseRequirementHeader: vi.fn(),
 }))
 
 const { FakeTokenExchangeError } = vi.hoisted(() => ({
@@ -40,8 +40,12 @@ vi.mock('@aauth/agent', () => ({
   createSignedFetch: mockCreateSignedFetch,
   createAAuthFetch: mockCreateAAuthFetch,
   exchangeToken: mockExchangeToken,
-  parseAAuthHeader: mockParseAAuthHeader,
   TokenExchangeError: FakeTokenExchangeError,
+}))
+
+vi.mock('@aauth/protocol', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@aauth/protocol')>()),
+  parseRequirementHeader: mockParseRequirementHeader,
 }))
 
 vi.mock('@aauth/local-keys', () => ({
@@ -782,7 +786,7 @@ describe('handleAuthorize', () => {
       status: 401,
       headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt123"' },
     }))
-    mockParseAAuthHeader.mockReturnValueOnce({
+    mockParseRequirementHeader.mockReturnValueOnce({
       requirement: 'auth-token',
       resourceToken: 'rt123',
     })
@@ -838,7 +842,7 @@ describe('handleAuthorize', () => {
       status: 401,
       headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt"' },
     }))
-    mockParseAAuthHeader.mockReturnValueOnce({
+    mockParseRequirementHeader.mockReturnValueOnce({
       requirement: 'auth-token',
       resourceToken: 'rt',
     })
@@ -865,7 +869,7 @@ describe('handleAuthorize', () => {
       status: 401,
       headers: { 'aauth-requirement': 'requirement=approval' },
     }))
-    mockParseAAuthHeader.mockReturnValueOnce({
+    mockParseRequirementHeader.mockReturnValueOnce({
       requirement: 'approval',
     })
 

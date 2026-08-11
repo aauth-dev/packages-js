@@ -24,8 +24,8 @@ describe('resolveProvider', () => {
 })
 
 describe('resolveKeystoreAlgorithm', () => {
-  it('defaults to software + EdDSA', () => {
-    expect(resolveKeystoreAlgorithm(undefined, undefined)).toEqual({ keystore: 'software', algorithm: 'EdDSA' })
+  it('defaults to software + Ed25519', () => {
+    expect(resolveKeystoreAlgorithm(undefined, undefined)).toEqual({ keystore: 'software', algorithm: 'Ed25519' })
   })
   it('defaults a hardware keystore to ES256', () => {
     expect(resolveKeystoreAlgorithm('secure-enclave', undefined)).toEqual({ keystore: 'secure-enclave', algorithm: 'ES256' })

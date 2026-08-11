@@ -13,11 +13,11 @@ import type { SkillSummary } from './skills.js'
 describe('shapeKeystores', () => {
   it('maps BackendInfo to the keystore output shape', () => {
     const backends: BackendInfo[] = [
-      { backend: 'software', description: 'OS keychain', algorithms: ['EdDSA', 'ES256'], deviceId: 'local' },
+      { backend: 'software', description: 'OS keychain', algorithms: ['Ed25519', 'ES256'], deviceId: 'local' },
       { backend: 'secure-enclave', description: 'macOS Secure Enclave', algorithms: ['ES256'], deviceId: 'local' },
     ]
     expect(shapeKeystores(backends)).toEqual([
-      { keystore: 'software', description: 'OS keychain', algorithms: ['EdDSA', 'ES256'] },
+      { keystore: 'software', description: 'OS keychain', algorithms: ['Ed25519', 'ES256'] },
       { keystore: 'secure-enclave', description: 'macOS Secure Enclave', algorithms: ['ES256'] },
     ])
   })
