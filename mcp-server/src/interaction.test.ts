@@ -19,7 +19,7 @@ describe('InteractionManager', () => {
     expect(pending.createdAt).toBeGreaterThan(0)
     expect(pending.promise).toBeInstanceOf(Promise)
 
-    expect(headers.Location).toMatch(/^https:\/\/resource\.example\/pending\/[a-f0-9]+$/)
+    expect(headers.Location).toMatch(/^https:\/\/resource\.example\/pending\/[A-Za-z0-9_-]+$/)
     expect(headers['Retry-After']).toBe('0')
     expect(headers['Cache-Control']).toBe('no-store')
     expect(headers['AAuth-Requirement']).toContain('requirement=interaction')
