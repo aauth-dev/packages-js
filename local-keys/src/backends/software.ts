@@ -2,6 +2,7 @@ import { generateKeyPair, exportJWK } from 'jose'
 import type { JWK } from 'jose'
 import { readKeychain, writeKeychain, deleteKeychain, listAgentUrls } from '../keychain.js'
 import { machineLabel } from '../device-label.js'
+import { publicJwkWithAlg } from '../jwk-alg.js'
 import type {
   BackendInfo,
   KeyReference,
@@ -23,7 +24,7 @@ export const softwareBackend: KeyBackendDriver = {
     return {
       backend: 'software',
       description: 'Software keys stored in OS keychain',
-      algorithms: ['EdDSA', 'ES256'],
+      algorithms: ['Ed25519', 'ES256'],
       deviceId: 'local',
     }
   },
@@ -33,8 +34,8 @@ export const softwareBackend: KeyBackendDriver = {
     let alg: string
     let opts: Record<string, string>
 
-    if (algorithm === 'EdDSA') {
-      alg = 'EdDSA'
+    if (algorithm === 'Ed25519') {
+      alg = 'Ed25519'
       opts = { crv: 'Ed25519' }
     } else if (algorithm === 'ES256') {
       alg = 'ES256'
@@ -44,14 +45,13 @@ export const softwareBackend: KeyBackendDriver = {
     }
 
     const { publicKey, privateKey } = await generateKeyPair(alg, opts)
-    const privateJwk = await exportJWK(privateKey)
-    const publicJwk = await exportJWK(publicKey)
+    // Fully-specified alg (RFC 9864) — `Ed25519`, never the polymorphic `EdDSA`.
+    const privateJwk = publicJwkWithAlg(await exportJWK(privateKey), alg, 'generated private key')
+    const publicJwk = publicJwkWithAlg(await exportJWK(publicKey), alg, 'generated public key')
 
     privateJwk.kid = kid
-    privateJwk.alg = alg
     privateJwk.use = 'sig'
     publicJwk.kid = kid
-    publicJwk.alg = alg
     publicJwk.use = 'sig'
 
     return {
@@ -81,15 +81,21 @@ export const softwareBackend: KeyBackendDriver = {
       const data = readKeychain(url)
       if (!data) continue
       for (const [kid, jwk] of Object.entries(data.keys)) {
-        const alg: KeyAlgorithm =
-          jwk.crv === 'P-256' ? 'ES256' : 'EdDSA'
+        // The keychain may hold pre-11 JWKs stamped `alg: "EdDSA"`; derive the
+        // fully-specified alg from the key material rather than trusting it.
+        const alg: KeyAlgorithm = jwk.crv === 'P-256' ? 'ES256' : 'Ed25519'
         const { d: _d, ...pub } = jwk
-        refs.push({
-          backend: 'software',
-          algorithm: alg,
-          keyId: kid,
-          publicJwk: { ...pub, use: 'sig', alg: alg === 'ES256' ? 'ES256' : 'EdDSA' },
-        })
+        try {
+          refs.push({
+            backend: 'software',
+            algorithm: alg,
+            keyId: kid,
+            publicJwk: { ...publicJwkWithAlg(pub, alg, `keychain key ${kid}`), use: 'sig' },
+          })
+        } catch {
+          // Key material we can't pin a fully-specified alg to is unusable
+          // under AAuth -11 — skip it rather than emitting a polymorphic alg.
+        }
       }
     }
     return refs
@@ -103,7 +109,9 @@ export const softwareBackend: KeyBackendDriver = {
       const jwk = data.keys[keyId]
       if (jwk) {
         const { d: _d, ...pub } = jwk
-        return { ...pub, use: 'sig' }
+        // Re-derive `alg`: a key stored before -11 carries `EdDSA`, and callers
+        // hand this JWK straight to a verifier that rejects it.
+        return { ...publicJwkWithAlg(pub, undefined, `keychain key ${keyId}`), use: 'sig' }
       }
     }
     throw new Error(`Software key not found: ${keyId}`)

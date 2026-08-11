@@ -1,11 +1,29 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { importJWK, SignJWT, generateKeyPair, exportJWK } from 'jose'
-import type { JWK } from 'jose'
 import { readKeychain } from './keychain.js'
 import { getAgentConfig } from './config.js'
 import { getBackend } from './backends/index.js'
 import { resolveKey } from './resolve-key.js'
+import { publicJwkWithAlg, normalizeAlgId } from './jwk-alg.js'
 import type { SignAgentTokenOptions, AgentTokenResult, ResolvedKey } from './types.js'
+
+/**
+ * Generate the ephemeral key the agent token confirms in `cnf.jwk`.
+ *
+ * Both JWKs carry a fully-specified `alg` (RFC 9864): `@hellocoop/httpsig` 2.0
+ * (signature-key -08) takes the signing algorithm from the JWK's `alg` and
+ * rejects the polymorphic `EdDSA`, and AAuth -11 §Signature Algorithms requires
+ * the same of every key it conveys. `exportJWK` sets no `alg` at all, so it is
+ * derived from the key material here.
+ */
+async function generateEphemeralKey(alg: 'Ed25519' | 'ES256') {
+  const opts = alg === 'ES256' ? { crv: 'P-256' } : { crv: 'Ed25519' }
+  const { publicKey, privateKey } = await generateKeyPair(alg, opts)
+  return {
+    privateJwk: publicJwkWithAlg(await exportJWK(privateKey), alg, 'ephemeral private key'),
+    publicJwk: publicJwkWithAlg(await exportJWK(publicKey), alg, 'ephemeral public key'),
+  }
+}
 
 /**
  * Sign an agent token for the given agent URL.
@@ -46,24 +64,20 @@ async function signWithSoftwareKey(
     throw new Error(`No software keys found in keychain for ${agentUrl}`)
   }
 
-  const rootJwk = data.keys[kid] || data.keys[data.current]
-  if (!rootJwk) {
+  const storedJwk = data.keys[kid] || data.keys[data.current]
+  if (!storedJwk) {
     throw new Error(`Key ${kid} not found in keychain for ${agentUrl}`)
   }
 
+  // Keys minted before AAuth -11 sit in the keychain with `alg: "EdDSA"`.
+  // Derive the fully-specified alg from the key material so neither the JWT
+  // header nor anything downstream ever sees the polymorphic identifier.
+  const rootJwk = publicJwkWithAlg(storedJwk, undefined, `keychain key ${kid}`)
   const actualKid = rootJwk.kid || kid
-  const alg = rootJwk.alg || (rootJwk.crv === 'P-256' ? 'ES256' : 'EdDSA')
+  const alg = rootJwk.alg as string
 
-  const ephAlg = alg === 'ES256' ? 'ES256' : 'EdDSA'
-  const ephOpts = alg === 'ES256' ? { crv: 'P-256' } : { crv: 'Ed25519' }
-  const { publicKey: ephPub, privateKey: ephPriv } = await generateKeyPair(ephAlg, ephOpts)
-  const ephPrivJwk = await exportJWK(ephPriv)
-  const ephPubJwk = await exportJWK(ephPub)
-  // @hellocoop/httpsig 2.0 (signature-key -08 / RFC 9864) requires every JWK to
-  // carry a fully-specified alg; the polymorphic 'EdDSA' is rejected.
-  const ephJwkAlg = ephAlg === 'ES256' ? 'ES256' : 'Ed25519'
-  ephPrivJwk.alg = ephJwkAlg
-  ephPubJwk.alg = ephJwkAlg
+  const ephAlg = alg === 'ES256' ? 'ES256' : 'Ed25519'
+  const { privateJwk: ephPrivJwk, publicJwk: ephPubJwk } = await generateEphemeralKey(ephAlg)
 
   const rootKey = await importJWK(rootJwk, alg)
   const now = Math.floor(Date.now() / 1000)
@@ -101,19 +115,12 @@ async function signWithHardwareKey(
   const { agentUrl, sub, lifetime, personServerUrl } = opts
   const driver = getBackend(resolved.backend)
 
-  const alg = resolved.algorithm === 'RS256' ? 'RS256' : resolved.algorithm
+  // A pre-11 config entry can still say "EdDSA"; never put that in a header.
+  const alg = normalizeAlgId(resolved.algorithm)
 
-  // Ephemeral signing key — always software, always ES256 or EdDSA
-  const ephAlg = alg === 'RS256' ? 'ES256' : alg
-  const ephOpts = ephAlg === 'ES256' ? { crv: 'P-256' } : { crv: 'Ed25519' }
-  const { publicKey: ephPub, privateKey: ephPriv } = await generateKeyPair(ephAlg, ephOpts)
-  const ephPrivJwk = await exportJWK(ephPriv)
-  const ephPubJwk = await exportJWK(ephPub)
-  // @hellocoop/httpsig 2.0 (signature-key -08 / RFC 9864) requires every JWK to
-  // carry a fully-specified alg; the polymorphic 'EdDSA' is rejected.
-  const ephJwkAlg = ephAlg === 'ES256' ? 'ES256' : 'Ed25519'
-  ephPrivJwk.alg = ephJwkAlg
-  ephPubJwk.alg = ephJwkAlg
+  // Ephemeral signing key — always software, always ES256 or Ed25519
+  const ephAlg = alg === 'ES256' || alg === 'RS256' ? 'ES256' : 'Ed25519'
+  const { privateJwk: ephPrivJwk, publicJwk: ephPubJwk } = await generateEphemeralKey(ephAlg)
 
   const now = Math.floor(Date.now() / 1000)
 

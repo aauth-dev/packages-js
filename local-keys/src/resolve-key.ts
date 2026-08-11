@@ -2,7 +2,8 @@ import { calculateJwkThumbprint } from 'jose'
 import type { JWK } from 'jose'
 import { getAgentConfig } from './config.js'
 import { discoverBackends, getBackend } from './backends/index.js'
-import type { ResolvedKey, KeyBackend } from './types.js'
+import { normalizeAlgId, publicJwkWithAlg } from './jwk-alg.js'
+import type { ResolvedKey, KeyBackend, KeyAlgorithm } from './types.js'
 
 /**
  * Resolve a signing key for an agent URL.
@@ -112,7 +113,7 @@ interface LocalKey {
   backend: KeyBackend
   keyId: string
   kid: string
-  algorithm: 'EdDSA' | 'ES256' | 'RS256'
+  algorithm: KeyAlgorithm
   publicJwk: JWK
   thumbprint: string
 }
@@ -133,7 +134,7 @@ async function discoverLocalKeys(): Promise<LocalKey[]> {
             backend: k.backend,
             keyId: k.keyId,
             kid: k.publicJwk.kid || k.keyId,
-            algorithm: k.algorithm,
+            algorithm: normalizeAlgId(k.algorithm) as KeyAlgorithm,
             publicJwk: k.publicJwk,
             thumbprint,
           })
@@ -153,6 +154,14 @@ async function discoverLocalKeys(): Promise<LocalKey[]> {
 
 /**
  * Match JWKS keys against local keys. Prefers hardware over software.
+ *
+ * Matching is by JWK thumbprint (RFC 7638), which covers only the key material —
+ * `alg` is not an input. That is deliberate: an agent whose published
+ * `jwks.json` still carries the pre-11 `alg: "EdDSA"` must still resolve to its
+ * local key. The resolved algorithm is taken from the local key, never from the
+ * remote document, so a stale published `alg` cannot reach a signature or a
+ * `cnf.jwk`. Verifying a remote key's `alg` is the verifier's job — see
+ * `assertFullySpecifiedAlg` in `jwk-alg.ts`.
  */
 async function matchJwksToLocal(
   jwksKeys: JWK[],
@@ -196,7 +205,10 @@ async function matchJwksToLocal(
  * (e.g. YubiKey unplugged).
  */
 async function resolveFromConfig(
-  configKeys: Record<string, { backend: KeyBackend; keyId: string; algorithm: 'EdDSA' | 'ES256' | 'RS256' }>,
+  // `algorithm` is widened to string: a `~/.aauth/config.json` written before
+  // AAuth -11 records "EdDSA", which is no longer a KeyAlgorithm. It is
+  // normalized to "Ed25519" below rather than migrating the file.
+  configKeys: Record<string, { backend: KeyBackend; keyId: string; algorithm: string }>,
   localKeys: LocalKey[],
 ): Promise<ResolvedKey | null> {
   const backends = discoverBackends()
@@ -224,14 +236,15 @@ async function resolveFromConfig(
     if (meta.backend !== 'software' && !lazyHardwareMatch) {
       try {
         const driver = getBackend(meta.backend)
-        const pubJwk = await driver.getPublicKey(meta.keyId)
-        if (pubJwk && pubJwk.kty) {
+        const rawJwk = await driver.getPublicKey(meta.keyId)
+        if (rawJwk && rawJwk.kty) {
+          const algorithm = normalizeAlgId(meta.algorithm) as KeyAlgorithm
           lazyHardwareMatch = {
             backend: meta.backend,
             keyId: meta.keyId,
             kid,
-            algorithm: meta.algorithm,
-            publicJwk: pubJwk,
+            algorithm,
+            publicJwk: publicJwkWithAlg(rawJwk, algorithm, `${meta.backend} key ${meta.keyId}`),
           }
         }
       } catch {
