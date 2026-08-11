@@ -1,6 +1,6 @@
 {
   "name": "@aauth/fetch",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "CLI for making AAuth-authenticated HTTP requests",
   "type": "module",
   "bin": {
@@ -15,8 +15,9 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@aauth/local-keys": "^1.2.0",
-    "@aauth/mcp-agent": "^2.0.0",
+    "@aauth/agent": "^3.0.0",
+    "@aauth/local-keys": "^2.0.0",
+    "@aauth/protocol": "^1.0.0",
     "open": "^11.0.0",
     "qrcode-terminal": "^0.12.0"
   },

@@ -9,7 +9,7 @@ export interface JsonRequest {
   // Spec-defined fields use the spec's snake_case names; our own artifacts
   // (signingKey, agentProvider, personServer, agentOnly, local) stay camelCase.
   auth_token?: string
-  aauth_access_token?: string
+  session_token?: string
   signingKey?: JsonWebKey
   agentProvider?: string
   local?: string
