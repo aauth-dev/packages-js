@@ -27,6 +27,32 @@ npx @aauth/fetch https://whoami.aauth.dev
 npx @aauth/fetch "https://whoami.aauth.dev?scope=email+profile"
 ```
 
+## Seeing what each operation needs
+
+Fetch a resource's OpenAPI document and fetch reads its operation access
+annotations (`x-aauth-access-mode` / `x-aauth-budget`, AAuth R3) out of the body,
+grouping the operations by the credential each one needs — on stderr, so stdout is
+still the raw spec for `jq`:
+
+```
+$ npx @aauth/fetch https://notes.aauth.dev/openapi.json > openapi.json
+Operation access annotations (advisory — the resource may return any AAuth-Requirement at runtime):
+
+  agent-token — your agent token alone — no person involved
+    getHealth        GET /health
+
+  auth-token — an auth token — costs one authorization round trip
+    listNotes        GET /notes
+    exportNotes      POST /notes/export   [budget]
+
+  per-call — authorized per invocation — will stop and wait for a person
+    purchaseReport   POST /reports/{id}/purchase  [budget]
+```
+
+Annotations are advisory: a resource may return any `AAuth-Requirement` at runtime
+regardless of what it published, so fetch prints them and enforces nothing. When
+your agent has no person server, the groups it cannot complete say so.
+
 ## Authorize-then-call (recommended for multi-call workflows)
 
 Capture an auth token once, then reuse it for subsequent calls.
@@ -39,10 +65,9 @@ npx @aauth/fetch authorize "https://whoami.aauth.dev?scope=email"
 npx @aauth/fetch authorize https://notes.aauth.dev/authorize \
   --operations listNotes,createNote
 
-# Gateway resources (multiple services behind one proxy) qualify ids by
-# service, and can bind the grant to one of your accounts at the resource:
+# Bind the grant to one of your accounts at the resource:
 npx @aauth/fetch authorize https://googleapis-com.proxy.aauth.dev/authorize \
-  --operations gmail:gmail.users.messages.send,calendar:calendar.events.list \
+  --operations gmail.users.messages.send,calendar.events.list \
   --account dick@example.com
 ```
 
@@ -85,15 +110,16 @@ AAuth:
 Modes:
   --agent-only                Sign with agent token only; don't handle 401
   --auth-token <jwt> --signing-key <jwk>   Use an existing auth token + signing key (three-party)
-  --aauth-access-token <token>  Reuse an AAuth-Access token (two-party; no signing key)
+  --session-token <token>     Reuse a session token (two-party, carried in
+                              AAuth-Access; no signing key)
   --emit                      Emit the reusable credential(s) to stdout alongside the body.
                               Three-party: { auth_token, expires_in, signingKey, response }
-                              Two-party:   { aauth_access_token, response }  (no signingKey)
+                              Two-party:   { session_token, response }  (no signingKey)
                               `response` is the body (same as bare fetch)
 
 Authorize (with the `authorize` command):
-  --operations <ops>          R3 operation ids (comma-separated); gateway
-                              resources qualify each as service:operationId
+  --operations <ops>          R3 operation ids (comma-separated), as they
+                              appear in the resource's vocabulary
   --scope <scope>             Requested scopes
   --account <account>         Upstream account at the resource to bind the
                               authorization to (e.g. a Google email)
@@ -125,7 +151,7 @@ links to https://www.aauth.dev, the llms.txt index, and the AAuth protocol spec.
 ## Related Packages
 
 - [`@aauth/bootstrap`](../bootstrap) — set up agent keys and configure a person server (run this first)
-- [`@aauth/mcp-agent`](../mcp-agent) — programmatic agent-side AAuth for use inside applications
+- [`@aauth/agent`](../agent) — programmatic agent-side AAuth for use inside applications
 
 ## License
 

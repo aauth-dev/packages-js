@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { colorizeJson, prettyJson, makeExplainRenderer, makeDebugRenderer } from './render.js'
 import { renderSkill } from './skill.js'
-import type { AAuthEvent } from '@aauth/mcp-agent'
+import type { AAuthEvent } from '@aauth/agent'
 
 describe('colorizeJson / prettyJson', () => {
   const json = JSON.stringify({ a: 'hi', n: 42 }, null, 2)
@@ -116,19 +116,24 @@ describe('makeExplainRenderer', () => {
     expect(objs[2].description).toBeTruthy() // info
   })
 
-  // Locks the vocabulary for a full default-flow consent trace. Each event maps
-  // to (step, kind, description) — kind is which key carries the payload.
+  // Locks the vocabulary for a full default-flow consent trace, in AAuth -11 order:
+  // the agent gets a person token from its PS `person_token_endpoint` before the
+  // resource will issue a resource token, and exchanges that resource token at the
+  // PS `auth_token_endpoint` (renamed from `token_endpoint`). Each event maps to
+  // (step, kind, description) — kind is which key carries the payload.
   // auth_token_received and consent_resolved are recap-only info events that
   // the renderer drops; their meaning is folded into the next request's
   // description.
   it('maps a full consent trace to the display vocabulary', () => {
     const objs = collect([
+      { step: 'ps_metadata_request', phase: 'start', url: 'https://ps/.well-known' },
+      { step: 'ps_metadata_request', phase: 'done', status: 200 },
+      { step: 'person_token_request', phase: 'start', url: 'https://ps/person-token' },
+      { step: 'person_token_request', phase: 'done', status: 200 },
       { step: 'signed_request', phase: 'start', url: 'https://r', method: 'GET' },
       { step: 'signed_request', phase: 'done', status: 401 },
       { step: 'challenge_received', phase: 'info', requirement: 'auth-token' },
-      { step: 'ps_metadata_request', phase: 'start', url: 'https://ps/.well-known' },
-      { step: 'ps_metadata_request', phase: 'done', status: 200 },
-      { step: 'ps_token_request', phase: 'start', url: 'https://ps/token' },
+      { step: 'ps_token_request', phase: 'start', url: 'https://ps/auth-token' },
       { step: 'ps_token_request', phase: 'done', status: 202 },
       { step: 'interaction_required', phase: 'info', url: 'https://ps/auth', code: 'A1B2' },
       { step: 'consent_poll', phase: 'start', url: 'https://ps/pending' },
@@ -140,13 +145,15 @@ describe('makeExplainRenderer', () => {
     const kind = (o: Record<string, unknown>): string =>
       o.request !== undefined ? 'request' : o.response !== undefined ? 'response' : 'info'
     expect(objs.map((o) => [kind(o), o.step, o.description])).toEqual([
-      ['request', 'agent_token_request', 'Call the resource with your agent token.'],
-      ['response', 'agent_token_request', 'The resource requires a person-issued auth token — this begins the three-party flow (agent ↔ person server ↔ resource). The `AAuth-Requirement` header carries a resource token: the agent presents it to the person server to get authorized.'],
-      ['info', 'requirement_parsed', 'Parsed `AAuth-Requirement` — must exchange the resource token for an auth token at the person server.'],
       ['request', 'ps_metadata', "Fetch the person server's metadata at `/.well-known/aauth-person.json`."],
-      ['response', 'ps_metadata', "Received the person server's endpoints."],
-      ['request', 'ps_token_request', 'POST the resource token to the person server `token_endpoint` to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.'],
-      ['response', 'ps_token_request', 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`) — the person must approve in a browser; the agent polls the pending `location` until they do.'],
+      ['response', 'ps_metadata', "Received the person server's endpoints — `person_token_endpoint` and `auth_token_endpoint`."],
+      ['request', 'person_token_endpoint', 'POST the resource to the person server `person_token_endpoint`, signed with your agent token. Since AAuth -11 this hop comes first: a resource verifies a person token before it will issue a resource token.'],
+      ['response', 'person_token_endpoint', 'Received the person token — audienced to that one resource, bound (`cnf`) to the key the agent is signing with, and carrying a directed `sub` for the person.'],
+      ['request', 'agent_token_request', 'Call the resource with your agent token.'],
+      ['response', 'agent_token_request', 'The resource requires a person-issued auth token — this begins the three-party flow (agent ↔ person server ↔ resource). The `AAuth-Requirement` header carries a resource token, issued against the person token the resource verified: the agent presents it to the person server `auth_token_endpoint` to get authorized.'],
+      ['info', 'requirement_parsed', 'Parsed `AAuth-Requirement` — must exchange the resource token for an auth token at the person server `auth_token_endpoint`.'],
+      ['request', 'auth_token_endpoint', 'POST the resource token to the person server `auth_token_endpoint` (renamed from `token_endpoint` in AAuth -11) to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.'],
+      ['response', 'auth_token_endpoint', 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`) — the person must approve in a browser; the agent polls the pending `location` until they do.'],
       ['info', 'interaction_required', 'Direct the person to the approval URL — show them the QR or open the link.'],
       ['request', 'consent_poll', 'Poll the pending URL — checking whether the person has acted. `Prefer: wait=45` long-polls so the response returns immediately on consent rather than burning round-trips.'],
       ['response', 'consent_poll', 'The person approved — the body carries the freshly issued auth token, bound (`cnf`) to the same ephemeral key the agent has been signing with.'],
@@ -155,13 +162,44 @@ describe('makeExplainRenderer', () => {
     ])
     // The summaries form the recap: one gist line per exchange, in order.
     expect(objs.filter((o) => o.summary !== undefined).map((o) => o.summary)).toEqual([
-      'agent → resource · agent-token → 401 + resource-token',
       'agent → person server · metadata discovery',
+      'agent → person server · agent-token → 200 + person-token',
+      'agent → resource · agent-token → 401 + resource-token',
       'agent → person server · resource-token → 202 pending + approval code',
       'person → person server · approve in browser',
       'agent → person server · poll → 200 + auth-token (person approved)',
       'agent → resource · auth-token → 200 + person claims',
     ])
+  })
+
+  // The PS person-token hop is registered under both the agent package's internal
+  // step name and the endpoint-shaped spelling, so neither falls through unlabelled.
+  it('narrates the person-token hop under either internal step name', () => {
+    for (const step of ['person_token_request', 'person_token_endpoint']) {
+      const objs = collect([
+        { step, phase: 'start', url: 'https://ps/person-token', method: 'POST' },
+        { step, phase: 'done', status: 202 },
+      ])
+      expect(objs[0].step).toBe('person_token_endpoint')
+      expect(objs[0].summary).toBe('agent → person server · agent-token → 202 pending + approval code')
+      expect(objs[1].description).toMatch(/User interaction required before the person token is issued/)
+    }
+  })
+
+  // R3 -02 operation access annotations, read out of a fetched OpenAPI document.
+  it('renders operation_annotations as an info event carrying the annotations', () => {
+    const annotations = [
+      { operationId: 'getHealth', method: 'GET', path: '/health', access_mode: 'agent-token', budget: false, plan: 'satisfiable', planned_access_mode: 'agent-token' },
+      { operationId: 'purchaseDataset', method: 'POST', path: '/p', access_mode: 'per-call', budget: true, plan: 'satisfiable', planned_access_mode: 'per-call' },
+    ]
+    const objs = collect([{ step: 'operation_annotations', phase: 'info', annotations }])
+    expect(objs).toHaveLength(1)
+    expect(objs[0].step).toBe('operation_annotations')
+    expect(objs[0].annotations).toEqual(annotations)
+    // Advisory, and the description says so — nothing downstream may enforce them.
+    expect(objs[0].description as string).toMatch(/Advisory/)
+    expect(objs[0].request).toBeUndefined()
+    expect(objs[0].response).toBeUndefined()
   })
 
   // signed_request's REQUEST describes the call itself the same way regardless
@@ -217,21 +255,21 @@ describe('makeExplainRenderer', () => {
     for (const o of objs) expect(o.step).toBe('consent_poll')
   })
 
-  // The R3 entry step + the ps_token_request 200 (consent already on file) branch.
-  it('maps the R3 authorize_request entry and the cached-consent ps_token_request', () => {
+  // The R3 entry step + the auth-token endpoint's 200 (consent already on file) branch.
+  it('maps the R3 authorize_request entry and the cached-consent auth_token_endpoint', () => {
     const objs = collect([
       { step: 'r3_authorize_request', phase: 'start', url: 'https://r/authorize', method: 'POST' },
       { step: 'r3_authorize_request', phase: 'done', status: 200 },
-      { step: 'ps_token_request', phase: 'start', url: 'https://ps/token' },
+      { step: 'ps_token_request', phase: 'start', url: 'https://ps/auth-token' },
       { step: 'ps_token_request', phase: 'done', status: 200 },
     ])
     expect(objs[0].step).toBe('authorize_request')
     expect(objs[0].description).toBe("POST the requested operations to the resource's authorize endpoint, signed with your agent token.")
     expect(objs[1].step).toBe('authorize_request')
     expect(objs[1].response).toBeDefined()
-    expect(objs[2].step).toBe('ps_token_request')
-    expect(objs[2].description).toBe('POST the resource token to the person server `token_endpoint` to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.')
-    expect(objs[3].step).toBe('ps_token_request')
+    expect(objs[2].step).toBe('auth_token_endpoint')
+    expect(objs[2].description).toBe('POST the resource token to the person server `auth_token_endpoint` (renamed from `token_endpoint` in AAuth -11) to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.')
+    expect(objs[3].step).toBe('auth_token_endpoint')
     expect(objs[3].response).toBeDefined()
   })
 

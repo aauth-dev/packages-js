@@ -12,13 +12,14 @@ import {
   parseAAuthHeader,
   exchangeToken,
   TokenExchangeError,
-} from '@aauth/mcp-agent'
-import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/mcp-agent'
+} from '@aauth/agent'
+import type { GetKeyMaterial, Capability, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/agent'
 import { mkdirSync, openSync, writeSync, closeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import open from 'open'
 import { makeExplainRenderer, makeDebugRenderer, prettyJson, qrAscii } from './render.js'
+import { readOperationAnnotations, renderOperationAnnotations, annotationsAsJson } from './annotations.js'
 import { promptValue } from './args.js'
 
 const STDOUT_TTY = process.stdout.isTTY === true
@@ -238,8 +239,41 @@ export function buildRequestInit(args: { method: string; data?: string; headers:
 
 // === output ===
 
+/**
+ * What the annotation surfacing needs to know: whether this agent has a person
+ * server (so `planAccessMode` can say which operations it cannot complete), and
+ * the active event renderer, if any.
+ */
+export interface AnnotationContext {
+  hasPersonServer: boolean
+  onEvent?: OnEvent
+}
+
+/**
+ * R3 -02: when the body we just fetched is an OpenAPI document carrying operation
+ * access annotations, show them — which operations need only an agent token, which
+ * need a person token, which cost an auth token, and which are `per-call` and will
+ * stop and wait for a person.
+ *
+ * Advisory only. Nothing here changes what fetch sends or gates any call: a resource
+ * MAY return any `AAuth-Requirement` at runtime regardless of what it published.
+ *
+ * Goes to stderr so stdout stays the raw body for `jq`. With a renderer active the
+ * annotations also ride the event stream as an `operation_annotations` info event;
+ * when stderr is captured (not a TTY) the prose block is dropped so the JSONL stream
+ * stays parseable — same rule the consent prompt follows.
+ */
+function surfaceOperationAnnotations(body: string, ctx: AnnotationContext | undefined): void {
+  if (!ctx) return
+  const annotations = readOperationAnnotations(tryParseJson(body), { hasPersonServer: ctx.hasPersonServer })
+  if (!annotations.length) return
+  ctx.onEvent?.({ step: 'operation_annotations', phase: 'info', annotations: annotationsAsJson(annotations) })
+  if (ctx.onEvent && !STDERR_TTY) return
+  process.stderr.write(`${renderOperationAnnotations(annotations)}\n`)
+}
+
 /** Print the resource response on stdout: pretty JSON when JSON, raw otherwise. */
-export async function outputResponse(response: Response): Promise<void> {
+export async function outputResponse(response: Response, annotations?: AnnotationContext): Promise<void> {
   const body = await response.text()
   const parsed = tryParseJson(body)
   if (parsed !== undefined) {
@@ -247,6 +281,7 @@ export async function outputResponse(response: Response): Promise<void> {
   } else {
     console.log(body)
   }
+  surfaceOperationAnnotations(body, annotations)
 }
 
 function printResult(value: unknown): void {
@@ -336,28 +371,18 @@ export async function handleAuthorize(
   let resourceToken: string | undefined
 
   if (args.operations) {
+    // Bare operation ids, sent verbatim. R3 -02 §Operation Identifier Scope: an id is
+    // scoped to the one discovery endpoint the resource advertises for the vocabulary,
+    // so it resolves unambiguously and carries no qualifier. (The `openapi-gateway`
+    // vocabulary, which qualified ids as `service:operationId`, was deleted in -02 —
+    // its service labels were grant-bearing identifiers that silently invalidated
+    // grants when renamed. Continued as dickhardt/AAuth#72.)
     const operationIds = args.operations.split(',').map(s => s.trim())
-    // Qualified ids (service:operationId) select the openapi-gateway vocabulary
-    // — the resource fronts multiple OpenAPI-described services (AAuth R3
-    // §OpenAPI Gateway Vocabulary). All-or-none: mixing bare and qualified ids
-    // is ambiguous.
-    const qualified = operationIds.filter(id => id.includes(':'))
-    if (qualified.length && qualified.length !== operationIds.length) {
-      return fail('Mixed operation id forms: qualify every id as service:operationId (gateway) or none (plain openapi)')
-    }
     const r3Body = {
-      r3_operations: qualified.length
-        ? {
-            vocabulary: 'urn:aauth:vocabulary:openapi-gateway',
-            operations: operationIds.map(id => {
-              const i = id.indexOf(':')
-              return { service: id.slice(0, i), operationId: id.slice(i + 1) }
-            }),
-          }
-        : {
-            vocabulary: 'urn:aauth:vocabulary:openapi',
-            operations: operationIds.map(id => ({ operationId: id })),
-          },
+      r3_operations: {
+        vocabulary: 'urn:aauth:vocabulary:openapi',
+        operations: operationIds.map(id => ({ operationId: id })),
+      },
       // AAuth `account` extension (dickhardt/AAuth#52): bind the authorization
       // to one of the user's accounts at the resource (e.g. a Google email).
       ...(args.account ? { account: args.account } : {}),
@@ -386,14 +411,14 @@ export async function handleAuthorize(
     if (response.status === 200) {
       const b = await response.text()
       const parsed = tryParseJson(b)
-      // Two-party: the resource may hand back an AAuth-Access token to
-      // reuse (via --aauth-access-token) on subsequent calls.
-      const opaqueToken = response.headers.get('aauth-access') ?? undefined
-      if (opaqueToken) {
-        // Two-party reuse needs only the opaque token (binds per-request to the
+      // Two-party: the resource may hand back a session token (AAuth-Access) to
+      // reuse (via --session-token) on subsequent calls.
+      const sessionToken = response.headers.get('aauth-access') ?? undefined
+      if (sessionToken) {
+        // Two-party reuse needs only the session token (binds per-request to the
         // agent identity); no signing key to carry.
         return printResult({
-          aauth_access_token: opaqueToken,
+          session_token: sessionToken,
           response: parsed === undefined ? b : parsed,
         })
       }
@@ -455,6 +480,7 @@ export async function handleAuthorize(
 export async function handlePreAuthed(
   args: { url: string; authToken: string; signingKey: string; explain: boolean; debug: boolean },
   init: RequestInit,
+  personServer?: string,
 ): Promise<void> {
   let signingKey: JsonWebKey
   try {
@@ -473,7 +499,7 @@ export async function handlePreAuthed(
   onEvent?.({ step: 'auth_token_request', phase: 'start', url: args.url, method: (init.method as string) ?? 'GET' })
   const response = await signedFetch(args.url, init)
   if (onEvent) onEvent({ step: 'auth_token_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, request_body: sent.latest?.body, response: await doneResponse(response) })
-  await outputResponse(response)
+  await outputResponse(response, { hasPersonServer: personServer !== undefined, onEvent })
 }
 
 // === agent-only ===
@@ -482,6 +508,7 @@ export async function handleAgentOnly(
   args: { url: string; explain: boolean; debug: boolean },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
+  personServer?: string,
 ): Promise<void> {
   const onEvent = eventRenderer(args)
   const sent: { latest?: CapturedSent } = {}
@@ -489,7 +516,7 @@ export async function handleAgentOnly(
   onEvent?.({ step: 'signed_request', phase: 'start', url: args.url, method: (init.method as string) ?? 'GET' })
   const response = await signedFetch(args.url, init)
   if (onEvent) onEvent({ step: 'signed_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, request_body: sent.latest?.body, response: await doneResponse(response) })
-  await outputResponse(response)
+  await outputResponse(response, { hasPersonServer: personServer !== undefined, onEvent })
 }
 
 // === default full flow ===
@@ -499,7 +526,7 @@ export async function handleFullFlow(
     url: string; agentProvider?: string; browser?: boolean; nonInteractive: boolean; explain: boolean; debug: boolean;
     loginHint?: string; domainHint?: string; tenant?: string; justification?: string;
     promptLogin?: boolean; promptConsent?: boolean; pollTimeout?: string;
-    emit?: boolean; opaqueToken?: string;
+    emit?: boolean; sessionToken?: string;
   },
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
@@ -513,22 +540,24 @@ export async function handleFullFlow(
 
   // --emit: capture the credentials surfaced during the flow so we can
   // emit them (alongside the response) for reuse — the three-party auth token,
-  // and/or a two-party AAuth-Access token.
+  // and/or a two-party session token.
   let minted: { authToken: string; expiresIn: number } | undefined
-  let opaqueToken: string | undefined = args.opaqueToken
+  let sessionToken: string | undefined = args.sessionToken
 
   const aAuthFetch = createAAuthFetch({
     getKeyMaterial: pinnedGetKeyMaterial,
     authServerUrl: personServer,
     authServerMetadata: personServerMetadata,
     onMetadata,
-    // --aauth-access-token: reuse a previously-issued AAuth-Access token on this call.
-    opaqueToken: args.opaqueToken,
+    // --session-token: reuse a previously-issued session token on this call. The
+    // agent package still calls this credential `opaqueToken` on its options — the
+    // protocol only named it (`session token`) in -11.
+    opaqueToken: args.sessionToken,
     onAuthToken: args.emit
       ? (authToken, expiresIn) => { minted = { authToken, expiresIn } }
       : undefined,
     onOpaqueToken: args.emit
-      ? (token) => { opaqueToken = token }
+      ? (token) => { sessionToken = token }
       : undefined,
     justification: args.justification,
     loginHint: args.loginHint,
@@ -542,28 +571,30 @@ export async function handleFullFlow(
   })
 
   const response = await aAuthFetch(args.url, init)
+  const annotationContext = { hasPersonServer: personServer !== undefined, ...(onEvent ? { onEvent } : {}) }
 
   if (args.emit) {
     // Combined object: the reusable credential(s) + the resource response in one
     // call. `response` is the body directly (same shape as bare fetch). Fields
     // appear only when relevant:
     //   - auth_token/expires_in: only when an auth token was minted (three-party).
-    //   - aauth_access_token: only in two-party mode.
+    //   - session_token: only in two-party mode.
     //   - signingKey: only with auth_token (cnf-bound — required for three-party
-    //     reuse). Two-party reuse needs only the aauth_access_token (binds per-request
+    //     reuse). Two-party reuse needs only the session_token (binds per-request
     //     to the agent identity), so no signingKey is emitted there.
     const body = await response.text()
     const parsed = tryParseJson(body)
     printResult({
       ...(minted ? { auth_token: minted.authToken, expires_in: minted.expiresIn } : {}),
-      ...(opaqueToken ? { aauth_access_token: opaqueToken } : {}),
+      ...(sessionToken ? { session_token: sessionToken } : {}),
       ...(minted ? { signingKey: keyMaterial.signingKey } : {}),
       response: parsed === undefined ? body : parsed,
     })
+    surfaceOperationAnnotations(body, annotationContext)
     return
   }
 
-  await outputResponse(response)
+  await outputResponse(response, annotationContext)
 }
 
 export function tryParseJson(text: string): unknown {

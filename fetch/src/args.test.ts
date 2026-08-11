@@ -7,7 +7,7 @@ const argv = (...rest: string[]) => ['node', 'aauth-fetch', ...rest]
 describe('parseArgs', () => {
   const originalEnv = { ...process.env }
   beforeEach(() => {
-    for (const k of ['AAUTH_AGENT_URL', 'AAUTH_LOCAL', 'AAUTH_AUTH_TOKEN', 'AAUTH_SIGNING_KEY', 'AAUTH_ACCESS_TOKEN', 'AAUTH_PERSON_SERVER']) {
+    for (const k of ['AAUTH_AGENT_URL', 'AAUTH_LOCAL', 'AAUTH_AUTH_TOKEN', 'AAUTH_SIGNING_KEY', 'AAUTH_SESSION_TOKEN', 'AAUTH_ACCESS_TOKEN', 'AAUTH_PERSON_SERVER']) {
       delete process.env[k]
     }
   })
@@ -62,12 +62,23 @@ describe('parseArgs', () => {
     expect(a).toMatchObject({ local: 'claude', personServer: 'https://ps', authToken: 'jwt', signingKey: '{}' })
   })
 
-  it('parses --aauth-access-token (flag and AAUTH_ACCESS_TOKEN env)', () => {
-    expect(parseArgs(argv('https://x', '--aauth-access-token', 'tok-1')).opaqueToken).toBe('tok-1')
-    process.env.AAUTH_ACCESS_TOKEN = 'tok-env'
-    expect(parseArgs(argv('https://x')).opaqueToken).toBe('tok-env')
+  // -11 named the resource-managed credential the *session token*; the flag,
+  // env var and JSON field follow (was --aauth-access-token / AAUTH_ACCESS_TOKEN).
+  it('parses --session-token (flag and AAUTH_SESSION_TOKEN env)', () => {
+    expect(parseArgs(argv('https://x', '--session-token', 'tok-1')).sessionToken).toBe('tok-1')
+    process.env.AAUTH_SESSION_TOKEN = 'tok-env'
+    expect(parseArgs(argv('https://x')).sessionToken).toBe('tok-env')
     // flag wins over env
-    expect(parseArgs(argv('https://x', '--aauth-access-token', 'tok-flag')).opaqueToken).toBe('tok-flag')
+    expect(parseArgs(argv('https://x', '--session-token', 'tok-flag')).sessionToken).toBe('tok-flag')
+  })
+
+  it('no longer accepts the -10 --aauth-access-token spelling', () => {
+    // Unknown long flags are ignored by the parser.
+    const a = parseArgs(argv('https://x', '--aauth-access-token', 'tok-old'))
+    expect(a.sessionToken).toBeUndefined()
+    expect(a.url).toBe('https://x')
+    process.env.AAUTH_ACCESS_TOKEN = 'tok-old-env'
+    expect(parseArgs(argv('https://x')).sessionToken).toBeUndefined()
   })
 
   it('parses --agent-only', () => {

@@ -34,11 +34,12 @@ export function topLevelHelp(version: string): string {
   return `DESCRIPTION
   AAuth fetch v${version} — make a signed, authenticated request to <resource> and
   print its response. Runs the full AAuth flow adaptively: sign with the agent token
-  and send; on a 401/202 challenge, exchange the resource token for an auth token
-  (consent if needed) and retry; for a resource-managed (two-party) resource, carry
-  the opaque AAuth-Access token instead. Result on stdout is the response body
-  (pretty JSON when JSON, else raw); --emit adds the reusable credential
-  alongside it.
+  and send; on a 401/202 challenge, get a person token from your person server and
+  exchange the resource token for an auth token (consent if needed), then retry; for
+  a resource-managed (two-party) resource, carry the session token from AAuth-Access
+  instead. Result on stdout is the response body (pretty JSON when JSON, else raw);
+  --emit adds the reusable credential alongside it. Fetching a resource's OpenAPI
+  document also prints its per-operation access annotations on stderr.
 
 USAGE
 ${renderUsage()}

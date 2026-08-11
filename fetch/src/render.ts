@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import type { AAuthEvent, OnEvent } from '@aauth/mcp-agent'
+import type { AAuthEvent, OnEvent } from '@aauth/agent'
 
 /** A JWK / arbitrary JSON value — only passed through to output. */
 type Json = unknown
@@ -53,7 +53,7 @@ export function prettyJson(value: Json, isTty: boolean): string {
 // === verbose (-v) event rendering ===
 
 /**
- * Presentation for each protocol step. The mcp-agent (and the fetch handlers)
+ * Presentation for each protocol step. The agent package (and the fetch handlers)
  * emit internal step names; here we map them to the `step` shown in `-v` and the
  * `description` for each kind of event.
  *
@@ -90,6 +90,48 @@ interface StepSpec {
 /** True for a 2xx status (identity/authorized success branches). */
 const ok = (s?: number): boolean => s !== undefined && s >= 200 && s < 300
 
+/**
+ * The agent's two hops at the person server, in AAuth -11 order. Both are named
+ * for the PS metadata endpoint they hit — `*_endpoint` is a person-server hop,
+ * `*_request` is a resource call — so the display vocabulary reads as the flow:
+ *
+ *   person_token_endpoint → agent_token_request → auth_token_endpoint → auth_token_request
+ *
+ * -11 inserted the first of these: a resource MUST have verified a person token
+ * before it will issue the resource token that an auth token is obtained with, so
+ * the agent gets a person token from its PS before the authorization endpoint will
+ * issue anything. The second is the old `token_endpoint`, renamed.
+ */
+const PERSON_TOKEN_ENDPOINT: StepSpec = {
+  display: 'person_token_endpoint',
+  summary: (s) =>
+    s === 202
+      ? 'agent → person server · agent-token → 202 pending + approval code'
+      : ok(s)
+        ? `agent → person server · agent-token → ${s} + person-token`
+        : `agent → person server · agent-token → ${s ?? '…'}`,
+  req: 'POST the resource to the person server `person_token_endpoint`, signed with your agent token. Since AAuth -11 this hop comes first: a resource verifies a person token before it will issue a resource token.',
+  res: (s) =>
+    s === 202
+      ? 'User interaction required before the person token is issued (`AAuth-Requirement: requirement=interaction`) — the person must act in a browser; the agent polls the pending `location` until they do.'
+      : 'Received the person token — audienced to that one resource, bound (`cnf`) to the key the agent is signing with, and carrying a directed `sub` for the person.',
+}
+
+const AUTH_TOKEN_ENDPOINT: StepSpec = {
+  display: 'auth_token_endpoint',
+  summary: (s) =>
+    s === 202
+      ? 'agent → person server · resource-token → 202 pending + approval code'
+      : ok(s)
+        ? `agent → person server · resource-token → ${s} + auth-token (consent on file)`
+        : `agent → person server · resource-token → ${s ?? '…'}`,
+  req: 'POST the resource token to the person server `auth_token_endpoint` (renamed from `token_endpoint` in AAuth -11) to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.',
+  res: (s) =>
+    s === 202
+      ? 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`) — the person must approve in a browser; the agent polls the pending `location` until they do.'
+      : 'Received the auth token — consent was already on file.',
+}
+
 const STEPS: Record<string, StepSpec> = {
   // The two resource calls are named by the token they carry (not by position):
   // the agent-token call may get a 401; the auth-token call is the authorized one.
@@ -104,7 +146,7 @@ const STEPS: Record<string, StepSpec> = {
     req: 'Call the resource with your agent token.',
     res: (s) =>
       s === 401
-        ? 'The resource requires a person-issued auth token — this begins the three-party flow (agent ↔ person server ↔ resource). The `AAuth-Requirement` header carries a resource token: the agent presents it to the person server to get authorized.'
+        ? 'The resource requires a person-issued auth token — this begins the three-party flow (agent ↔ person server ↔ resource). The `AAuth-Requirement` header carries a resource token, issued against the person token the resource verified: the agent presents it to the person server `auth_token_endpoint` to get authorized.'
         : ok(s)
           ? 'Identity-based access: the resource accepted the signature alone as proof of the agent identity — no person server round-trip, no consent.'
           : "Received the resource's response.",
@@ -142,31 +184,30 @@ const STEPS: Record<string, StepSpec> = {
   },
   challenge_received: {
     display: 'requirement_parsed',
-    info: 'Parsed `AAuth-Requirement` — must exchange the resource token for an auth token at the person server.',
+    info: 'Parsed `AAuth-Requirement` — must exchange the resource token for an auth token at the person server `auth_token_endpoint`.',
   },
   ps_metadata_request: {
     display: 'ps_metadata',
     summary: 'agent → person server · metadata discovery',
     req: "Fetch the person server's metadata at `/.well-known/aauth-person.json`.",
-    res: "Received the person server's endpoints.",
+    res: "Received the person server's endpoints — `person_token_endpoint` and `auth_token_endpoint`.",
   },
   ps_metadata_cached: {
     display: 'ps_metadata',
     info: 'Person server endpoints come from its `/.well-known/aauth-person.json` metadata — using a locally cached copy.',
   },
-  ps_token_request: {
-    display: 'ps_token_request',
-    summary: (s) =>
-      s === 202
-        ? 'agent → person server · resource-token → 202 pending + approval code'
-        : ok(s)
-          ? `agent → person server · resource-token → ${s} + auth-token (consent on file)`
-          : `agent → person server · resource-token → ${s ?? '…'}`,
-    req: 'POST the resource token to the person server `token_endpoint` to mint an auth token. `Prefer: wait=45` long-polls — the server may hold the connection up to 45s before returning.',
-    res: (s) =>
-      s === 202
-        ? 'User interaction required before the auth token is issued (`AAuth-Requirement: requirement=interaction`) — the person must approve in a browser; the agent polls the pending `location` until they do.'
-        : 'Received the auth token — consent was already on file.',
+  // Both PS hops are registered under the internal step name the agent package
+  // emits and under the endpoint-shaped spelling, so a rename on that side drops
+  // the payload into the same narration rather than falling through unlabelled.
+  person_token_request: PERSON_TOKEN_ENDPOINT,
+  person_token_endpoint: PERSON_TOKEN_ENDPOINT,
+  ps_token_request: AUTH_TOKEN_ENDPOINT,
+  auth_token_endpoint: AUTH_TOKEN_ENDPOINT,
+  // R3 -02: the fetched vocabulary itself carries per-operation access annotations.
+  operation_annotations: {
+    display: 'operation_annotations',
+    summary: 'vocabulary → agent · per-operation access modes',
+    info: 'The fetched OpenAPI document annotates operations with the credential each needs (`x-aauth-access-mode`) and whether it draws budget (`x-aauth-budget`). Advisory: the resource may return any `AAuth-Requirement` at runtime, so plan with these but never rely on them.',
   },
   interaction_required: {
     display: 'interaction_required',
@@ -234,6 +275,9 @@ function infoFields(e: AAuthEvent): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (typeof e.requirement === 'string') out.requirement = e.requirement
   if (typeof e.interaction_url === 'string') out.interaction_url = e.interaction_url
+  // operation_annotations: the per-operation access modes read out of a fetched
+  // OpenAPI document, already in their JSON form.
+  if (Array.isArray(e.annotations)) out.annotations = e.annotations
   // interaction_required: surface the pieces (url, code), the assembled approval_url,
   // and a scannable QR — so a log-only consumer can render the CTA without
   // assembling anything itself or scraping stderr.
@@ -272,7 +316,7 @@ function responseBody(e: AAuthEvent): unknown {
 }
 
 /**
- * `--explain`: the teaching view. Render each mcp-agent event as a pretty JSON
+ * `--explain`: the teaching view. Render each agent-package event as a pretty JSON
  * object on stderr, keyed by `step`:
  *   - phase 'start' is buffered (the real signed headers aren't known until the
  *     response arrives) and emitted as part of the request event once 'done' fires;
