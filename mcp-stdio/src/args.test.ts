@@ -12,6 +12,7 @@ describe('parseArgs', () => {
     delete process.env.AAUTH_AGENT_URL
     delete process.env.AAUTH_LOCAL
     delete process.env.AAUTH_TOKEN_LIFETIME
+    delete process.env.AAUTH_PERSON_SERVER
   })
 
   afterEach(() => {
@@ -30,6 +31,7 @@ describe('parseArgs', () => {
       agentUrl: 'https://agent.example.com',
       local: undefined,
       tokenLifetime: undefined,
+      personServer: undefined,
     })
   })
 
@@ -39,6 +41,7 @@ describe('parseArgs', () => {
       'https://example.com/mcp',
       '--agent-url', 'https://agent.example.com',
       '--local', 'claude',
+      '--person-server', 'https://ps.example.com',
       '--token-lifetime', '7200',
     ])
 
@@ -46,8 +49,51 @@ describe('parseArgs', () => {
       serverUrl: 'https://example.com/mcp',
       agentUrl: 'https://agent.example.com',
       local: 'claude',
+      personServer: 'https://ps.example.com',
       tokenLifetime: 7200,
     })
+  })
+
+  it('parses --person-server', () => {
+    const result = parseArgs([
+      'node', 'cli.js',
+      'https://example.com/mcp',
+      '--person-server', 'https://ps.example.com',
+    ])
+
+    expect(result.personServer).toBe('https://ps.example.com')
+  })
+
+  it('falls back to AAUTH_PERSON_SERVER env var', () => {
+    process.env.AAUTH_PERSON_SERVER = 'https://env-ps.example.com'
+
+    const result = parseArgs([
+      'node', 'cli.js',
+      'https://example.com/mcp',
+    ])
+
+    expect(result.personServer).toBe('https://env-ps.example.com')
+  })
+
+  it('CLI --person-server overrides env var', () => {
+    process.env.AAUTH_PERSON_SERVER = 'https://env-ps.example.com'
+
+    const result = parseArgs([
+      'node', 'cli.js',
+      'https://example.com/mcp',
+      '--person-server', 'https://cli-ps.example.com',
+    ])
+
+    expect(result.personServer).toBe('https://cli-ps.example.com')
+  })
+
+  it('leaves personServer undefined so cli.ts can fall back to config', () => {
+    const result = parseArgs([
+      'node', 'cli.js',
+      'https://example.com/mcp',
+    ])
+
+    expect(result.personServer).toBeUndefined()
   })
 
   it('falls back to AAUTH_AGENT_URL env var', () => {
