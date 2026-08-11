@@ -55,6 +55,22 @@ npx @aauth/bootstrap create <agent-provider-url> [--keystore <name>] [--algorith
 
 It fails if the agent provider already exists — delete it first to re-create.
 
+### Binding a person server can fail — that failure is real
+
+Step 3 fetches `<person-server>/.well-known/aauth-person.json` and requires
+`issuer`, `jwks_uri`, `auth_token_endpoint`, and `person_token_endpoint`.
+
+`person_token_endpoint` is where the agent gets a person token, and a person
+token is the first thing the agent needs at a resource it has not used. A person
+server that does not publish one cannot serve this agent anywhere, so `create`
+stops instead of writing a binding whose every later call would fail.
+
+If you see `missing required field: person_token_endpoint`, the person server
+has not been updated for this version of the protocol. Do not work around it —
+there is nothing to work around; the identity would not function. Report it to
+the user and either wait for the server to publish the endpoint or pass
+`--person-server <url>` for one that does.
+
 ## Keystore priority
 
 Prefer hardware over software (the private key never leaves the device). When
@@ -66,7 +82,12 @@ and doesn't require plugging anything in:
 2. **`yubikey-piv`** — YubiKey PIV slot 9e, no PIN, ES256. Portable across
    machines, but requires the YubiKey to be plugged in to sign. Prefer when the
    user explicitly wants a portable hardware key.
-3. **`software`** — OS keychain, EdDSA (default) or ES256. Use only if no hardware is present.
+3. **`software`** — OS keychain, Ed25519 (default) or ES256. Use only if no hardware is present.
+
+Whatever the keystore, the public JWK you publish carries a fully-specified
+`alg` — `Ed25519` or `ES256`. AAuth rejects the polymorphic `EdDSA` identifier
+(RFC 9864). If a JWKS you are about to publish says `"alg": "EdDSA"`, it was
+written by an older version — re-read it from `list` before publishing.
 
 Pick the keystore from the `keystores` array that `list` reported. If both
 `secure-enclave` and `yubikey-piv` are available, default to `secure-enclave`
@@ -162,12 +183,19 @@ Local config + a successful `git push` are not proof. A signed call that comes b
 npx @aauth/fetch https://whoami.aauth.dev
 ```
 
+Under the hood this exercises the whole chain: the agent signs with the key you
+just published, POSTs its agent token to the person server's
+`person_token_endpoint` to get a person token for `https://whoami.aauth.dev`,
+and presents that person token to the resource. The resource never sees the
+agent token — what it verifies is the person server's assertion of who you are.
+
 Expect a body like `{ "sub": "aauth:local@<agent-url>", "ps": "<person-server>" }`. If you see your `sub`, the install works end-to-end — the key signs, the JWKS resolves on the public URL, and the resource accepts the signature.
 
 If you get an error instead, debug before continuing. Common causes:
 - Pages hasn't finished propagating yet — wait a minute and retry.
 - `.nojekyll` is missing — GitHub Pages is hiding the `.well-known/` directory.
 - The JWKS URL returns 404 — the publish step didn't land. Re-check the platform skill.
+- The person token request failed — the person server is reachable but did not issue. That is a person-server problem, not a publishing one; the JWKS checks above will all pass.
 
 This is the single source of truth for "did setup work." Do not declare success without it.
 

@@ -90,6 +90,29 @@ describe('help text', () => {
       expect(COMMAND_HELP[cmd]).toContain('$ npx @aauth/bootstrap')
     }
   })
+
+  it('every JWK shown carries a fully-specified alg — never the polymorphic EdDSA', () => {
+    for (const cmd of Object.keys(COMMAND_HELP)) {
+      expect(COMMAND_HELP[cmd]).not.toMatch(/"alg":\s*"EdDSA"/)
+    }
+    // The Ed25519 examples are still there — this isn't passing by deletion.
+    expect(COMMAND_HELP.list).toMatch(/"alg":\s*"Ed25519"/)
+    expect(COMMAND_HELP.create).toMatch(/"alg":\s*"Ed25519"/)
+    expect(COMMAND_HELP.token).toMatch(/"alg":\s*"Ed25519"/)
+  })
+
+  it('`token` help says the person token, not the agent token, is what a resource sees', () => {
+    expect(COMMAND_HELP.token).toContain('person_token_endpoint')
+    expect(COMMAND_HELP.token).toMatch(/person token/)
+    expect(COMMAND_HELP.token).toMatch(/not what a resource wants/)
+  })
+
+  it('`create` help states that a person server must publish person_token_endpoint', () => {
+    expect(COMMAND_HELP.create).toContain('person_token_endpoint')
+    expect(COMMAND_HELP.create).toContain('auth_token_endpoint')
+    // The -10 name is gone from the narration.
+    expect(COMMAND_HELP.create).not.toMatch(/(?<![a-z_])token_endpoint/)
+  })
 })
 
 describe('colorizeJson', () => {
