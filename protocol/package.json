@@ -1,0 +1,39 @@
+{
+  "name": "@aauth/protocol",
+  "version": "1.0.0",
+  "description": "AAuth wire format — AAuth-Requirement and AAuth-Capabilities headers, access_mode planning, protocol constants",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aauth",
+    "agent-auth",
+    "http-headers",
+    "access-mode"
+  ],
+  "author": "Dick Hardt <dick.hardt@hello.coop>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aauth-dev/packages-js",
+    "directory": "protocol"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
