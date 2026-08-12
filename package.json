@@ -18,6 +18,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@hellocoop/mockin": "^2.0.0",
     "vitest": "^3.0.0"
   },
   "workspaces": [

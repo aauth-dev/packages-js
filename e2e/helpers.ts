@@ -24,11 +24,11 @@
  */
 
 import { createServer } from 'node:http'
-import { existsSync } from 'node:fs'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { AddressInfo } from 'node:net'
 
@@ -77,9 +77,28 @@ export { decodeJwtHeader, decodeJwtPayload }
  */
 const realFetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis)
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-/** WP-19's worktree. mockin is not a workspace of this repo. */
-export const MOCKIN_DIR = join(HERE, '..', '..', 'wp19')
+/**
+ * mockin's server entry point, resolved from `node_modules`.
+ *
+ * It is a devDependency (`@hellocoop/mockin`), not a workspace and not a
+ * sibling checkout. That matters: this file previously pointed at a worktree
+ * beside this one, which worked on the machine the suite was written on and
+ * nowhere else — CI could not start the person server at all, so all 58 e2e
+ * tests failed to collect while the rest of the suite stayed green. A
+ * devDependency resolves identically on a laptop and a runner, and pins which
+ * version of the -11 surface is under test.
+ *
+ * Resolved through `package.json` and the `bin` map rather than as a bare
+ * specifier, because mockin is a **bin-only package**: no `main`, no `exports`,
+ * just `bin: { mockin: 'src/server.js' }`. `resolve('@hellocoop/mockin')` has
+ * no entry point to find and throws. Reading `bin` also means the path is
+ * mockin's to change.
+ */
+const MOCKIN_PKG = createRequire(import.meta.url).resolve('@hellocoop/mockin/package.json')
+const MOCKIN_ENTRY = join(
+  dirname(MOCKIN_PKG),
+  (JSON.parse(readFileSync(MOCKIN_PKG, 'utf8')) as { bin: Record<string, string> }).bin.mockin,
+)
 
 // ---------------------------------------------------------------------------
 // Identifiers
@@ -256,26 +275,18 @@ async function freePort(): Promise<number> {
 }
 
 export async function startMockin(router: LoopbackRouter): Promise<Mockin> {
-  const entry = join(MOCKIN_DIR, 'src', 'server.js')
-  if (!existsSync(entry)) {
-    throw new Error(
-      `mockin not found at ${entry}. This suite drives the real -11 person `
-      + 'server; check out WP-19 (branch aauth-11/wp19-mockin) beside this '
-      + 'worktree and run `npm ci` in it.',
-    )
-  }
   const port = await freePort()
   const origin = `http://127.0.0.1:${port}`
   router.register(PS, origin)
 
   const child: ChildProcess = spawn(
     process.execPath,
-    ['--no-warnings', join(MOCKIN_DIR, 'src', 'server.js')],
+    ['--no-warnings', MOCKIN_ENTRY],
     {
       // ISSUER is what lands in `iss`, in every `Location`, and in the `aud`
       // a resource token must match exactly. It must be a server identifier.
       env: { ...process.env, PORT: String(port), IP: '127.0.0.1', ISSUER: PS },
-      cwd: MOCKIN_DIR,
+      cwd: dirname(MOCKIN_ENTRY),
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   )
