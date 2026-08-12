@@ -2,7 +2,12 @@
  * @aauth/protocol — the AAuth wire format, on its own.
  *
  * Header build/parse, `access_mode` planning, protocol constants and
- * unverified JWT decoding. No I/O, no crypto, no runtime dependencies.
+ * unverified JWT decoding. No I/O, no crypto.
+ *
+ * One runtime dependency: `@hellocoop/httpsig`, for its RFC 8941 structured
+ * field parser. Anything that speaks AAuth signs its requests with that
+ * package already, so this costs nothing at the install and saves a second
+ * hand-rolled parser of the same grammar.
  *
  * Tracks draft-hardt-oauth-aauth-protocol-11.
  */

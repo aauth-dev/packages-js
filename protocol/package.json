@@ -32,6 +32,9 @@
     "url": "https://github.com/aauth-dev/packages-js",
     "directory": "protocol"
   },
+  "dependencies": {
+    "@hellocoop/httpsig": "^2.1.0"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"

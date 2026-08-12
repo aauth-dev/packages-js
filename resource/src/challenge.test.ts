@@ -23,7 +23,8 @@ describe('buildAAuthHeader', () => {
 
   it('builds requirement=auth-token with the resource token', () => {
     const header = buildAAuthHeader('auth-token', { resourceToken: 'eyJ.abc.def' })
-    expect(header).toBe('requirement=auth-token; resource-token="eyJ.abc.def"')
+    // RFC 8941 serialization: no space after the `;` introducing a parameter.
+    expect(header).toBe('requirement=auth-token;resource-token="eyJ.abc.def"')
     expect(parseRequirementHeader(header)).toEqual({
       requirement: 'auth-token',
       resourceToken: 'eyJ.abc.def',

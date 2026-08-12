@@ -4,9 +4,12 @@ Four steps. None of them are in this commit — every file they touch is shared
 with the other AAuth -11 work packages, so WP-1 left them alone rather than
 collide. Apply them in one integration pass.
 
-The package is `protocol/`, version `1.0.0`, ESM, **zero runtime dependencies**.
-Its only devDependencies are `@types/node ^20.0.0` and `typescript ^5.0.0`, both
-already in the tree at the same ranges as every sibling package.
+The package is `protocol/`, version `1.0.0`, ESM. Its one runtime dependency is
+`@hellocoop/httpsig ^2.1.0`, for the RFC 8941 structured field parser on that
+package's `/structured-fields` subpath; every consumer of `@aauth/protocol`
+installs it anyway. Its only devDependencies are `@types/node ^20.0.0` and
+`typescript ^5.0.0`, both already in the tree at the same ranges as every
+sibling package.
 
 ---
 

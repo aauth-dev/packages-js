@@ -27,6 +27,14 @@ describe('buildCapabilitiesHeader', () => {
   it('drops empty entries', () => {
     expect(buildCapabilitiesHeader(['interaction', '', '  ', 'payment'])).toBe('interaction, payment')
   })
+
+  // Capability values are Tokens. A value that is not one would produce a
+  // header no RFC 8941 parser could read, so it is refused rather than emitted.
+  it('refuses a value that is not a valid Token', () => {
+    expect(() => buildCapabilitiesHeader(['inter action'])).toThrow(TypeError)
+    expect(() => buildCapabilitiesHeader(['"quoted"'])).toThrow(TypeError)
+    expect(() => buildCapabilitiesHeader(['1payment'])).toThrow(TypeError)
+  })
 })
 
 describe('parseCapabilitiesHeader', () => {
@@ -67,6 +75,15 @@ describe('parseCapabilitiesHeader', () => {
     for (const junk of [',,,', '"', 'a=b; c', '\t', 'interaction;q=1']) {
       expect(() => parseCapabilitiesHeader(junk)).not.toThrow()
     }
+  })
+
+  // A List that does not parse is ignored whole rather than surfaced: the spec
+  // says recipients MUST ignore values they do not recognize, and an absent
+  // header and an unreadable one lead to the same place.
+  it('returns an empty array for a malformed List', () => {
+    expect(parseCapabilitiesHeader('interaction, ,')).toEqual([])
+    expect(parseCapabilitiesHeader('interaction, "unterminated')).toEqual([])
+    expect(parseCapabilitiesHeader('interaction,')).toEqual([])
   })
 
   it('is case sensitive', () => {

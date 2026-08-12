@@ -1,10 +1,17 @@
 # @aauth/protocol
 
 The AAuth wire format, on its own. Header build/parse, `access_mode` planning,
-protocol constants, and unverified JWT decoding. No I/O, no crypto, no runtime
-dependencies.
+protocol constants, and unverified JWT decoding. No I/O, no crypto.
 
 Tracks `draft-hardt-oauth-aauth-protocol-11`.
+
+One runtime dependency: [`@hellocoop/httpsig`](https://www.npmjs.com/package/@hellocoop/httpsig),
+imported for its RFC 8941 structured field parser
+(`@hellocoop/httpsig/structured-fields`). `AAuth-Requirement` is a Dictionary
+and `AAuth-Capabilities` is a List of Tokens, and every consumer of this
+package signs its requests with `@hellocoop/httpsig` anyway — so the parser is
+already installed, and a second implementation of the same grammar is a second
+place for the quoting and escaping rules to be got wrong.
 
 ```
 npm install @aauth/protocol

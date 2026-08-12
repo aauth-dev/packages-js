@@ -92,7 +92,45 @@ describe('parseRequirementHeader — malformed headers', () => {
   })
 
   it('rejects an empty requirement value', () => {
-    expect(() => parseRequirementHeader('requirement=')).toThrow(/empty requirement value/i)
+    expect(() => parseRequirementHeader('requirement=""')).toThrow(/empty requirement value/i)
+  })
+
+  it('rejects a header that is not a well-formed Dictionary', () => {
+    // `requirement=` with nothing after it is a parse error, not an empty
+    // value: RFC 8941 has no production for a member with no value.
+    expect(() => parseRequirementHeader('requirement=')).toThrow(/malformed/i)
+    expect(() => parseRequirementHeader('requirement=approval, ,')).toThrow(/malformed/i)
+    expect(() => parseRequirementHeader('requirement="unterminated')).toThrow(/malformed/i)
+  })
+
+  // RFC 8941 §3.3.3 permits only \\ and \" inside a String. `sf.ts` unescaped
+  // \<anything>; the real parser refuses the header.
+  it('rejects an invalid escape inside a quoted value', () => {
+    expect(() =>
+      parseRequirementHeader('requirement=auth-token; resource-token="a\\nb"'),
+    ).toThrow(/malformed/i)
+  })
+
+  // Kept on purpose: a sender that omits the quotes produces a Token, and
+  // base64url plus `.` is entirely inside the Token character set.
+  it('accepts a bare unquoted resource-token', () => {
+    expect(parseRequirementHeader('requirement=auth-token; resource-token=eyJhbGci.eyJzdWIi.sig'))
+      .toEqual({ requirement: 'auth-token', resourceToken: 'eyJhbGci.eyJzdWIi.sig' })
+  })
+
+  // RFC 8941 §3.2: "the last instance takes precedence". `sf.ts` took the first.
+  it('takes the last of duplicate dictionary members', () => {
+    expect(parseRequirementHeader('requirement=approval, requirement=claims')).toEqual({
+      requirement: 'claims',
+    })
+  })
+
+  // The old `\s+ -> ' '` pre-pass collapsed runs of whitespace everywhere,
+  // including inside a quoted value.
+  it('preserves whitespace inside a quoted value', () => {
+    expect(
+      parseRequirementHeader('requirement=interaction; url="https://x.example/a  b"; code="A  B"'),
+    ).toEqual({ requirement: 'interaction', url: 'https://x.example/a  b', code: 'A  B' })
   })
 
   it('rejects auth-token with no resource-token parameter', () => {
@@ -126,9 +164,12 @@ describe('buildRequirementHeader', () => {
     expect(buildRequirementHeader({ requirement: 'claims' })).toBe('requirement=claims')
   })
 
+  // RFC 8941 serialization puts no space after the `;` that introduces a
+  // parameter. The spaced form parses identically and is still accepted on
+  // the way in; this is what we emit.
   it('builds auth-token with a quoted resource-token', () => {
     expect(buildRequirementHeader({ requirement: 'auth-token', resourceToken: 'eyJ.a.b' })).toBe(
-      'requirement=auth-token; resource-token="eyJ.a.b"',
+      'requirement=auth-token;resource-token="eyJ.a.b"',
     )
   })
 
@@ -139,7 +180,7 @@ describe('buildRequirementHeader', () => {
         url: 'https://example.com/interact',
         code: 'A1B2-C3D4',
       }),
-    ).toBe('requirement=interaction; url="https://example.com/interact"; code="A1B2-C3D4"')
+    ).toBe('requirement=interaction;url="https://example.com/interact";code="A1B2-C3D4"')
   })
 
   it('throws when a required parameter is missing', () => {

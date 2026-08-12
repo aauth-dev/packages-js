@@ -1,4 +1,12 @@
-import { splitOutsideQuotes, splitPair, quoteString, unquoteString } from './sf.js'
+import {
+  parseDictionary,
+  serializeDictionary,
+  isInnerList,
+  bareItemToString,
+  Token,
+  type Dictionary,
+  type Parameters,
+} from '@hellocoop/httpsig/structured-fields'
 
 /**
  * The `requirement` values defined by AAuth -11 (§Requirement Values).
@@ -63,9 +71,14 @@ export function isRequirementValue(value: string): value is RequirementValue {
 /**
  * Build an `AAuth-Requirement` response header value.
  *
- *   requirement=auth-token; resource-token="eyJ..."
- *   requirement=interaction; url="https://example.com/interact"; code="A1B2-C3D4"
+ *   requirement=auth-token;resource-token="eyJ..."
+ *   requirement=interaction;url="https://example.com/interact";code="A1B2-C3D4"
  *   requirement=approval
+ *
+ * The header is serialized as an RFC 8941 Dictionary, so parameters are
+ * emitted in the canonical form — `;` with no following space. A recipient
+ * that splits on `; ` is not an RFC 8941 parser; the spaced form and this one
+ * parse identically.
  *
  * Throws when the challenge is missing a parameter its requirement value
  * requires.
@@ -77,21 +90,27 @@ export function buildRequirementHeader(challenge: AAuthChallenge): string {
     throw new UnsupportedRequirementError(String(requirement))
   }
 
+  const parameters: Parameters = new Map()
+
   if (requirement === 'auth-token') {
     if (!challenge.resourceToken) {
       throw new Error('requirement=auth-token requires a resourceToken')
     }
-    return `requirement=auth-token; resource-token=${quoteString(challenge.resourceToken)}`
+    parameters.set('resource-token', challenge.resourceToken)
   }
 
   if (requirement === 'interaction') {
     if (!challenge.url || !challenge.code) {
       throw new Error('requirement=interaction requires both url and code')
     }
-    return `requirement=interaction; url=${quoteString(challenge.url)}; code=${quoteString(challenge.code)}`
+    parameters.set('url', challenge.url)
+    parameters.set('code', challenge.code)
   }
 
-  return `requirement=${requirement}`
+  const dictionary: Dictionary = new Map()
+  dictionary.set('requirement', [new Token(requirement), parameters])
+
+  return serializeDictionary(dictionary)
 }
 
 /**
@@ -103,28 +122,42 @@ export function buildRequirementHeader(challenge: AAuthChallenge): string {
  *
  * @throws {UnsupportedRequirementError} the `requirement=` value is not one this
  *   library recognizes — the response MUST NOT be treated as satisfiable.
- * @throws {Error} the header is empty, has no `requirement` member, or omits a
- *   parameter its requirement value requires.
+ * @throws {Error} the header is empty, is not a well-formed Dictionary, has no
+ *   `requirement` member, or omits a parameter its requirement value requires.
  */
 export function parseRequirementHeader(headerValue: string): AAuthChallenge {
-  // Header line folding arrives as embedded whitespace; normalize it away.
-  const trimmed = headerValue.replace(/\s+/g, ' ').trim()
-  if (!trimmed) {
+  // RFC 7230 obs-fold: a header continued across lines arrives with the line
+  // break and its leading whitespace embedded. Unfold those, and only those —
+  // whitespace *inside* a quoted parameter value is part of the value.
+  const unfolded = headerValue.replace(/\r?\n[ \t]+/g, ' ').trim()
+  if (!unfolded) {
     throw new Error('Empty AAuth-Requirement header')
   }
 
-  const members = splitOutsideQuotes(trimmed, ',')
-  const member = members.find((m) => {
-    const pair = splitPair(splitOutsideQuotes(m, ';')[0])
-    return pair?.key === 'requirement'
-  })
+  let dictionary: Dictionary
+  try {
+    dictionary = parseDictionary(unfolded)
+  } catch (e) {
+    throw new Error(
+      `Malformed AAuth-Requirement header: ${e instanceof Error ? e.message : String(e)}`,
+    )
+  }
+
+  const member = dictionary.get('requirement')
   if (member === undefined) {
     throw new Error('AAuth-Requirement header has no requirement member')
   }
+  if (isInnerList(member)) {
+    throw new Error('AAuth-Requirement requirement member must be an Item, not an Inner List')
+  }
 
-  const segments = splitOutsideQuotes(member, ';')
-  const head = splitPair(segments[0])
-  const rawValue = unquoteString(head!.value)
+  const [bareValue, parameters] = member
+  let rawValue: string
+  try {
+    rawValue = bareItemToString(bareValue)
+  } catch {
+    throw new Error('AAuth-Requirement requirement value must be a Token or a String')
+  }
   if (!rawValue) {
     throw new Error('AAuth-Requirement header has an empty requirement value')
   }
@@ -134,22 +167,20 @@ export function parseRequirementHeader(headerValue: string): AAuthChallenge {
 
   const challenge: AAuthChallenge = { requirement: rawValue }
 
-  for (const segment of segments.slice(1)) {
-    const pair = splitPair(segment)
-    if (!pair) continue
-    const value = unquoteString(pair.value)
-    switch (pair.key) {
-      case 'resource-token':
-        challenge.resourceToken = value
-        break
-      case 'url':
-        challenge.url = value
-        break
-      case 'code':
-        challenge.code = value
-        break
-      // Recipients MUST ignore unknown parameters.
+  // Recipients MUST ignore unknown parameters. A recognized parameter whose
+  // value cannot be read as text is treated as absent, so the requirement's
+  // own "missing parameter" error is what surfaces.
+  for (const key of ['resource-token', 'url', 'code'] as const) {
+    if (!parameters.has(key)) continue
+    let value: string
+    try {
+      value = bareItemToString(parameters.get(key)!)
+    } catch {
+      continue
     }
+    if (key === 'resource-token') challenge.resourceToken = value
+    else if (key === 'url') challenge.url = value
+    else challenge.code = value
   }
 
   if (challenge.requirement === 'auth-token' && !challenge.resourceToken) {

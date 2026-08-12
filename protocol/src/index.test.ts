@@ -31,8 +31,12 @@ describe('public surface', () => {
     }
   })
 
-  it('has no runtime dependencies', async () => {
+  // The package has one runtime dependency and it is deliberate: the RFC 8941
+  // parser lives in @hellocoop/httpsig, which anything importing this package
+  // pulls in anyway. What must not appear is a second one.
+  it('depends on @hellocoop/httpsig and nothing else', async () => {
     const pkg = await import('../package.json', { with: { type: 'json' } })
-    expect((pkg.default as Record<string, unknown>).dependencies).toBeUndefined()
+    const deps = (pkg.default as Record<string, unknown>).dependencies as Record<string, string>
+    expect(Object.keys(deps)).toEqual(['@hellocoop/httpsig'])
   })
 })
