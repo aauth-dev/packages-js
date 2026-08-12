@@ -19,8 +19,8 @@ const MISSION = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 const RESOURCE = 'https://resource.example'
 
 const metadata = {
-  auth_token_endpoint: 'https://ps.example/token',
-  person_token_endpoint: 'https://ps.example/person',
+  auth_token_endpoint: 'https://ps.example/aauth/token/auth',
+  person_token_endpoint: 'https://ps.example/aauth/token/person',
   jwks_uri: 'https://ps.example/jwks',
 }
 
@@ -155,7 +155,7 @@ describe('requestPersonToken', () => {
       { method: 'GET' },
     )
     expect(mockFetch).toHaveBeenNthCalledWith(2,
-      'https://ps.example/person',
+      'https://ps.example/aauth/token/person',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -228,7 +228,7 @@ describe('requestPersonToken', () => {
     })
 
     expect(mockFetch).toHaveBeenCalledOnce()
-    expect(mockFetch.mock.calls[0][0]).toBe('https://ps.example/person')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://ps.example/aauth/token/person')
   })
 
   it('202 with requirement=interaction — polls the Location URL', async () => {
@@ -236,7 +236,7 @@ describe('requestPersonToken', () => {
     mockFetch.mockResolvedValueOnce(new Response(null, {
       status: 202,
       headers: {
-        Location: '/person/pending/abc123',
+        Location: '/aauth/token/person/pending/abc123',
         'aauth-requirement': 'requirement=interaction; url="https://ps.example/interact"; code="A1B2-C3D4"',
       },
     }))
@@ -256,7 +256,7 @@ describe('requestPersonToken', () => {
     expect(result).toEqual({ personToken: 'eyJ.deferred.token', expiresIn: 1800 })
     expect(mockPollDeferred).toHaveBeenCalledOnce()
     const pollOpts = mockPollDeferred.mock.calls[0][0]
-    expect(pollOpts.locationUrl).toBe('https://ps.example/person/pending/abc123')
+    expect(pollOpts.locationUrl).toBe('https://ps.example/aauth/token/person/pending/abc123')
     expect(pollOpts.interactionUrl).toBe('https://ps.example/interact')
     expect(pollOpts.interactionCode).toBe('A1B2-C3D4')
     expect(pollOpts.onInteraction).toBe(onInteraction)
@@ -277,7 +277,7 @@ describe('requestPersonToken', () => {
     mockFetch.mockResolvedValueOnce(json(metadata))
     mockFetch.mockResolvedValueOnce(new Response(null, {
       status: 202,
-      headers: { Location: 'https://ps.example/person/pending/x' },
+      headers: { Location: 'https://ps.example/aauth/token/person/pending/x' },
     }))
     mockPollDeferred.mockResolvedValueOnce({
       response: new Response(null, { status: 403 }),
@@ -306,7 +306,7 @@ describe('requestPersonToken', () => {
   })
 
   it('rejects a PS with no person_token_endpoint as non-conformant', async () => {
-    mockFetch.mockResolvedValueOnce(json({ auth_token_endpoint: 'https://ps.example/token' }))
+    mockFetch.mockResolvedValueOnce(json({ auth_token_endpoint: 'https://ps.example/aauth/token/auth' }))
 
     await expect(requestPersonToken({
       signedFetch: mockFetch,

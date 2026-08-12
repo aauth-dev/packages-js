@@ -204,17 +204,44 @@ export interface MockinConfig {
   trusted_servers?: Record<string, unknown>
 }
 
+/** The two token endpoint members of `/.well-known/aauth-person.json`. */
+export type PsEndpointField = 'person_token_endpoint' | 'auth_token_endpoint'
+
 export interface Mockin {
   /** `https://ps.mockin.test` — its `iss`, and the `aud` of every resource token. */
   readonly issuer: string
   readonly origin: string
+  /**
+   * `/.well-known/aauth-person.json`, as published.
+   *
+   * Read once per process and cached, because the document does not change
+   * while the server runs. Assertions that pin what the PS *publishes* compare
+   * against literals; everything else resolves through {@link Mockin.endpoint}.
+   */
+  metadata(): Promise<Record<string, unknown>>
+  /**
+   * The URL of a token endpoint, resolved from the metadata document the way an
+   * agent resolves it.
+   *
+   * Nothing in this suite should hard-code an endpoint path. The fields exist
+   * so a PS can move its endpoints, and a test that reaches past them is a test
+   * that will break when one does — which is exactly what happened when mockin
+   * moved both under a shared `/aauth/token/` prefix.
+   */
+  endpoint(field: PsEndpointField): Promise<string>
   /** Patch the mock switches. Only the keys you pass are applied. */
   configure(patch: MockinConfig): Promise<void>
   /** `DELETE /mock` — clears the person-token `jti` store, pending requests,
    *  the entity cache **and `trusted_servers`**, then reinstalls the latter. */
   reset(): Promise<void>
-  /** Drive an interaction to completion, as a browser would. */
-  consent(code: string): Promise<Response>
+  /**
+   * Drive an interaction to completion, as a browser would.
+   *
+   * Pass the `url` the PS handed out in its `AAuth-Requirement` when you have
+   * it — that is the URL an agent is told to open, and hard-coding a path here
+   * would be the same mistake as hard-coding a token endpoint.
+   */
+  consent(code: string, url?: string): Promise<Response>
   /** Register an entity so mockin resolves its metadata + JWKS in-process. */
   trust(identifier: string, jwks: { keys: JWK[] }, dwkDoc?: Record<string, unknown>): void
   stop(): Promise<void>
@@ -270,6 +297,16 @@ export async function startMockin(router: LoopbackRouter): Promise<Mockin> {
   }
 
   const trusted: Record<string, unknown> = {}
+  let metadataCache: Record<string, unknown> | undefined
+
+  const metadata = async (): Promise<Record<string, unknown>> => {
+    if (!metadataCache) {
+      const res = await realFetch(`${origin}/.well-known/aauth-person.json`)
+      if (!res.ok) throw new Error(`PS metadata fetch failed: ${res.status}`)
+      metadataCache = await res.json() as Record<string, unknown>
+    }
+    return metadataCache
+  }
 
   const put = async (patch: MockinConfig): Promise<void> => {
     const res = await realFetch(`${origin}/mock/aauth`, {
@@ -283,6 +320,14 @@ export async function startMockin(router: LoopbackRouter): Promise<Mockin> {
   return {
     issuer: PS,
     origin,
+    metadata,
+    async endpoint(field) {
+      const value = (await metadata())[field]
+      if (typeof value !== 'string' || !value) {
+        throw new Error(`PS metadata publishes no ${field}`)
+      }
+      return value
+    },
     configure: patch => put(patch),
     async reset() {
       const res = await realFetch(`${origin}/mock`, { method: 'DELETE' })
@@ -290,8 +335,9 @@ export async function startMockin(router: LoopbackRouter): Promise<Mockin> {
       // DELETE /mock resets trusted_servers along with everything else.
       await put({ trusted_servers: trusted })
     },
-    consent(code) {
-      return realFetch(`${origin}/aauth/consent?code=${encodeURIComponent(code)}`)
+    consent(code, url) {
+      const base = url ? router.rewrite(url) : `${origin}/aauth/consent`
+      return realFetch(`${base}?code=${encodeURIComponent(code)}`)
     },
     trust(identifier, jwks, dwkDoc) {
       trusted[identifier] = {

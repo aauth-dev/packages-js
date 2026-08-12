@@ -184,7 +184,7 @@ describe('resolvePersonServer', () => {
 
 describe('resolvePersonServerMetadata', () => {
   beforeEach(() => vi.clearAllMocks())
-  const meta = { auth_token_endpoint: 'https://ps.com/aauth/auth-token', person_token_endpoint: 'https://ps.com/aauth/person-token', jwks_uri: 'https://ps.com/jwks' }
+  const meta = { auth_token_endpoint: 'https://ps.com/aauth/token/auth', person_token_endpoint: 'https://ps.com/aauth/token/person', jwks_uri: 'https://ps.com/jwks' }
 
   it('returns the cached metadata for the PS host', () => {
     vi.mocked(readCachedMetadata).mockReturnValueOnce(meta)
@@ -205,7 +205,7 @@ describe('resolvePersonServerMetadata', () => {
 
 describe('savePersonServerMetadata', () => {
   beforeEach(() => vi.clearAllMocks())
-  const meta = { auth_token_endpoint: 'https://ps.com/aauth/auth-token', person_token_endpoint: 'https://ps.com/aauth/person-token', jwks_uri: 'https://ps.com/jwks' }
+  const meta = { auth_token_endpoint: 'https://ps.com/aauth/token/auth', person_token_endpoint: 'https://ps.com/aauth/token/person', jwks_uri: 'https://ps.com/jwks' }
 
   it('writes the fetched metadata to the cache, keyed by PS host', () => {
     savePersonServerMetadata('https://ps.com', meta)
@@ -220,7 +220,7 @@ describe('savePersonServerMetadata', () => {
 
 describe('runWithMetadataSelfHeal', () => {
   beforeEach(() => vi.clearAllMocks())
-  const meta = { auth_token_endpoint: 'https://ps.com/aauth/auth-token' }
+  const meta = { auth_token_endpoint: 'https://ps.com/aauth/token/auth' }
 
   it('passes the cached metadata through on success (no eviction)', async () => {
     const run = vi.fn().mockResolvedValue(undefined)
@@ -569,7 +569,7 @@ describe('handleFullFlow', () => {
 
   it('passes cached PS metadata through to createAAuthFetch', async () => {
     mockAAuthFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }))
-    const meta = { auth_token_endpoint: 'https://ps.example.com/aauth/auth-token' }
+    const meta = { auth_token_endpoint: 'https://ps.example.com/aauth/token/auth' }
 
     const stdout = captureStdout()
     try {

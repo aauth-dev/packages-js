@@ -287,8 +287,8 @@ describe('ServerManager', () => {
       // -11 renamed `token_endpoint` to `auth_token_endpoint` and added the
       // REQUIRED `person_token_endpoint`.
       const metadata = {
-        auth_token_endpoint: 'https://ps.example/token',
-        person_token_endpoint: 'https://ps.example/person',
+        auth_token_endpoint: 'https://ps.example/aauth/token/auth',
+        person_token_endpoint: 'https://ps.example/aauth/token/person',
       }
       const onPersonServerMetadata = vi.fn()
       mockRequestPersonToken.mockImplementation(async (options: {

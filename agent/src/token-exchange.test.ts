@@ -15,8 +15,8 @@ describe('exchangeToken', () => {
   let mockFetch: ReturnType<typeof vi.fn>
 
   const metadata = {
-    auth_token_endpoint: 'https://auth.example/aauth/token',
-    person_token_endpoint: 'https://auth.example/aauth/person',
+    auth_token_endpoint: 'https://auth.example/aauth/token/auth',
+    person_token_endpoint: 'https://auth.example/aauth/token/person',
     jwks_uri: 'https://auth.example/aauth/jwks',
   }
 
@@ -60,7 +60,7 @@ describe('exchangeToken', () => {
 
     // Verify token request
     expect(mockFetch).toHaveBeenNthCalledWith(2,
-      'https://auth.example/aauth/token',
+      'https://auth.example/aauth/token/auth',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -96,7 +96,7 @@ describe('exchangeToken', () => {
     // The very first (and only) call is the token POST — no metadata GET.
     expect(mockFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenNthCalledWith(1,
-      'https://auth.example/aauth/token',
+      'https://auth.example/aauth/token/auth',
       expect.objectContaining({ method: 'POST' }),
     )
   })
@@ -138,8 +138,8 @@ describe('exchangeToken', () => {
     })
 
     expect(onMetadata).toHaveBeenCalledWith(expect.objectContaining({
-      auth_token_endpoint: 'https://auth.example/aauth/token',
-      person_token_endpoint: 'https://auth.example/aauth/person',
+      auth_token_endpoint: 'https://auth.example/aauth/token/auth',
+      person_token_endpoint: 'https://auth.example/aauth/token/person',
     }))
   })
 
@@ -272,7 +272,7 @@ describe('exchangeToken', () => {
     // the person token a resource demands before issuing a resource token, so
     // nothing downstream of this document can succeed.
     mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
-      auth_token_endpoint: 'https://auth.example/aauth/token',
+      auth_token_endpoint: 'https://auth.example/aauth/token/auth',
     }), { status: 200 }))
 
     await expect(exchangeToken({

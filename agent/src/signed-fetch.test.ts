@@ -119,7 +119,7 @@ describe('createSignedFetch', () => {
       mockHttpSigFetch.mockResolvedValue(new Response())
 
       const psFetch = createSignedFetch(getKeyMaterial, { signBody: true })
-      await psFetch('https://ps.example/person', {
+      await psFetch('https://ps.example/aauth/token/person', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -20,8 +20,8 @@ const HOST = 'cache-test.invalid'
 /** A valid AAuth -11 person server metadata document (#ps-metadata). */
 const doc = {
   issuer: 'https://cache-test.invalid',
-  auth_token_endpoint: 'https://cache-test.invalid/aauth/token',
-  person_token_endpoint: 'https://cache-test.invalid/aauth/person',
+  auth_token_endpoint: 'https://cache-test.invalid/aauth/token/auth',
+  person_token_endpoint: 'https://cache-test.invalid/aauth/token/person',
   jwks_uri: 'https://cache-test.invalid/.well-known/jwks.json',
 }
 

@@ -90,7 +90,8 @@ import {
   AGENT,
   AGENT_ID,
 } from './helpers.js'
-import type { Mockin, TestAgent, TestResource } from './helpers.js'
+import type { Mockin, PsEndpointField, TestAgent, TestResource } from './helpers.js'
+import type { FetchLike } from '@aauth/agent'
 
 const router = new LoopbackRouter()
 let mockin: Mockin
@@ -194,6 +195,28 @@ async function redeemExpectingRefusal(resourceToken: string): Promise<TokenExcha
     throw err
   }
   throw new Error('expected the PS to refuse this resource token')
+}
+
+/**
+ * A raw signed POST to a PS token endpoint, for the handful of assertions that
+ * have to see the wire.
+ *
+ * The endpoint is resolved from `/.well-known/aauth-person.json`, exactly as
+ * `@aauth/agent` resolves it. No test in this file hard-codes a token endpoint
+ * path: the metadata fields exist so a PS can move its endpoints, and mockin
+ * did — both now sit under a shared `/aauth/token/` prefix, with the bare
+ * `/aauth/token` answering 404 and naming the two real ones.
+ */
+async function psPost(
+  field: PsEndpointField,
+  body: Record<string, unknown>,
+  fetchFn: FetchLike = agent.psFetch,
+): Promise<Response> {
+  return fetchFn(await mockin.endpoint(field), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 async function walkTheChain(
@@ -350,11 +373,7 @@ describe('deferred person tokens (202)', () => {
     // of this response and `@aauth/agent` hides it.
     await mockin.configure({ person_requirement: 'interaction', auto_approve: false })
 
-    const deferred = await agent.psFetch(`${PS}/aauth/person`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resource: RESOURCE }),
-    })
+    const deferred = await psPost('person_token_endpoint', { resource: RESOURCE })
     expect(deferred.status).toBe(202)
     const location = deferred.headers.get('location')
     expect(location).toMatch(new RegExp(`^${PS}/aauth/pending/`))
@@ -370,8 +389,8 @@ describe('deferred person tokens (202)', () => {
     expect(pending.status).toBe(202)
     expect(pending.headers.get('retry-after')).toBe('5')
 
-    // The person approves in a browser.
-    const consented = await mockin.consent(code)
+    // The person approves in a browser, at the URL the 202 named.
+    const consented = await mockin.consent(code, challenge!.url!)
     expect(consented.status).toBe(200)
 
     // Poll after consent: the token.
@@ -401,9 +420,9 @@ describe('deferred person tokens (202)', () => {
       // What an agent with the `interaction` capability does: open the URL.
       // Delayed, so the first poll is guaranteed to find the request still
       // pending — a person takes longer than a round trip.
-      onInteraction: (_url, code) => {
+      onInteraction: (url, code) => {
         consentedCode = code
-        setTimeout(() => { void mockin.consent(code) }, 250)
+        setTimeout(() => { void mockin.consent(code, url) }, 250)
       },
     })
 
@@ -432,9 +451,9 @@ describe('deferred person tokens (202)', () => {
       signedFetch: agent.psFetch,
       authServerUrl: PS,
       resourceToken,
-      onInteraction: (_url, code) => {
+      onInteraction: (url, code) => {
         sawInteraction = true
-        void mockin.consent(code)
+        void mockin.consent(code, url)
       },
     })
 
@@ -694,7 +713,9 @@ describe('signature algorithms', () => {
   }, 30_000)
 
   it('every published key carries alg: Ed25519', async () => {
-    const psJwks = await (await router.fetch(`${PS}/aauth/jwks.json`)).json() as { keys: Array<{ alg: string }> }
+    // `jwks_uri` from the metadata document, not a guessed path.
+    const psJwksUri = (await mockin.metadata()).jwks_uri as string
+    const psJwks = await (await router.fetch(psJwksUri)).json() as { keys: Array<{ alg: string }> }
     const rsJwks = await (await router.fetch(`${RESOURCE}/jwks.json`)).json() as { keys: Array<{ alg: string }> }
     const agentJwks = await (await router.fetch(`${AGENT}/jwks.json`)).json() as { keys: Array<{ alg: string }> }
     for (const jwks of [psJwks, rsJwks, agentJwks]) {
@@ -801,11 +822,7 @@ describe('body signing toward the PS', () => {
       onSigned: s => { sent = s.headers },
     }))
 
-    const res = await observed(`${PS}/aauth/person`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resource: RESOURCE }),
-    })
+    const res = await psPost('person_token_endpoint', { resource: RESOURCE }, observed)
 
     expect(res.status).toBe(200)
     expect(sent!['content-digest']).toMatch(/^sha-256=:.+:$/)
@@ -819,11 +836,7 @@ describe('body signing toward the PS', () => {
     // all. This is the mistake the mandate exists to catch, and it is a real
     // rejection, not a warning.
     const unsigned = router.route(createSignedFetch(agent.keyMaterial))
-    const res = await unsigned(`${PS}/aauth/person`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resource: RESOURCE }),
-    })
+    const res = await psPost('person_token_endpoint', { resource: RESOURCE }, unsigned)
 
     expect(res.status).toBe(401)
     expect(await res.json()).toMatchObject({ error: 'signature_verification_failed' })
@@ -837,11 +850,7 @@ describe('body signing toward the PS', () => {
     await mockin.configure({ require_body_signing: false })
 
     const unsigned = router.route(createSignedFetch(agent.keyMaterial))
-    const res = await unsigned(`${PS}/aauth/person`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resource: RESOURCE }),
-    })
+    const res = await psPost('person_token_endpoint', { resource: RESOURCE }, unsigned)
 
     expect(res.status).toBe(200)
     const body = await res.json() as { person_token: string }
@@ -853,11 +862,7 @@ describe('body signing toward the PS', () => {
     const resourceToken = await getResourceToken(personToken)
 
     const unsigned = router.route(createSignedFetch(agent.keyMaterial))
-    const res = await unsigned(`${PS}/aauth/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resource_token: resourceToken }),
-    })
+    const res = await psPost('auth_token_endpoint', { resource_token: resourceToken }, unsigned)
 
     expect(res.status).toBe(401)
     expect(res.headers.get('signature-error')).toContain('content-digest')
@@ -1226,26 +1231,18 @@ describe('deferred features the fleet must not have shipped', () => {
     // `@aauth/agent` deliberately does not send it. Asserted at the HTTP level
     // so the refusal is on record, and so a future implementation cannot land
     // silently on a PS that does not support it.
-    for (const [endpoint, extra] of [
-      ['person', { resource: RESOURCE }],
-      ['token', { resource_token: 'x' }],
+    for (const [field, extra] of [
+      ['person_token_endpoint', { resource: RESOURCE }],
+      ['auth_token_endpoint', { resource_token: 'x' }],
     ] as const) {
-      const res = await agent.psFetch(`${PS}/aauth/${endpoint}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...extra, upstream_token: 'anything' }),
-      })
-      expect(res.status, endpoint).toBe(400)
-      expect(await res.json(), endpoint).toMatchObject({ error: 'invalid_request' })
+      const res = await psPost(field, { ...extra, upstream_token: 'anything' })
+      expect(res.status, field).toBe(400)
+      expect(await res.json(), field).toMatchObject({ error: 'invalid_request' })
     }
   }, 30_000)
 
   it('the person token endpoint requires a resource', async () => {
-    const res = await agent.psFetch(`${PS}/aauth/person`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    })
+    const res = await psPost('person_token_endpoint', {})
     expect(res.status).toBe(400)
     // §Error Response Format: RFC 9457 problem details — `application/problem+json`,
     // a REQUIRED `error` extension member, an OPTIONAL `detail`. Asserted raw
@@ -1260,10 +1257,32 @@ describe('deferred features the fleet must not have shipped', () => {
     })
   }, 30_000)
 
+  it('the bare /aauth/token prefix is a 404 that names both real endpoints', async () => {
+    // The two token endpoints sit under a shared prefix, and the prefix itself
+    // is not an endpoint. A caller that hard-coded the old path gets told where
+    // to go instead of a generic not-found — which is the only reason this
+    // suite's move cost one commit rather than an afternoon.
+    const res = await psPost('person_token_endpoint', { resource: RESOURCE })
+    expect(res.status).toBe(200)
+
+    const stale = await agent.psFetch(`${PS}/aauth/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ resource: RESOURCE }),
+    })
+    expect(stale.status).toBe(404)
+    const body = await stale.json() as { error: string; detail: string }
+    expect(body.detail).toContain(`${PS}/aauth/token/auth`)
+    expect(body.detail).toContain(`${PS}/aauth/token/person`)
+  }, 30_000)
+
   it('the PS publishes auth_token_endpoint and person_token_endpoint, not token_endpoint', async () => {
+    // The one place literals belong: this test is about the metadata document
+    // itself, so the expected values are written out. Everywhere else resolves
+    // through them.
     const metadata = await (await router.fetch(`${PS}/.well-known/aauth-person.json`)).json() as Record<string, unknown>
-    expect(metadata.auth_token_endpoint).toBe(`${PS}/aauth/token`)
-    expect(metadata.person_token_endpoint).toBe(`${PS}/aauth/person`)
+    expect(metadata.auth_token_endpoint).toBe(`${PS}/aauth/token/auth`)
+    expect(metadata.person_token_endpoint).toBe(`${PS}/aauth/token/person`)
     // Renamed in -11. A PS still publishing the old name is pre-11.
     expect(metadata.token_endpoint).toBeUndefined()
     // Not published, so nothing in this suite can exercise missions beyond
@@ -1284,12 +1303,12 @@ describe('deferred features the fleet must not have shipped', () => {
       })
 
     await expect(fetchAuthServerMetadata({
-      signedFetch: serving({ token_endpoint: `${PS}/aauth/token`, jwks_uri: `${PS}/aauth/jwks.json` }),
+      signedFetch: serving({ token_endpoint: `${PS}/aauth/token/auth`, jwks_uri: `${PS}/aauth/jwks.json` }),
       authServerUrl: PS,
     })).rejects.toThrow(/auth_token_endpoint/)
 
     await expect(fetchAuthServerMetadata({
-      signedFetch: serving({ auth_token_endpoint: `${PS}/aauth/token` }),
+      signedFetch: serving({ auth_token_endpoint: `${PS}/aauth/token/auth` }),
       authServerUrl: PS,
     })).rejects.toThrow(/person_token_endpoint/)
 
@@ -1299,7 +1318,7 @@ describe('deferred features the fleet must not have shipped', () => {
       signedFetch: agent.psFetch,
       authServerUrl: PS,
     })
-    expect(metadata.auth_token_endpoint).toBe(`${PS}/aauth/token`)
-    expect(metadata.person_token_endpoint).toBe(`${PS}/aauth/person`)
+    expect(metadata.auth_token_endpoint).toBe(`${PS}/aauth/token/auth`)
+    expect(metadata.person_token_endpoint).toBe(`${PS}/aauth/token/person`)
   }, 30_000)
 })

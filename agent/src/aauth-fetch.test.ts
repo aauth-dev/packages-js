@@ -446,7 +446,7 @@ describe('createAAuthFetch', () => {
       // through it and check the covered components.
       const psSignedFetch = mockExchangeToken.mock.calls[0][0].signedFetch
       mockHttpSigFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }))
-      await psSignedFetch('https://ps.example/token', {
+      await psSignedFetch('https://ps.example/aauth/token/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{"resource_token":"rt"}',
@@ -474,7 +474,7 @@ describe('createAAuthFetch', () => {
       const psSignedFetch = mockCreatePersonTokenCache.mock.calls[0][0].signedFetch as
         (url: string, init: RequestInit) => Promise<Response>
       mockHttpSigFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }))
-      await psSignedFetch('https://ps.example/person', {
+      await psSignedFetch('https://ps.example/aauth/token/person', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resource: 'https://resource.example', mission_s256: MISSION }),
