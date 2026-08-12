@@ -7,6 +7,7 @@ import {
   type R3Display,
   type R3ParameterDigest,
   type R3ParameterValue,
+  type R3Record,
   type R3Store,
   type PublishedR3,
 } from './r3.js'
@@ -24,6 +25,32 @@ import {
  * On the retry the resource recovers the proposal by `r3_s256` and MUST verify
  * the agent's actual parameters against it. Any difference is a rejection: an
  * approval to email one recipient cannot be replayed against another.
+ *
+ * ## Dispatch: `r3_s256` alone does not mean "per-call retry"
+ *
+ * A class-grant auth token carries the **class** document's `r3_s256`, and a
+ * per-call retry carries the **proposal's**. Both are present, both are
+ * strings, and nothing in the token distinguishes them. Branching on
+ * `if (auth.r3_s256)` therefore sends every ordinary granted call into
+ * {@link verifyProposalParameters}, which fails with `invalid_proposal` —
+ * an error that points at the document rather than at the dispatch logic that
+ * is actually wrong.
+ *
+ * What separates them is the proposal's REQUIRED `parameters`. So resolve the
+ * reference and look, with {@link isProposal}:
+ *
+ * ```ts
+ * const record = auth.r3_s256 ? await getR3ByHash(store, auth.r3_s256) : null
+ *
+ * if (isProposal(record)) {
+ *   // A per-call retry. The parameters of this call must match the approval.
+ *   await verifyProposalParameters({ store, r3_s256: record.s256, presented, operation })
+ * } else if (inSet(auth.r3_granted, operation)) {
+ *   // Authorized as a class. Run it.
+ * } else if (inSet(auth.r3_per_call, operation)) {
+ *   // Authorized in principle. Build a proposal for this call and challenge.
+ * }
+ * ```
  */
 
 // --- Digest parameters ---
@@ -48,6 +75,43 @@ export async function digestParameter(
 
 function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, max)}…`
+}
+
+/**
+ * Is this a per-call proposal rather than a class R3 document?
+ *
+ * The one correct answer to the dispatch question above. A proposal is exactly
+ * an R3 document carrying `parameters`; a class document never does. Accepts a
+ * stored {@link R3Record} (parsed here), a parsed {@link R3Document}, or
+ * `null`/`undefined` for "no document referenced", so a call site can pass a
+ * store lookup straight in.
+ *
+ * `record.body` is parsed, not re-serialized — the stored bytes are never
+ * touched, and nothing here can disturb the hash.
+ */
+export function isProposal(
+  value: R3Record | R3Document | null | undefined,
+): value is R3Record | R3Document {
+  if (!value || typeof value !== 'object') return false
+  const document = isR3Record(value) ? safeParse(value) : (value as R3Document)
+  if (!document) return false
+  const parameters = document.parameters
+  return !!parameters && typeof parameters === 'object' && !Array.isArray(parameters)
+}
+
+function isR3Record(value: R3Record | R3Document): value is R3Record {
+  return typeof (value as R3Record).body === 'string'
+    && typeof (value as R3Record).s256 === 'string'
+}
+
+function safeParse(record: R3Record): R3Document | undefined {
+  try {
+    return parseR3Record(record)
+  } catch {
+    // Unparseable stored bytes are not a proposal. Whatever else is wrong with
+    // them is verifyProposalParameters' problem, not the dispatcher's.
+    return undefined
+  }
 }
 
 export function isParameterDigest(value: unknown): value is R3ParameterDigest {

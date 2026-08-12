@@ -91,6 +91,7 @@ export {
   publishProposal,
   digestParameter,
   isParameterDigest,
+  isProposal,
   verifyProposalParameters,
 } from './proposal.js'
 export type {

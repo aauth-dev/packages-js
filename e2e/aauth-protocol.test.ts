@@ -41,9 +41,20 @@
  * people. `tenant` is different — mockin acts on it, so §9's tenant tests
  * drive the real request parameter.
  *
- * **R3 has its own limits**, listed at the head of the R3 section: mockin
- * never classifies an operation as `r3_per_call` on its own, never links a
- * proposal to a prior class grant, and has no proposal approval step.
+ * **No PS classifies operations into `r3_per_call`.** mockin's `autoGrantR3`
+ * grants the whole fetched document every time — there is no classifier, no
+ * risk heuristic and no consent screen, so `r3_per_call` exists only when the
+ * `r3_grants` mock switch puts it there. §9 uses that switch to stand in for
+ * the person's decision and proves the resource and agent halves of the
+ * per-call round trip. Whether a PS routes the right operations to `r3_per_call`
+ * is untested, and not testable here.
+ *
+ * **"You may only propose what you were granted in principle" is unverified.**
+ * mockin does not remember the class R3 document between exchanges, does not
+ * require a proposal's operations to be a subset of what it granted, and
+ * connects the two `POST /aauth/token` calls in no way at all. A resource that
+ * proposed an operation the person never granted as `r3_per_call` would be
+ * approved. §9 has the rest of the R3 limits at its head.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
@@ -1236,9 +1247,16 @@ describe('deferred features the fleet must not have shipped', () => {
       body: JSON.stringify({}),
     })
     expect(res.status).toBe(400)
+    // §Error Response Format: RFC 9457 problem details — `application/problem+json`,
+    // a REQUIRED `error` extension member, an OPTIONAL `detail`. Asserted raw
+    // here because it is the one place the suite sees the media type; every
+    // other refusal is read off `PersonTokenError` / `TokenExchangeError`,
+    // which accept the pre-11 `error_description` spelling too (Wallet still
+    // emits it).
+    expect(res.headers.get('content-type')).toContain('application/problem+json')
     expect(await res.json()).toMatchObject({
       error: 'invalid_request',
-      error_description: 'resource is required',
+      detail: 'resource is required',
     })
   }, 30_000)
 

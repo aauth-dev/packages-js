@@ -133,7 +133,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
 
   // 1. Auth server metadata — use the cached copy if provided, else fetch it
   // (and hand the fresh copy back via onMetadata so the caller can persist it).
-  const metadata = await resolveAuthServerMetadata({
+  const metadata = await resolvePersonServerMetadata({
     signedFetch,
     authServerUrl,
     authServerMetadata: options.authServerMetadata,
@@ -259,7 +259,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   throw new TokenExchangeError(response.status, await parseErrorBody(response))
 }
 
-export interface AuthServerMetadataOptions {
+export interface PersonServerMetadataOptions {
   signedFetch: FetchLike
   authServerUrl: string
   /** Cached metadata; when provided, the /.well-known fetch is skipped. */
@@ -272,21 +272,35 @@ export interface AuthServerMetadataOptions {
 }
 
 /**
+ * @deprecated pre-11 name for {@link PersonServerMetadataOptions}.
+ */
+export type AuthServerMetadataOptions = PersonServerMetadataOptions
+
+/**
  * Return the person server's metadata, from the caller's cache when it has one
  * and from `/.well-known/aauth-person.json` otherwise. Shared by the auth-token
  * exchange and the person-token client so one flow fetches the document once.
+ *
+ * Named for the document, not the hop: this fetches `aauth-person.json`, which
+ * only a person server publishes. `exchangeToken`'s own `authServerUrl` keeps
+ * its name because in four-party access that hop's server really is the AS.
  */
-export async function resolveAuthServerMetadata(
-  options: AuthServerMetadataOptions,
+export async function resolvePersonServerMetadata(
+  options: PersonServerMetadataOptions,
 ): Promise<PersonServerMetadata> {
   if (options.authServerMetadata) {
     options.onEvent?.({ step: 'ps_metadata_cached', phase: 'info' })
     return options.authServerMetadata
   }
-  const metadata = await fetchAuthServerMetadata(options)
+  const metadata = await fetchPersonServerMetadata(options)
   options.onMetadata?.(metadata)
   return metadata
 }
+
+/**
+ * @deprecated pre-11 name for {@link resolvePersonServerMetadata}.
+ */
+export const resolveAuthServerMetadata = resolvePersonServerMetadata
 
 /**
  * Fetch and validate `/.well-known/aauth-person.json`.
@@ -295,13 +309,13 @@ export async function resolveAuthServerMetadata(
  * a document missing either is rejected here rather than half-way through a
  * flow that cannot complete.
  */
-export async function fetchAuthServerMetadata({
+export async function fetchPersonServerMetadata({
   signedFetch,
   authServerUrl,
   onEvent,
   getKeyMaterial,
   sentTracker,
-}: AuthServerMetadataOptions): Promise<PersonServerMetadata> {
+}: PersonServerMetadataOptions): Promise<PersonServerMetadata> {
   const metadataUrl = `${authServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
   if (onEvent) {
     const agentToken = getKeyMaterial
@@ -340,6 +354,11 @@ export async function fetchAuthServerMetadata({
 
   return metadata as unknown as PersonServerMetadata
 }
+
+/**
+ * @deprecated pre-11 name for {@link fetchPersonServerMetadata}.
+ */
+export const fetchAuthServerMetadata = fetchPersonServerMetadata
 
 function parseTokenResponse(body: Record<string, unknown>): TokenExchangeResult {
   if (!body.auth_token || typeof body.auth_token !== 'string') {

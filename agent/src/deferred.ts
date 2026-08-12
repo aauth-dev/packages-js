@@ -20,9 +20,12 @@ export interface DeferredOptions {
  *
  * -11 adopted RFC 9457 problem details: `Content-Type: application/problem+json`,
  * a REQUIRED `error` extension member carrying the error code, and an OPTIONAL
- * `detail` carrying the human-readable explanation. `error_description` is the
- * pre-11 spelling of `detail` and is still what several deployed servers emit,
- * so both are read and `detail` wins when a server sends both.
+ * `detail` carrying the human-readable explanation.
+ *
+ * `error_description` is the pre-11 spelling of `detail`, and Wallet still
+ * emits it. Both are read and `detail` wins when a server sends both, so an
+ * agent gets the explanation either way through the cutover. Drop the
+ * leniency only once no PS in the fleet emits the old member.
  */
 export interface AAuthError {
   error: string

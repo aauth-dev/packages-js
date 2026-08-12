@@ -1,7 +1,7 @@
 import { parseRequirementHeader } from '@aauth/protocol'
 import { pollDeferred, parseErrorBody, describeAAuthError } from './deferred.js'
 import type { AAuthError } from './deferred.js'
-import { resolveAuthServerMetadata, resolveUrl } from './token-exchange.js'
+import { resolvePersonServerMetadata, resolveUrl } from './token-exchange.js'
 import type { AuthServerMetadata } from './token-exchange.js'
 import {
   summarizeResponseHeaders,
@@ -143,7 +143,7 @@ export async function requestPersonToken(options: PersonTokenOptions): Promise<P
     sentTracker,
   } = options
 
-  const metadata = await resolveAuthServerMetadata({
+  const metadata = await resolvePersonServerMetadata({
     signedFetch,
     authServerUrl: personServerUrl,
     authServerMetadata: options.personServerMetadata,

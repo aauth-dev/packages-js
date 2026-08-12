@@ -2,6 +2,9 @@ export { createSignedFetch, PS_COMPONENTS_BODY } from './signed-fetch.js'
 export { createAAuthFetch } from './aauth-fetch.js'
 export {
   exchangeToken,
+  fetchPersonServerMetadata,
+  resolvePersonServerMetadata,
+  /** @deprecated pre-11 names */
   fetchAuthServerMetadata,
   resolveAuthServerMetadata,
   TokenExchangeError,
@@ -31,6 +34,8 @@ export type {
   PersonServerMetadata,
   /** @deprecated pre-11 name for PersonServerMetadata */
   AuthServerMetadata,
+  PersonServerMetadataOptions,
+  /** @deprecated pre-11 name for PersonServerMetadataOptions */
   AuthServerMetadataOptions,
 } from './token-exchange.js'
 export type {

@@ -4,6 +4,7 @@ import {
   publishProposal,
   digestParameter,
   isParameterDigest,
+  isProposal,
   verifyProposalParameters,
   publishR3Document,
   serveR3Document,
@@ -262,5 +263,54 @@ describe('a proposal has the same fetch restriction as a class document', () => 
     })
     expect(denied.status).toBe(403)
     expect(denied.body).not.toContain('mom@example.com')
+  })
+})
+
+describe('isProposal — the r3_s256 dispatch discriminator', () => {
+  const classDocument = {
+    vocabulary: 'urn:aauth:vocabulary:openapi',
+    operations: [{ operationId: 'sendMessage' }],
+  }
+  const proposalDocument = { ...classDocument, parameters: { to: 'alice@example.com' } }
+
+  const record = (document: object) => ({
+    uri: 'https://resource.example/r3/x',
+    s256: 'x',
+    body: JSON.stringify(document),
+    authorized: ['https://ps.example'],
+    createdAt: 0,
+  })
+
+  it('is false for a class document — the case that makes presence of r3_s256 useless', () => {
+    // A class-grant auth token carries this document's hash. Branching on
+    // `if (auth.r3_s256)` would send every granted call into
+    // verifyProposalParameters and fail with `invalid_proposal`.
+    expect(isProposal(record(classDocument))).toBe(false)
+    expect(isProposal(classDocument)).toBe(false)
+  })
+
+  it('is true for a per-call proposal', () => {
+    expect(isProposal(record(proposalDocument))).toBe(true)
+    expect(isProposal(proposalDocument)).toBe(true)
+  })
+
+  it('is true for a proposal with no parameters to vary', () => {
+    // An empty `parameters` object still marks the document as per-call: the
+    // approval is for one invocation, whether or not it takes arguments.
+    expect(isProposal({ ...classDocument, parameters: {} })).toBe(true)
+  })
+
+  it('is false for a store miss, so a lookup can be passed straight in', () => {
+    expect(isProposal(null)).toBe(false)
+    expect(isProposal(undefined)).toBe(false)
+  })
+
+  it('is false when parameters is not an object', () => {
+    expect(isProposal({ ...classDocument, parameters: [] as never })).toBe(false)
+    expect(isProposal({ ...classDocument, parameters: 'to=alice' as never })).toBe(false)
+  })
+
+  it('is false for unparseable stored bytes rather than throwing', () => {
+    expect(isProposal({ ...record(classDocument), body: 'not json' })).toBe(false)
   })
 })

@@ -55,7 +55,7 @@ import {
   serveR3Document,
   verifyProposalParameters,
   getR3ByHash,
-  parseR3Record,
+  isProposal,
   R3Error,
 } from '@aauth/resource'
 import type {
@@ -757,14 +757,13 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
         //
         // `r3_s256` alone does not say which — a class-grant auth token
         // carries the class document's hash. What distinguishes a proposal is
-        // its REQUIRED `parameters`, so resolve the reference and look.
+        // its REQUIRED `parameters`, which is what `isProposal` looks at.
         const referenced = auth.r3_s256 ? await getR3ByHash(r3Store, auth.r3_s256) : null
-        const isProposal = !!referenced && parseR3Record(referenced).parameters !== undefined
-        if (isProposal) {
+        if (isProposal(referenced)) {
           try {
             const { parameters } = await verifyProposalParameters({
               store: r3Store,
-              r3_s256: referenced!.s256,
+              r3_s256: referenced.s256,
               presented: body.parameters,
               operation: body.operation,
             })
