@@ -4,7 +4,8 @@ const { mockPollDeferred } = vi.hoisted(() => ({
   mockPollDeferred: vi.fn(),
 }))
 
-vi.mock('./deferred.js', () => ({
+vi.mock('./deferred.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./deferred.js')>()),
   pollDeferred: mockPollDeferred,
 }))
 
@@ -37,6 +38,103 @@ describe('requestPersonToken', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFetch = vi.fn()
+  })
+
+  it('sends the whole consent-flow parameter set the endpoint accepts', async () => {
+    // The person token endpoint takes the auth token endpoint's full parameter
+    // set (contract, §Person Token Endpoint). `tenant` in particular is the
+    // agreed resolution to AAuth issue #88 — nothing else selects which tenant
+    // a person token carries — and `capabilities` answers #89, since the
+    // AAuth-Capabilities header is ruled out on PS endpoints.
+    mockFetch.mockResolvedValueOnce(json(metadata))
+    mockFetch.mockResolvedValueOnce(json({ person_token: 'eyJ.p', expires_in: 3600 }))
+
+    await requestPersonToken({
+      signedFetch: mockFetch,
+      personServerUrl: 'https://ps.example',
+      resource: RESOURCE,
+      missionS256: MISSION,
+      subagentToken: 'eyJ.subagent',
+      justification: 'draft a reply',
+      loginHint: 'alice@example.com',
+      tenant: 'acme-corp',
+      domainHint: 'example.com',
+      prompt: 'consent',
+      platform: 'desktop',
+      device: 'alice-macbook',
+      capabilities: ['interaction'],
+    })
+
+    const body = JSON.parse(mockFetch.mock.calls[1][1].body as string) as Record<string, unknown>
+    expect(body).toEqual({
+      resource: RESOURCE,
+      mission_s256: MISSION,
+      subagent_token: 'eyJ.subagent',
+      justification: 'draft a reply',
+      login_hint: 'alice@example.com',
+      tenant: 'acme-corp',
+      domain_hint: 'example.com',
+      prompt: 'consent',
+      platform: 'desktop',
+      device: 'alice-macbook',
+      capabilities: ['interaction'],
+    })
+    // Call chaining is out of scope; it must never appear.
+    expect(body.upstream_token).toBeUndefined()
+  })
+
+  it('omits every optional parameter the caller did not set', async () => {
+    mockFetch.mockResolvedValueOnce(json(metadata))
+    mockFetch.mockResolvedValueOnce(json({ person_token: 'eyJ.p', expires_in: 3600 }))
+
+    await requestPersonToken({
+      signedFetch: mockFetch,
+      personServerUrl: 'https://ps.example',
+      resource: RESOURCE,
+    })
+
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body as string)).toEqual({ resource: RESOURCE })
+  })
+
+  it('carries the PS error code and detail on a direct refusal', async () => {
+    // §Error Response Format: RFC 9457 problem details with a REQUIRED `error`
+    // extension member and an OPTIONAL `detail`. Reporting only the status
+    // turns "you stripped the mission" into "400".
+    mockFetch.mockResolvedValueOnce(json(metadata))
+    mockFetch.mockResolvedValueOnce(new Response(
+      JSON.stringify({ error: 'invalid_request', detail: 'resource is required' }),
+      { status: 400, headers: { 'Content-Type': 'application/problem+json' } },
+    ))
+
+    const err = await requestPersonToken({
+      signedFetch: mockFetch,
+      personServerUrl: 'https://ps.example',
+      resource: RESOURCE,
+    }).catch((e: unknown) => e as PersonTokenError)
+
+    expect(err).toBeInstanceOf(PersonTokenError)
+    expect((err as PersonTokenError).status).toBe(400)
+    expect((err as PersonTokenError).error).toBe('invalid_request')
+    expect((err as PersonTokenError).detail).toBe('resource is required')
+    expect((err as PersonTokenError).message).toBe('resource is required')
+  })
+
+  it('accepts the pre-11 error_description spelling of detail', async () => {
+    // What deployed servers still emit, including mockin.
+    mockFetch.mockResolvedValueOnce(json(metadata))
+    mockFetch.mockResolvedValueOnce(new Response(
+      JSON.stringify({ error: 'invalid_jwt', error_description: 'alg "EdDSA" — Ed25519 required' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
+    ))
+
+    const err = await requestPersonToken({
+      signedFetch: mockFetch,
+      personServerUrl: 'https://ps.example',
+      resource: RESOURCE,
+    }).catch((e: unknown) => e as PersonTokenError)
+
+    expect((err as PersonTokenError).error).toBe('invalid_jwt')
+    expect((err as PersonTokenError).detail).toBe('alg "EdDSA" — Ed25519 required')
   })
 
   it('discovers the endpoint, POSTs resource + mission_s256, returns the token', async () => {

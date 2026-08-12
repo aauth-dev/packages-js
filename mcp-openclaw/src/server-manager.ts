@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { createSignedFetch, requestPersonToken } from '@aauth/agent'
-import type { AuthServerMetadata, FetchLike, GetKeyMaterial, KeyMaterial } from '@aauth/agent'
+import type { PersonServerMetadata as AgentPersonServerMetadata, FetchLike, GetKeyMaterial, KeyMaterial } from '@aauth/agent'
 import { decodeJwtPayload, parseRequirementHeader, planAccessMode } from '@aauth/protocol'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
@@ -21,10 +21,10 @@ interface ManagedServer {
  * the person token a resource must have verified before it will issue a
  * resource token.
  *
- * `@aauth/agent` owns this shape; it spells it `AuthServerMetadata`. This alias
- * keeps the name this package already published without a second definition.
+ * `@aauth/agent` owns this shape. Re-exported here so a consumer of this
+ * package needs one import, not two.
  */
-export type PersonServerMetadata = AuthServerMetadata
+export type PersonServerMetadata = AgentPersonServerMetadata
 
 /** A configured server this agent's setup cannot use, and why. */
 export interface SkippedServer {

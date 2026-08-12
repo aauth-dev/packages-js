@@ -101,7 +101,7 @@ describe('createAAuthFetch', () => {
     const onAuthToken = vi.fn()
     const fetch = createAAuthFetch({
       getKeyMaterial,
-      authServerUrl: 'https://auth.example',
+      personServerUrl: 'https://auth.example',
       justification: 'read files',
       missionS256: MISSION,
       onAuthToken,
@@ -182,7 +182,7 @@ describe('createAAuthFetch', () => {
 
     const fetch = createAAuthFetch({
       getKeyMaterial,
-      authServerUrl: 'https://auth.example',
+      personServerUrl: 'https://auth.example',
     })
 
     // First request
@@ -307,7 +307,7 @@ describe('createAAuthFetch', () => {
 
     const fetch = createAAuthFetch({
       getKeyMaterial,
-      authServerUrl: 'https://auth.example',
+      personServerUrl: 'https://auth.example',
       loginHint: 'user@acme.com',
       tenant: 'acme.com',
       domainHint: 'acme.com',
@@ -334,7 +334,7 @@ describe('createAAuthFetch', () => {
       const onPersonToken = vi.fn()
       const fetch = createAAuthFetch({
         getKeyMaterial,
-        authServerUrl: 'https://ps.example',
+        personServerUrl: 'https://ps.example',
         missionS256: MISSION,
         onPersonToken,
       })
@@ -365,7 +365,7 @@ describe('createAAuthFetch', () => {
       mockPersonTokenGet.mockResolvedValueOnce('pt')
       mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
 
-      const fetch = createAAuthFetch({ getKeyMaterial, authServerUrl: 'https://ps.example' })
+      const fetch = createAAuthFetch({ getKeyMaterial, personServerUrl: 'https://ps.example' })
       await fetch('https://resource.example/api')
 
       expect(mockPersonTokenGet).toHaveBeenCalledWith('https://resource.example', undefined)
@@ -389,7 +389,7 @@ describe('createAAuthFetch', () => {
 
       const fetch = createAAuthFetch({
         getKeyMaterial,
-        authServerUrl: 'https://ps.example',
+        personServerUrl: 'https://ps.example',
         missionS256: MISSION,
       })
       const result = await fetch('https://resource.example/api')
@@ -409,7 +409,7 @@ describe('createAAuthFetch', () => {
       })
       mockHttpSigFetch.mockResolvedValueOnce(challenge)
 
-      // No authServerUrl → no person server → the requirement is unsatisfiable.
+      // No personServerUrl → no person server → the requirement is unsatisfiable.
       const fetch = createAAuthFetch({ getKeyMaterial })
       const result = await fetch('https://resource.example/api')
 
@@ -429,7 +429,7 @@ describe('createAAuthFetch', () => {
 
       const fetch = createAAuthFetch({
         getKeyMaterial,
-        authServerUrl: 'https://ps.example',
+        personServerUrl: 'https://ps.example',
         missionS256: MISSION,
       })
       await fetch('https://resource.example/api', {
@@ -466,7 +466,7 @@ describe('createAAuthFetch', () => {
 
       const fetch = createAAuthFetch({
         getKeyMaterial,
-        authServerUrl: 'https://ps.example',
+        personServerUrl: 'https://ps.example',
         missionS256: MISSION,
       })
       await fetch('https://resource.example/api')

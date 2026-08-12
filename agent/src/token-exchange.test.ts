@@ -4,7 +4,8 @@ const { mockPollDeferred } = vi.hoisted(() => ({
   mockPollDeferred: vi.fn(),
 }))
 
-vi.mock('./deferred.js', () => ({
+vi.mock('./deferred.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./deferred.js')>()),
   pollDeferred: mockPollDeferred,
 }))
 

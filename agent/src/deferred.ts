@@ -15,10 +15,27 @@ export interface DeferredOptions {
   sentTracker?: { latest?: CapturedSent }
 }
 
+/**
+ * A parsed AAuth error response (§Error Response Format).
+ *
+ * -11 adopted RFC 9457 problem details: `Content-Type: application/problem+json`,
+ * a REQUIRED `error` extension member carrying the error code, and an OPTIONAL
+ * `detail` carrying the human-readable explanation. `error_description` is the
+ * pre-11 spelling of `detail` and is still what several deployed servers emit,
+ * so both are read and `detail` wins when a server sends both.
+ */
 export interface AAuthError {
   error: string
+  /** RFC 9457 `detail`. */
+  detail?: string
+  /** Pre-11 spelling of `detail`. */
   error_description?: string
   error_uri?: string
+}
+
+/** The human-readable half of an AAuth error, whichever spelling arrived. */
+export function describeAAuthError(error: AAuthError | undefined): string | undefined {
+  return error?.detail ?? error?.error_description ?? error?.error
 }
 
 export interface DeferredResult {
@@ -165,15 +182,26 @@ function getRetryDelay(response: Response, fallbackMs: number): number {
   return isNaN(seconds) ? fallbackMs : seconds * 1000
 }
 
-async function parseErrorBody(response: Response): Promise<AAuthError | undefined> {
+/**
+ * Read an AAuth error out of a response body, non-destructively.
+ *
+ * Exported because every failing path needs it, not only the deferred one:
+ * a PS that refuses a person token or a resource token says exactly what was
+ * wrong, and dropping that leaves the agent reporting a bare status code.
+ *
+ * Accepts `application/problem+json` (-11) and `application/json` (pre-11 and
+ * servers that have not cut over).
+ */
+export async function parseErrorBody(response: Response): Promise<AAuthError | undefined> {
   if (response.status === 200) return undefined
   const contentType = response.headers.get('content-type') || ''
-  if (!contentType.includes('application/json')) return undefined
+  if (!/\bapplication\/(problem\+)?json\b/.test(contentType)) return undefined
   try {
     const body = await response.clone().json() as Record<string, unknown>
     if (body.error && typeof body.error === 'string') {
       return {
         error: body.error,
+        detail: typeof body.detail === 'string' ? body.detail : undefined,
         error_description: typeof body.error_description === 'string' ? body.error_description : undefined,
         error_uri: typeof body.error_uri === 'string' ? body.error_uri : undefined,
       }

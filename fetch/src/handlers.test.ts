@@ -558,7 +558,7 @@ describe('handleFullFlow', () => {
     }
 
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
-      authServerUrl: 'https://ps.example.com',
+      personServerUrl: 'https://ps.example.com',
     }))
     // getKeyMaterial is pinned, so it's a wrapper — not the original
     const passedGetKM = mockCreateAAuthFetch.mock.calls[0][0].getKeyMaterial
@@ -585,7 +585,7 @@ describe('handleFullFlow', () => {
     }
 
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
-      authServerMetadata: meta,
+      personServerMetadata: meta,
     }))
   })
 
@@ -605,7 +605,7 @@ describe('handleFullFlow', () => {
     }
 
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
-      authServerUrl: undefined,
+      personServerUrl: undefined,
     }))
   })
 

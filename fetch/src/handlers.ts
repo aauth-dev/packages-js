@@ -12,7 +12,7 @@ import {
   exchangeToken,
   TokenExchangeError,
 } from '@aauth/agent'
-import type { GetKeyMaterial, OnEvent, CapturedSent, AuthServerMetadata } from '@aauth/agent'
+import type { GetKeyMaterial, OnEvent, CapturedSent, PersonServerMetadata } from '@aauth/agent'
 // The challenge parser and the capability vocabulary moved to `@aauth/protocol`
 // in -11; `parseAAuthHeader` is `parseRequirementHeader` there.
 import { parseRequirementHeader } from '@aauth/protocol'
@@ -166,10 +166,10 @@ function personServerHost(personServer: string | undefined): string | undefined 
  */
 export function resolvePersonServerMetadata(
   personServer: string | undefined,
-): AuthServerMetadata | undefined {
+): PersonServerMetadata | undefined {
   const host = personServerHost(personServer)
   if (!host) return undefined
-  return (readCachedMetadata(host) as AuthServerMetadata | null) ?? undefined
+  return (readCachedMetadata(host) as PersonServerMetadata | null) ?? undefined
 }
 
 /**
@@ -180,7 +180,7 @@ export function resolvePersonServerMetadata(
  */
 export function savePersonServerMetadata(
   personServer: string | undefined,
-  metadata: AuthServerMetadata,
+  metadata: PersonServerMetadata,
 ): void {
   const host = personServerHost(personServer)
   if (!host) return
@@ -207,8 +207,8 @@ function isStaleEndpointError(err: unknown): boolean {
  */
 export async function runWithMetadataSelfHeal(
   personServer: string | undefined,
-  cachedMetadata: AuthServerMetadata | undefined,
-  run: (metadata: AuthServerMetadata | undefined) => Promise<void>,
+  cachedMetadata: PersonServerMetadata | undefined,
+  run: (metadata: PersonServerMetadata | undefined) => Promise<void>,
 ): Promise<void> {
   try {
     await run(cachedMetadata)
@@ -355,8 +355,8 @@ export async function handleAuthorize(
   },
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
-  personServerMetadata?: AuthServerMetadata,
-  onMetadata?: (m: AuthServerMetadata) => void,
+  personServerMetadata?: PersonServerMetadata,
+  onMetadata?: (m: PersonServerMetadata) => void,
 ): Promise<void> {
   const onEvent = eventRenderer(args)
   // We support exactly one capability: interaction — declared unless the caller
@@ -534,8 +534,8 @@ export async function handleFullFlow(
   init: RequestInit,
   getKeyMaterial: GetKeyMaterial,
   personServer: string | undefined,
-  personServerMetadata?: AuthServerMetadata,
-  onMetadata?: (m: AuthServerMetadata) => void,
+  personServerMetadata?: PersonServerMetadata,
+  onMetadata?: (m: PersonServerMetadata) => void,
 ): Promise<void> {
   const onEvent = eventRenderer(args)
   const keyMaterial = await getKeyMaterial()
@@ -549,8 +549,8 @@ export async function handleFullFlow(
 
   const aAuthFetch = createAAuthFetch({
     getKeyMaterial: pinnedGetKeyMaterial,
-    authServerUrl: personServer,
-    authServerMetadata: personServerMetadata,
+    personServerUrl: personServer,
+    personServerMetadata,
     onMetadata,
     // --session-token: reuse a previously-issued session token on this call. The
     // agent package still calls this credential `opaqueToken` on its options — the

@@ -1,5 +1,5 @@
 import { parseRequirementHeader } from '@aauth/protocol'
-import { pollDeferred } from './deferred.js'
+import { pollDeferred, parseErrorBody, describeAAuthError } from './deferred.js'
 import type { AAuthError } from './deferred.js'
 import { resolveAuthServerMetadata, resolveUrl } from './token-exchange.js'
 import type { AuthServerMetadata } from './token-exchange.js'
@@ -12,15 +12,23 @@ import {
 import type { FetchLike, GetKeyMaterial, OnEvent, CapturedSent } from './types.js'
 
 export class PersonTokenError extends Error {
+  /** The PS's error code (§Error Response Format `error`), when it sent one. */
+  readonly error?: string
+  /** The PS's human-readable explanation — RFC 9457 `detail`, or the pre-11
+   *  `error_description` when that is what arrived. */
+  readonly detail?: string
+
   constructor(
     public readonly status: number,
     public readonly aauthError?: AAuthError,
   ) {
-    const msg = aauthError?.error_description
-      || aauthError?.error
-      || `Person token request failed with status ${status}`
-    super(msg)
+    super(
+      describeAAuthError(aauthError)
+      ?? `Person token request failed with status ${status}`,
+    )
     this.name = 'PersonTokenError'
+    this.error = aauthError?.error
+    this.detail = aauthError?.detail ?? aauthError?.error_description
   }
 }
 
@@ -46,6 +54,44 @@ export interface PersonTokenOptions {
    * on its behalf. The issued token's `cnf` is then the sub-agent's key.
    */
   subagentToken?: string
+
+  // -------------------------------------------------------------------------
+  // The consent-flow parameter set, shared with the auth token endpoint.
+  //
+  // Both endpoints have the same deferred shape: either can return `202
+  // requirement=interaction`, either may need to identify the person, either
+  // renders consent and creates a connected-agents entry. Every parameter
+  // serving that flow at one serves it at the other, and the person token is
+  // *first* contact — so these arguably matter more here.
+  // -------------------------------------------------------------------------
+
+  /** Why the agent wants this. Shown to the person during consent. */
+  justification?: string
+  /** Which person, when the PS does not yet know. First contact is exactly
+   *  when it may not. */
+  loginHint?: string
+  /**
+   * Which tenant the person token should carry, for a person holding a
+   * personal context plus one or more managed ones. Becomes the token's
+   * `tenant` claim, which the resource then copies into the resource token and
+   * the PS verifies on the exchange — so getting it wrong fails the flow, not
+   * just the hint. Resolves AAuth issue #88.
+   */
+  tenant?: string
+  domainHint?: string
+  prompt?: string
+  /** The platform the agent runs on, for the dashboard entry the PS creates on
+   *  first connection to a resource. */
+  platform?: string
+  /** The device the agent runs on. Same purpose as `platform`. */
+  device?: string
+  /**
+   * What this agent can drive. An agent that cannot drive an interaction
+   * should not be sent down the deferred path — see AAuth issue #89. Sent in
+   * the request body: `AAuth-Capabilities` is ruled out on PS endpoints.
+   */
+  capabilities?: string[]
+
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
@@ -74,8 +120,10 @@ const PREFER_WAIT = 45
  *
  * The request is a signed POST presenting the agent token via
  * `Signature-Key: sig=jwt;jwt="…"`, with body `{resource, mission_s256?,
- * subagent_token?}`. `upstream_token` (call chaining) is deliberately not
- * implemented.
+ * subagent_token?}` plus the consent-flow parameter set both PS token
+ * endpoints share — `justification`, `login_hint`, `tenant`, `domain_hint`,
+ * `prompt`, `platform`, `device`, `capabilities`. `upstream_token` (call
+ * chaining) is deliberately not implemented.
  *
  * A `202` with `requirement=interaction` is polled at its `Location` like any
  * other deferred response — the PS may ask the person whether this agent may
@@ -108,6 +156,15 @@ export async function requestPersonToken(options: PersonTokenOptions): Promise<P
   const body: Record<string, unknown> = { resource }
   if (missionS256) body.mission_s256 = missionS256
   if (subagentToken) body.subagent_token = subagentToken
+  // `upstream_token` is deliberately absent — call chaining is out of scope.
+  if (options.justification) body.justification = options.justification
+  if (options.loginHint) body.login_hint = options.loginHint
+  if (options.tenant) body.tenant = options.tenant
+  if (options.domainHint) body.domain_hint = options.domainHint
+  if (options.prompt) body.prompt = options.prompt
+  if (options.platform) body.platform = options.platform
+  if (options.device) body.device = options.device
+  if (options.capabilities?.length) body.capabilities = options.capabilities
 
   if (onEvent) {
     const agentToken = getKeyMaterial
@@ -188,7 +245,9 @@ export async function requestPersonToken(options: PersonTokenOptions): Promise<P
     throw new PersonTokenError(result.response.status, result.error)
   }
 
-  throw new PersonTokenError(response.status)
+  // The PS said why. Carry it: without this a mission-stripping or tenant
+  // rejection reads as a bare status code.
+  throw new PersonTokenError(response.status, await parseErrorBody(response))
 }
 
 function emitReceived(parsed: PersonTokenResult, onEvent?: OnEvent): PersonTokenResult {

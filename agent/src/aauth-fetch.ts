@@ -3,7 +3,7 @@ import { createSignedFetch } from './signed-fetch.js'
 import { parseRequirementHeader } from '@aauth/protocol'
 import type { Capability } from '@aauth/protocol'
 import { exchangeToken } from './token-exchange.js'
-import type { AuthServerMetadata } from './token-exchange.js'
+import type { PersonServerMetadata } from './token-exchange.js'
 import { createPersonTokenCache } from './person-token.js'
 import type { PersonTokenCache } from './person-token.js'
 import { pollDeferred } from './deferred.js'
@@ -18,11 +18,18 @@ import type { GetKeyMaterial, FetchLike, OnEvent, CapturedSent } from './types.j
 
 export interface AAuthFetchOptions {
   getKeyMaterial: GetKeyMaterial
-  authServerUrl?: string
-  /** Cached auth-server metadata; when provided, token exchange skips the /.well-known fetch. */
-  authServerMetadata?: AuthServerMetadata
+  /**
+   * The agent's person server — the `ps` claim of its agent token. Both the
+   * person-token hop (`person_token_endpoint`) and the auth-token hop
+   * (`auth_token_endpoint`) go here, which is why the name says "person" and
+   * not "auth": under -11 the PS has two token endpoints and "auth" would name
+   * the wrong one.
+   */
+  personServerUrl?: string
+  /** Cached PS metadata; when provided, both hops skip the /.well-known fetch. */
+  personServerMetadata?: PersonServerMetadata
   /** Called with freshly-fetched metadata so the caller can persist it. */
-  onMetadata?: (metadata: AuthServerMetadata) => void
+  onMetadata?: (metadata: PersonServerMetadata) => void
   /** Called with the auth token minted during a challenge exchange, so the caller
    * can surface it as a reusable credential (e.g. `fetch --with-token`). */
   onAuthToken?: (authToken: string, expiresIn: number) => void
@@ -78,8 +85,8 @@ interface CachedOpaque {
 export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
   const {
     getKeyMaterial,
-    authServerUrl: configuredAuthServer,
-    authServerMetadata,
+    personServerUrl: configuredPersonServer,
+    personServerMetadata,
     onMetadata,
     onAuthToken,
     onPersonToken,
@@ -114,11 +121,11 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
   const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, onSigned })
   const psSignedFetch = createSignedFetch(getKeyMaterial, { capabilities, signBody: true, onSigned })
 
-  const personTokens: PersonTokenCache | undefined = configuredAuthServer
+  const personTokens: PersonTokenCache | undefined = configuredPersonServer
     ? createPersonTokenCache({
       signedFetch: psSignedFetch,
-      personServerUrl: configuredAuthServer,
-      personServerMetadata: authServerMetadata,
+      personServerUrl: configuredPersonServer,
+      personServerMetadata,
       onMetadata,
       onInteraction,
       onClarification,
@@ -248,15 +255,15 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           resourceToken: decodeJwtPayloadSafe(challenge.resourceToken),
         })
         // The agent sends the resource token to its own auth server
-        const authServerUrl = configuredAuthServer
+        const authServerUrl = configuredPersonServer
         if (!authServerUrl) {
-          throw new Error('auth-token challenge received but no authServerUrl configured')
+          throw new Error('auth-token challenge received but no personServerUrl configured')
         }
 
         const result = await exchangeToken({
           signedFetch: psSignedFetch,
           authServerUrl,
-          authServerMetadata,
+          authServerMetadata: personServerMetadata,
           onMetadata,
           resourceToken: challenge.resourceToken,
           justification,

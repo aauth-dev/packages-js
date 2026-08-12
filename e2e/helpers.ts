@@ -36,6 +36,7 @@ import { generateKeyPair, exportJWK, SignJWT, calculateJwkThumbprint } from 'jos
 import type { JWK, KeyLike } from 'jose'
 import { verify as httpSigVerify } from '@hellocoop/httpsig'
 
+import { fetch as httpSigFetch } from '@hellocoop/httpsig'
 import { createSignedFetch } from '@aauth/agent'
 import type { FetchLike, GetKeyMaterial } from '@aauth/agent'
 import {
@@ -48,10 +49,33 @@ import {
   createResourceToken,
   buildAAuthHeader,
   AAuthTokenError,
+  MemoryR3Store,
+  publishR3Document,
+  publishProposal,
+  serveR3Document,
+  verifyProposalParameters,
+  getR3ByHash,
+  parseR3Record,
+  R3Error,
 } from '@aauth/resource'
-import type { PersonTokenReference, VerifiedPersonToken, TokenKind } from '@aauth/resource'
+import type {
+  PersonTokenReference,
+  VerifiedPersonToken,
+  VerifiedAuthToken,
+  TokenKind,
+  R3Document,
+  R3OperationSet,
+  R3ParameterValue,
+} from '@aauth/resource'
 
 export { decodeJwtHeader, decodeJwtPayload }
+
+/**
+ * The platform fetch, captured before {@link LoopbackRouter.install} replaces
+ * the global. Everything in this file dials loopback through this one, so
+ * installing the router can never recurse.
+ */
+const realFetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis)
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** WP-19's worktree. mockin is not a workspace of this repo. */
@@ -93,7 +117,28 @@ export class LoopbackRouter {
 
   /** Plain fetch that resolves identifiers. For JWKS/metadata discovery. */
   get fetch(): (input: string, init?: RequestInit) => Promise<Response> {
-    return (input, init) => globalThis.fetch(this.rewrite(input), init)
+    return (input, init) => realFetch(this.rewrite(input), init)
+  }
+
+  /**
+   * Replace the global fetch with the resolving one.
+   *
+   * Needed because `@hellocoop/httpsig`'s `verify()` resolves a
+   * `Signature-Key: sig=jwks_uri` by fetching `{id}/.well-known/{dwk}` on the
+   * global fetch, with no injection point — and that is how the PS identifies
+   * itself when it fetches an R3 document. Rewriting is idempotent, so a
+   * request that already went through `route()` is unaffected.
+   */
+  install(): void {
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+      realFetch(
+        typeof input === 'string' || input instanceof URL ? this.rewrite(input) : input,
+        init,
+      )) as typeof globalThis.fetch
+  }
+
+  uninstall(): void {
+    globalThis.fetch = realFetch
   }
 
   /** Wrap a signed fetch so callers pass identifiers and the signature covers
@@ -147,6 +192,13 @@ export interface MockinConfig {
   require_body_signing?: boolean
   /** Stamped on person tokens when the request body names no tenant. */
   tenant?: string | null
+  /**
+   * Replaces the R3 grant wholesale. mockin's own behaviour is to grant the
+   * whole fetched document and never populate `r3_per_call`, so this switch is
+   * the only source of an `r3_per_call` claim — it stands in for the person's
+   * decision, which mockin does not model.
+   */
+  r3_grants?: { granted?: R3OperationSet | null; per_call?: R3OperationSet | null } | null
   token_lifetime?: number
   /** Preloaded entity discovery, so mockin never leaves the process. */
   trusted_servers?: Record<string, unknown>
@@ -210,7 +262,7 @@ export async function startMockin(router: LoopbackRouter): Promise<Mockin> {
       throw new Error(`mockin exited with ${child.exitCode}: ${stderr.join('')}`)
     }
     try {
-      const res = await globalThis.fetch(`${origin}/.well-known/aauth-person.json`)
+      const res = await realFetch(`${origin}/.well-known/aauth-person.json`)
       if (res.ok) break
     } catch { /* not listening yet */ }
     if (Date.now() > deadline) throw new Error(`mockin did not start: ${stderr.join('')}`)
@@ -220,7 +272,7 @@ export async function startMockin(router: LoopbackRouter): Promise<Mockin> {
   const trusted: Record<string, unknown> = {}
 
   const put = async (patch: MockinConfig): Promise<void> => {
-    const res = await globalThis.fetch(`${origin}/mock/aauth`, {
+    const res = await realFetch(`${origin}/mock/aauth`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(patch),
@@ -233,13 +285,13 @@ export async function startMockin(router: LoopbackRouter): Promise<Mockin> {
     origin,
     configure: patch => put(patch),
     async reset() {
-      const res = await globalThis.fetch(`${origin}/mock`, { method: 'DELETE' })
+      const res = await realFetch(`${origin}/mock`, { method: 'DELETE' })
       if (!res.ok) throw new Error(`DELETE /mock failed: ${res.status}`)
       // DELETE /mock resets trusted_servers along with everything else.
       await put({ trusted_servers: trusted })
     },
     consent(code) {
-      return globalThis.fetch(`${origin}/aauth/consent?code=${encodeURIComponent(code)}`)
+      return realFetch(`${origin}/aauth/consent?code=${encodeURIComponent(code)}`)
     },
     trust(identifier, jwks, dwkDoc) {
       trusted[identifier] = {
@@ -419,6 +471,17 @@ export interface TestResource {
   readonly origin: string
   readonly signingKey: TestKey
   readonly jwks: { keys: JWK[] }
+  /**
+   * Base for published R3 URIs.
+   *
+   * `http://localhost:port/r3`, not the `https://rs.mockin.test` identifier,
+   * because the PS fetches this URL for real — it is a document location, not
+   * a server identifier, and no spec rule makes it one. `publishR3Document`
+   * allows exactly `https://` or `http://localhost` for this reason.
+   */
+  readonly r3BaseUri: string
+  /** Every R3 body this resource has served, in order. Byte-for-byte. */
+  readonly r3Served: string[]
   /** Mutable, so one server can be re-pointed between assertions. */
   mint: MintBehaviour
   accept: readonly TokenKind[]
@@ -426,10 +489,27 @@ export interface TestResource {
   /** True once the request reached the scope gate — the check that must NOT be
    *  reached when the wrong credential type is presented (item 5). */
   scopeGateReached: boolean
+  /** The last per-call proposal this resource published. */
+  readonly lastProposal: { r3_uri: string; r3_s256: string; document: R3Document } | undefined
+  /** Fresh R3 store, empty served-bytes log. */
+  resetR3(): void
+  /**
+   * Replace the bytes stored under an `r3_uri` while leaving the recorded
+   * `s256` alone — the state a resource would be in if something between the
+   * store and the wire re-serialized the document. `@aauth/resource` has no
+   * code path that does this, which is the point.
+   */
+  tamperR3(uri: string, body: string): Promise<void>
   stop(): Promise<void>
 }
 
 const RESOURCE_SCOPE = 'read'
+
+/** The class R3 document's vocabulary. One of R3 -02's seven. */
+export const R3_VOCABULARY = 'urn:aauth:vocabulary:openapi'
+/** The operation this resource treats as `r3_per_call` — sending mail is the
+ *  canonical "approved in principle, not for any particular call" case. */
+export const PER_CALL_OPERATION = { operationId: 'sendMessage' }
 
 /**
  * A resource, as `@aauth/resource` intends one to be written.
@@ -451,7 +531,24 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
     accept: options.accept ?? (['agent', 'person', 'auth'] as const),
     accessMode: options.accessMode,
     scopeGateReached: false,
+    r3Served: [] as string[],
+    /**
+     * The `jti` of the person token this resource most recently verified.
+     * AAuth issue #90: a per-call challenge fires on a request carrying an
+     * auth token, which has no `person_token_jti`, yet the resource token it
+     * must issue makes that claim REQUIRED — so a resource has to retain the
+     * person tokens it verified.
+     */
+    retainedPersonTokenJti: undefined as string | undefined,
+    lastProposal: undefined as
+      | { r3_uri: string; r3_s256: string; document: R3Document }
+      | undefined,
   }
+
+  // The R3 store. `MemoryR3Store` is the package's own conforming
+  // implementation; a real resource backs this with KV.
+  let r3Store = new MemoryR3Store()
+  let r3BaseUri = ''
 
   const sign = (payload: Record<string, unknown>, header: Record<string, unknown>) =>
     new SignJWT(payload)
@@ -483,9 +580,8 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
       if (url.pathname === '/jwks.json') {
         return json(res, 200, { keys: [signingKey.publicJwk] })
       }
-      if (url.pathname !== '/api') return json(res, 404, { error: 'not_found' })
 
-      const result = await httpSigVerify(
+      const verifySignature = () => httpSigVerify(
         {
           method: req.method ?? 'GET',
           authority: req.headers.host ?? '',
@@ -498,6 +594,37 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
         // not in this set, at the HTTP-signature layer as well as the JWT one.
         { supportedAlgorithms: ['Ed25519'] },
       )
+
+      // ---------------------------------------------------------------------
+      // GET /r3/<key> — serve a published R3 document.
+      //
+      // AAuth-R3 §R3 Document Access Restriction: only the AS that is `aud` of
+      // a resource token carrying this `r3_uri`, or the PS of the agent it was
+      // issued to, may fetch. The entitled party is established from the
+      // verified signature — `sig=jwks_uri`'s `id`, which is a server
+      // identifier the signature proves, never a header the caller sets.
+      // An agent presenting `sig=jwt` has no such identifier and is refused.
+      // ---------------------------------------------------------------------
+      if (url.pathname.startsWith('/r3/')) {
+        const verified = await verifySignature()
+        const signer = verified.verified ? verified.jwks_uri?.id : undefined
+        const response = await serveR3Document({
+          store: r3Store,
+          key: `${r3BaseUri}/${url.pathname.slice('/r3/'.length)}`,
+          signer,
+        })
+        if (response.status === 200) state.r3Served.push(response.body)
+        res.writeHead(response.status, response.headers)
+        // Serve the stored bytes verbatim. Never JSON.parse and re-stringify:
+        // the hash is over these exact bytes.
+        return res.end(response.body)
+      }
+
+      if (url.pathname !== '/api' && url.pathname !== '/authorize' && url.pathname !== '/invoke') {
+        return json(res, 404, { error: 'not_found' })
+      }
+
+      const result = await verifySignature()
 
       if (!result.verified) {
         return json(res, 401, { error: 'signature_verification_failed', error_description: result.error }, {
@@ -535,8 +662,172 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
         })
       }
 
+      // ---------------------------------------------------------------------
+      // POST /authorize — the R3 authorization request.
+      //
+      // The agent names the operations it wants (`r3_operations`, the shape
+      // `@aauth/fetch --operations` sends). The resource writes an R3 document
+      // describing exactly those, publishes it, and answers with a resource
+      // token referencing it by `r3_uri` / `r3_s256`. The document itself never
+      // travels in the token.
+      // ---------------------------------------------------------------------
+      if (url.pathname === '/authorize') {
+        if (verified.type !== 'person') {
+          return json(res, 401, { error: 'person_token_required' }, {
+            'aauth-requirement': buildAAuthHeader('person-token'),
+          })
+        }
+        const person = verified as VerifiedPersonToken
+        state.retainedPersonTokenJti = person.jti
+        const body = rawBody.length
+          ? JSON.parse(rawBody.toString('utf8')) as {
+            r3_operations?: R3OperationSet
+            account?: string
+          }
+          : {}
+        if (!body.r3_operations) return json(res, 400, { error: 'invalid_request' })
+
+        const document: R3Document = {
+          vocabulary: body.r3_operations.vocabulary,
+          operations: body.r3_operations.operations,
+          ...(body.account !== undefined ? { account: body.account } : {}),
+          display: { summary: 'Read and send messages on your behalf' },
+        }
+        const published = await publishR3Document({
+          document,
+          baseUri: r3BaseUri,
+          store: r3Store,
+          // The `aud` of the resource token about to be minted, plus the
+          // agent's PS. Nobody else may read this document.
+          authorized: [personServer, person.iss],
+        })
+
+        const resourceToken = await createResourceToken(
+          {
+            resource: RESOURCE,
+            audience: personServer,
+            personToken: {
+              iss: person.iss,
+              sub: person.sub,
+              jti: person.jti,
+              ...(person.mission_s256 ? { mission_s256: person.mission_s256 } : {}),
+              ...(person.tenant ? { tenant: person.tenant } : {}),
+            },
+            agentJkt: result.thumbprint,
+            scope: state.mint.scope ?? RESOURCE_SCOPE,
+            ...(body.account !== undefined ? { account: body.account } : {}),
+            r3: { uri: published.r3_uri, s256: published.r3_s256 },
+            kid: signingKey.kid,
+          },
+          sign,
+        )
+        return json(res, 200, {
+          resource_token: resourceToken,
+          r3_uri: published.r3_uri,
+          r3_s256: published.r3_s256,
+        })
+      }
+
+      // ---------------------------------------------------------------------
+      // POST /invoke — call one R3 operation with an auth token.
+      //
+      //   operation in `r3_granted`  -> run it
+      //   operation in `r3_per_call` -> build a proposal from the *concrete*
+      //                                 parameters of this call, publish it,
+      //                                 and challenge with a resource token
+      //                                 that references it
+      //   retry carrying `r3_s256`   -> recover the approved proposal and
+      //                                 verify the presented parameters
+      // ---------------------------------------------------------------------
+      if (url.pathname === '/invoke') {
+        if (verified.type !== 'auth') {
+          return json(res, 401, { error: 'auth_token_required' }, {
+            'aauth-requirement': buildAAuthHeader('agent-token'),
+          })
+        }
+        const auth = verified as VerifiedAuthToken
+        const body = JSON.parse(rawBody.toString('utf8')) as {
+          operation: unknown
+          parameters: Record<string, R3ParameterValue>
+        }
+        const inSet = (set: R3OperationSet | undefined) =>
+          !!set?.operations?.some(op => JSON.stringify(op) === JSON.stringify(body.operation))
+
+        // A retry: the auth token names an approved *proposal*.
+        //
+        // `r3_s256` alone does not say which — a class-grant auth token
+        // carries the class document's hash. What distinguishes a proposal is
+        // its REQUIRED `parameters`, so resolve the reference and look.
+        const referenced = auth.r3_s256 ? await getR3ByHash(r3Store, auth.r3_s256) : null
+        const isProposal = !!referenced && parseR3Record(referenced).parameters !== undefined
+        if (isProposal) {
+          try {
+            const { parameters } = await verifyProposalParameters({
+              store: r3Store,
+              r3_s256: referenced!.s256,
+              presented: body.parameters,
+              operation: body.operation,
+            })
+            return json(res, 200, { ok: true, invoked: body.operation, approved: parameters })
+          } catch (err) {
+            const e = err as R3Error
+            return json(res, 403, { error: e.code, error_description: e.message })
+          }
+        }
+
+        if (inSet(auth.r3_granted)) {
+          return json(res, 200, { ok: true, invoked: body.operation, via: 'r3_granted' })
+        }
+
+        if (inSet(auth.r3_per_call)) {
+          const published = await publishProposal({
+            vocabulary: R3_VOCABULARY,
+            operation: body.operation,
+            parameters: body.parameters,
+            display: { summary: 'Send one message', detail: 'This exact message, once.' },
+            store: r3Store,
+            baseUri: r3BaseUri,
+            authorized: [personServer, auth.ps],
+          })
+          state.lastProposal = {
+            r3_uri: published.r3_uri,
+            r3_s256: published.r3_s256,
+            document: JSON.parse(published.body) as R3Document,
+          }
+          const resourceToken = await createResourceToken(
+            {
+              resource: RESOURCE,
+              audience: personServer,
+              personToken: {
+                iss: auth.ps,
+                sub: auth.sub,
+                // §Resource Token Structure makes `person_token_jti` REQUIRED,
+                // but a per-call challenge fires on a request carrying an
+                // *auth* token, which has no such claim — AAuth issue #90. The
+                // resource retains the person token it verified and re-uses its
+                // jti; this test resource keeps exactly one.
+                jti: state.retainedPersonTokenJti ?? '',
+                ...(auth.mission_s256 ? { mission_s256: auth.mission_s256 } : {}),
+                ...(auth.tenant ? { tenant: auth.tenant } : {}),
+              },
+              agentJkt: result.thumbprint,
+              scope: state.mint.scope ?? RESOURCE_SCOPE,
+              r3: { uri: published.r3_uri, s256: published.r3_s256 },
+              kid: signingKey.kid,
+            },
+            sign,
+          )
+          return json(res, 401, { error: 'per_call_approval_required' }, {
+            'aauth-requirement': buildAAuthHeader('auth-token', { resourceToken }),
+          })
+        }
+
+        return json(res, 403, { error: 'insufficient_scope', error_description: 'operation not granted' })
+      }
+
       if (verified.type === 'person') {
         const person = verified as VerifiedPersonToken
+        state.retainedPersonTokenJti = person.jti
         const ref: PersonTokenReference = {
           iss: person.iss,
           sub: person.sub,
@@ -586,14 +877,36 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
   })
 
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const port = (server.address() as AddressInfo).port
+  const origin = `http://127.0.0.1:${port}`
+  // The PS dials this for real, so it must be a URL that resolves outside this
+  // process. `localhost` rather than `127.0.0.1` because `publishR3Document`
+  // requires https or `http://localhost` — an R3 document MUST be served over
+  // HTTPS, with that one loopback exception for local development.
+  r3BaseUri = `http://localhost:${port}/r3`
   router.register(RESOURCE, origin)
 
   return {
     identifier: RESOURCE,
     origin,
+    r3BaseUri,
     signingKey,
     jwks: { keys: [signingKey.publicJwk] },
+    get r3Served() { return state.r3Served },
+    get lastProposal() { return state.lastProposal },
+    resetR3() {
+      state.r3Served.length = 0
+      state.lastProposal = undefined
+      // Documents are content-addressed, so the same request produces the same
+      // URI in every test. A fresh store is the only real isolation.
+      r3Store = new MemoryR3Store()
+    },
+    async tamperR3(uri, body) {
+      const record = await r3Store.get(uri)
+      if (!record) throw new Error(`no R3 record at ${uri}`)
+      await r3Store.put(uri, { ...record, body })
+      await r3Store.put(record.s256, { ...record, body })
+    },
     get mint() { return state.mint },
     set mint(v) { state.mint = v },
     get accept() { return state.accept },
@@ -629,37 +942,31 @@ export function resourceTokenFrom(headers: Headers): string {
   return challenge.resourceToken
 }
 
-export interface PsResponse {
-  status: number
-  headers: Headers
-  body: Record<string, unknown>
-}
-
 /**
- * A signed POST to a PS endpoint, read at the wire.
+ * A signed fetch that identifies itself as a **server**, via
+ * `Signature-Key: sig=jwks_uri;id="…";dwk="…";kid="…"`.
  *
- * Needed because `@aauth/agent` discards the PS's `error` and
- * `error_description` on a *direct* (non-deferred) failure — `PersonTokenError`
- * and `TokenExchangeError` are constructed with the status alone unless the
- * response came back through `pollDeferred`. So a test asserting **why** the PS
- * refused — mission stripped versus invented, tenant dropped versus changed —
- * has to read the body itself. See the report; this is a diagnosability gap in
- * `@aauth/agent`, not a conformance break.
+ * This is how a PS identifies itself when it fetches an R3 document: not with
+ * an agent token, but with a signature whose key resolves at
+ * `{id}/.well-known/{dwk}`. `id` is therefore a server identifier the
+ * signature proves, which is what §R3 Document Access Restriction compares.
+ *
+ * Used here to sign as a party that authenticates correctly and is still not
+ * entitled to the document.
  */
-export async function psPost(
-  fetchFn: FetchLike,
-  url: string,
-  body: Record<string, unknown>,
-): Promise<PsResponse> {
-  const res = await fetchFn(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+export function serverSignedFetch(
+  router: LoopbackRouter,
+  key: TestKey,
+  id: string,
+  dwk: string,
+): FetchLike {
+  return (url, init) => httpSigFetch(router.rewrite(url), {
+    ...init,
+    signingKey: key.privateJwk,
+    signatureKey: { type: 'jwks_uri', id, kid: key.kid, dwk },
+    // Exactly what a PS signs on an R3 GET.
+    components: ['@method', '@authority', '@path', 'signature-key'],
   })
-  const text = await res.text()
-  let parsed: Record<string, unknown> = {}
-  try { parsed = JSON.parse(text) as Record<string, unknown> } catch { parsed = { raw: text } }
-  return { status: res.status, headers: res.headers, body: parsed }
 }
 
 /** The parsed `AAuth-Requirement` of a response, or undefined. */

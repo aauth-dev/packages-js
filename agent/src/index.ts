@@ -11,7 +11,7 @@ export {
   createPersonTokenCache,
   PersonTokenError,
 } from './person-token.js'
-export { pollDeferred } from './deferred.js'
+export { pollDeferred, parseErrorBody, describeAAuthError } from './deferred.js'
 export type {
   GetKeyMaterial,
   KeyMaterial,
@@ -28,6 +28,8 @@ export type { DeferredOptions, DeferredResult, AAuthError } from './deferred.js'
 export type {
   TokenExchangeOptions,
   TokenExchangeResult,
+  PersonServerMetadata,
+  /** @deprecated pre-11 name for PersonServerMetadata */
   AuthServerMetadata,
   AuthServerMetadataOptions,
 } from './token-exchange.js'

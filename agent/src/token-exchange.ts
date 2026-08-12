@@ -1,19 +1,27 @@
 import type { FetchLike, GetKeyMaterial, OnEvent, CapturedSent } from './types.js'
-import { pollDeferred } from './deferred.js'
+import { pollDeferred, parseErrorBody, describeAAuthError } from './deferred.js'
 import type { AAuthError } from './deferred.js'
 import { parseRequirementHeader } from '@aauth/protocol'
 import { summarizeResponseHeaders, decodeSignatureKey, peekResponseBody, decodeJwtPayloadSafe } from './log-helpers.js'
 
 export class TokenExchangeError extends Error {
+  /** The server's error code (§Error Response Format `error`), when it sent one. */
+  readonly error?: string
+  /** The server's human-readable explanation — RFC 9457 `detail`, or the pre-11
+   *  `error_description` when that is what arrived. */
+  readonly detail?: string
+
   constructor(
     public readonly status: number,
     public readonly aauthError?: AAuthError,
   ) {
-    const msg = aauthError?.error_description
-      || aauthError?.error
-      || `Token exchange failed with status ${status}`
-    super(msg)
+    super(
+      describeAAuthError(aauthError)
+      ?? `Token exchange failed with status ${status}`,
+    )
     this.name = 'TokenExchangeError'
+    this.error = aauthError?.error
+    this.detail = aauthError?.detail ?? aauthError?.error_description
   }
 }
 
@@ -21,9 +29,9 @@ export interface TokenExchangeOptions {
   signedFetch: FetchLike
   authServerUrl: string
   /** Cached auth-server metadata; when provided, skips the /.well-known fetch. */
-  authServerMetadata?: AuthServerMetadata
+  authServerMetadata?: PersonServerMetadata
   /** Called with freshly-fetched metadata (only when authServerMetadata wasn't provided) so callers can persist it. */
-  onMetadata?: (metadata: AuthServerMetadata) => void
+  onMetadata?: (metadata: PersonServerMetadata) => void
   resourceToken: string
   justification?: string
   localhostCallback?: string
@@ -32,6 +40,10 @@ export interface TokenExchangeOptions {
   domainHint?: string
   capabilities?: string[]
   prompt?: string
+  /** The platform the agent runs on, for the PS's connected-agents entry. */
+  platform?: string
+  /** The device the agent runs on. Same purpose as `platform`. */
+  device?: string
   onInteraction?: (url: string, code: string) => void
   onClarification?: (question: string) => Promise<string>
   onEvent?: OnEvent
@@ -59,13 +71,17 @@ export interface TokenExchangeResult {
 /**
  * Person-server metadata, from `/.well-known/aauth-person.json`.
  *
+ * Named for what it is. Under -11 the PS has *two* token endpoints, so a name
+ * containing "auth" says the wrong thing about which one — see
+ * `AuthServerMetadata` below for the retained alias.
+ *
  * `auth_token_endpoint` was named `token_endpoint` before protocol -11, and
  * `person_token_endpoint` is new in -11. Both are REQUIRED: a PS that does not
  * publish `person_token_endpoint` cannot issue the person token a resource now
  * demands before it will issue a resource token, so it is non-conformant and
  * the whole flow is dead at that server.
  */
-export interface AuthServerMetadata {
+export interface PersonServerMetadata {
   auth_token_endpoint: string
   person_token_endpoint: string
   mission_endpoint?: string
@@ -76,6 +92,12 @@ export interface AuthServerMetadata {
   revocation_endpoint?: string
   jwks_uri?: string
 }
+
+/**
+ * @deprecated The pre-11 name for {@link PersonServerMetadata}. Retained so a
+ * consumer written against `@aauth/mcp-agent` 2.0.0 still compiles.
+ */
+export type AuthServerMetadata = PersonServerMetadata
 
 const PREFER_WAIT = 45
 
@@ -134,6 +156,8 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   if (domainHint) body.domain_hint = domainHint
   if (capabilities?.length) body.capabilities = capabilities
   if (prompt) body.prompt = prompt
+  if (options.platform) body.platform = options.platform
+  if (options.device) body.device = options.device
 
   // 3. POST to token endpoint
   if (onEvent) {
@@ -229,16 +253,19 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     throw new TokenExchangeError(result.response.status, result.error)
   }
 
-  throw new TokenExchangeError(response.status)
+  // §Resource Token Verification rejections all land here — mission_s256 or
+  // tenant mismatch, an unknown person_token_jti, a prohibited alg. The server
+  // names which one; report it rather than the status alone.
+  throw new TokenExchangeError(response.status, await parseErrorBody(response))
 }
 
 export interface AuthServerMetadataOptions {
   signedFetch: FetchLike
   authServerUrl: string
   /** Cached metadata; when provided, the /.well-known fetch is skipped. */
-  authServerMetadata?: AuthServerMetadata
+  authServerMetadata?: PersonServerMetadata
   /** Called with freshly-fetched metadata so callers can persist it. */
-  onMetadata?: (metadata: AuthServerMetadata) => void
+  onMetadata?: (metadata: PersonServerMetadata) => void
   onEvent?: OnEvent
   getKeyMaterial?: GetKeyMaterial
   sentTracker?: { latest?: CapturedSent }
@@ -251,7 +278,7 @@ export interface AuthServerMetadataOptions {
  */
 export async function resolveAuthServerMetadata(
   options: AuthServerMetadataOptions,
-): Promise<AuthServerMetadata> {
+): Promise<PersonServerMetadata> {
   if (options.authServerMetadata) {
     options.onEvent?.({ step: 'ps_metadata_cached', phase: 'info' })
     return options.authServerMetadata
@@ -274,7 +301,7 @@ export async function fetchAuthServerMetadata({
   onEvent,
   getKeyMaterial,
   sentTracker,
-}: AuthServerMetadataOptions): Promise<AuthServerMetadata> {
+}: AuthServerMetadataOptions): Promise<PersonServerMetadata> {
   const metadataUrl = `${authServerUrl.replace(/\/$/, '')}/.well-known/aauth-person.json`
   if (onEvent) {
     const agentToken = getKeyMaterial
@@ -311,7 +338,7 @@ export async function fetchAuthServerMetadata({
     throw new Error('Auth server metadata missing person_token_endpoint — person server is not AAuth -11 conformant')
   }
 
-  return metadata as unknown as AuthServerMetadata
+  return metadata as unknown as PersonServerMetadata
 }
 
 function parseTokenResponse(body: Record<string, unknown>): TokenExchangeResult {
