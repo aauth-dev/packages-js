@@ -10,8 +10,9 @@ AAuth is an agent-aware authentication protocol that lets AI agents prove their 
 |---------|-------------|
 | [`@aauth/bootstrap`](./bootstrap) | CLI for setting up AAuth agent keys, person server registration, and hosting |
 | [`@aauth/fetch`](./fetch) | CLI for making AAuth-authenticated HTTP requests |
-| [`@aauth/mcp-agent`](./mcp-agent) | Agent-side AAuth: signed fetch, challenge-response, token exchange |
-| [`@aauth/mcp-server`](./mcp-server) | Server-side AAuth: token verification, challenge building, resource tokens |
+| [`@aauth/protocol`](./protocol) | Wire format: AAuth-Requirement, AAuth-Capabilities, access_mode planning, typ/dwk constants |
+| [`@aauth/agent`](./agent) | Agent-side AAuth: signed fetch, person tokens, challenge-response, token exchange |
+| [`@aauth/resource`](./resource) | Resource-side AAuth: token verification, challenge building, resource tokens, R3 |
 | [`@aauth/local-keys`](./local-keys) | Library for managing AAuth agent signing keys across hardware and software backends |
 | [`@aauth/hardware-keys`](./hardware-keys) | Native bindings for YubiKey PIV and macOS Secure Enclave |
 | [`@aauth/mcp-stdio`](./mcp-stdio) | stdio-to-HTTP proxy with AAuth signatures |
