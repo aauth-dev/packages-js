@@ -147,7 +147,7 @@ describe('every JWK this package emits carries a fully-specified alg', () => {
 
   it('jose exportJWK output alone would fail the check', async () => {
     // Why the normalization exists: jose emits no `alg` at all.
-    const { publicKey } = await generateKeyPair('Ed25519', { crv: 'Ed25519' })
+    const { publicKey } = await generateKeyPair('Ed25519', { crv: 'Ed25519', extractable: true })
     const bare = await exportJWK(publicKey)
     expect(bare.alg).toBeUndefined()
     expect(hasFullySpecifiedAlg(bare)).toBe(false)

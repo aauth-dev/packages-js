@@ -17,7 +17,8 @@ import type { SignAgentTokenOptions, AgentTokenResult, ResolvedKey } from './typ
  * derived from the key material here.
  */
 async function generateEphemeralKey(alg: 'Ed25519' | 'ES256') {
-  const opts = alg === 'ES256' ? { crv: 'P-256' } : { crv: 'Ed25519' }
+  // jose 6: keys are non-extractable by default, and these are exported to JWK below
+  const opts = alg === 'ES256' ? { crv: 'P-256', extractable: true } : { crv: 'Ed25519', extractable: true }
   const { publicKey, privateKey } = await generateKeyPair(alg, opts)
   return {
     privateJwk: publicJwkWithAlg(await exportJWK(privateKey), alg, 'ephemeral private key'),

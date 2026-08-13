@@ -24,7 +24,8 @@ export async function generateKey(
 ): Promise<GeneratedKeyPair> {
   const kid = generateKid()
   const alg = algorithm === 'ES256' ? 'ES256' : 'Ed25519'
-  const opts = alg === 'ES256' ? { crv: 'P-256' } : { crv: 'Ed25519' }
+  // jose 6: keys are non-extractable by default, and these are exported to JWK below
+  const opts = alg === 'ES256' ? { crv: 'P-256', extractable: true } : { crv: 'Ed25519', extractable: true }
   const { publicKey, privateKey } = await generateKeyPair(alg, opts)
 
   const privateJwk = publicJwkWithAlg(await exportJWK(privateKey), alg, 'generated private key')

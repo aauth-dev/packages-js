@@ -16,7 +16,7 @@ const AGENT_URL = 'https://agent.example'
 const SUB = 'aauth:test@agent.example'
 
 async function edKeychainKey(alg: string): Promise<{ jwk: JWK; publicJwk: JWK }> {
-  const { publicKey, privateKey } = await generateKeyPair('Ed25519', { crv: 'Ed25519' })
+  const { publicKey, privateKey } = await generateKeyPair('Ed25519', { crv: 'Ed25519', extractable: true })
   const jwk = await exportJWK(privateKey)
   jwk.kid = 'kid-1'
   jwk.alg = alg

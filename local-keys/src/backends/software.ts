@@ -32,14 +32,15 @@ export const softwareBackend: KeyBackendDriver = {
   async generateKey(algorithm: KeyAlgorithm): Promise<KeyReference> {
     const kid = generateKid()
     let alg: string
-    let opts: Record<string, string>
+    let opts: { crv: string; extractable: boolean }
 
     if (algorithm === 'Ed25519') {
       alg = 'Ed25519'
-      opts = { crv: 'Ed25519' }
+      // jose 6: keys are non-extractable by default, and these are exported to JWK below
+      opts = { crv: 'Ed25519', extractable: true }
     } else if (algorithm === 'ES256') {
       alg = 'ES256'
-      opts = { crv: 'P-256' }
+      opts = { crv: 'P-256', extractable: true }
     } else {
       throw new Error(`Software backend does not support ${algorithm}`)
     }
