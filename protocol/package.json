@@ -33,7 +33,7 @@
     "directory": "protocol"
   },
   "dependencies": {
-    "@hellocoop/httpsig": "^2.1.0"
+    "@hellocoop/httpsig": "^2.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -38,6 +38,13 @@ export interface SignedFetchOptions {
    */
   signBody?: boolean
   /**
+   * Forwarded to @hellocoop/httpsig (2.2.0). Default 'auto' appends
+   * content-digest whenever the body is digestible; 'omit' restores the
+   * pre-2.2 defect of signing a body without covering it — only tests
+   * simulating a non-conforming client should ever pass it.
+   */
+  contentDigest?: 'auto' | 'require' | 'omit'
+  /**
    * Called synchronously after each signed request returns, with the actual
    * on-the-wire headers + body. Used by the AAuth flow to capture the
    * signed request data for --log rendering.
@@ -88,6 +95,12 @@ export function createSignedFetch(getKeyMaterial: GetKeyMaterial, options?: Sign
 
     if (options?.signBody && init?.body != null) {
       fetchInit.components = [...PS_COMPONENTS_BODY]
+      // PS/AS mandate (§10.3): fail loudly on a non-digestible body rather
+      // than silently dropping content-digest coverage.
+      fetchInit.contentDigest = 'require'
+    }
+    if (options?.contentDigest) {
+      fetchInit.contentDigest = options.contentDigest
     }
 
     if (options?.onSigned) {

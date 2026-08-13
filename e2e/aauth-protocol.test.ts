@@ -831,11 +831,11 @@ describe('body signing toward the PS', () => {
   }, 30_000)
 
   it('the PS rejects a bodied request whose signature does not cover them', async () => {
-    // Without `signBody`, @hellocoop/httpsig signs its DEFAULT_COMPONENTS_BODY,
-    // which omits content-digest — and then emits no Content-Digest header at
-    // all. This is the mistake the mandate exists to catch, and it is a real
-    // rejection, not a warning.
-    const unsigned = router.route(createSignedFetch(agent.keyMaterial))
+    // httpsig 2.2.0's 'auto' appends content-digest for any digestible body,
+    // so a merely-forgetful client no longer exists; simulating a
+    // non-conforming signer now takes an explicit contentDigest: 'omit'.
+    // The PS-side rejection is still a real rejection, not a warning.
+    const unsigned = router.route(createSignedFetch(agent.keyMaterial, { contentDigest: 'omit' }))
     const res = await psPost('person_token_endpoint', { resource: RESOURCE }, unsigned)
 
     expect(res.status).toBe(401)
@@ -861,7 +861,7 @@ describe('body signing toward the PS', () => {
     const personToken = await getPersonToken()
     const resourceToken = await getResourceToken(personToken)
 
-    const unsigned = router.route(createSignedFetch(agent.keyMaterial))
+    const unsigned = router.route(createSignedFetch(agent.keyMaterial, { contentDigest: 'omit' }))
     const res = await psPost('auth_token_endpoint', { resource_token: resourceToken }, unsigned)
 
     expect(res.status).toBe(401)
