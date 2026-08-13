@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { JWK } from 'jose'
 import { yubikeyLabel } from '../device-label.js'
+import { publicJwkWithAlg } from '../jwk-alg.js'
 import type {
   BackendInfo,
   KeyReference,
@@ -85,7 +86,12 @@ export const yubikeyPivBackend: KeyBackendDriver = {
 
     const algStr = algorithm === 'RS256' ? 'RS256' : 'ES256'
     const result = addon.generateKey('yubikey-piv', algStr)
-    const publicJwk = JSON.parse(result.publicJwk) as JWK
+    // The native addon emits a bare JWK with no `alg`; AAuth -11 requires one.
+    const publicJwk = publicJwkWithAlg(
+      JSON.parse(result.publicJwk) as JWK,
+      algStr,
+      `yubikey-piv key ${result.keyId}`,
+    )
 
     return {
       backend: 'yubikey-piv',
@@ -115,12 +121,24 @@ export const yubikeyPivBackend: KeyBackendDriver = {
 
     try {
       const keys = addon.listKeys('yubikey-piv')
-      return keys.map((k) => ({
-        backend: 'yubikey-piv' as const,
-        algorithm: k.algorithm as KeyAlgorithm,
-        keyId: k.keyId,
-        publicJwk: JSON.parse(k.publicJwk) as JWK,
-      }))
+      const refs: KeyReference[] = []
+      for (const k of keys) {
+        try {
+          refs.push({
+            backend: 'yubikey-piv' as const,
+            algorithm: k.algorithm as KeyAlgorithm,
+            keyId: k.keyId,
+            publicJwk: publicJwkWithAlg(
+              JSON.parse(k.publicJwk) as JWK,
+              k.algorithm,
+              `yubikey-piv key ${k.keyId}`,
+            ),
+          })
+        } catch {
+          // No fully-specified alg derivable — unusable under AAuth -11.
+        }
+      }
+      return refs
     } catch {
       return []
     }

@@ -3,7 +3,7 @@
 import { createRequire } from 'node:module'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import type { AuthServerMetadata } from '@aauth/mcp-agent'
+import type { PersonServerMetadata } from '@aauth/agent'
 import { parseArgs } from './args.js'
 import { readJsonInput, mergeJsonInput } from './json-input.js'
 import { renderSkill } from './skill.js'
@@ -76,7 +76,7 @@ export async function run(): Promise<void> {
     }
     const personServer = resolvePersonServer(args.agentProvider, args.personServer)
     const cachedMetadata = resolvePersonServerMetadata(personServer)
-    const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(personServer, m)
+    const onMetadata = (m: PersonServerMetadata) => savePersonServerMetadata(personServer, m)
     const getKeyMaterial = buildGetKeyMaterial(args, personServer)
     const url = args.url
     await runWithMetadataSelfHeal(personServer, cachedMetadata, (metadata) =>
@@ -98,12 +98,12 @@ export async function run(): Promise<void> {
   const url = args.url
 
   if (args.authToken && args.signingKey) {
-    await handlePreAuthed({ ...args, url, authToken: args.authToken, signingKey: args.signingKey }, init)
+    await handlePreAuthed({ ...args, url, authToken: args.authToken, signingKey: args.signingKey }, init, personServer)
   } else if (args.agentOnly) {
-    await handleAgentOnly({ ...args, url }, init, getKeyMaterial)
+    await handleAgentOnly({ ...args, url }, init, getKeyMaterial, personServer)
   } else {
     const cachedMetadata = resolvePersonServerMetadata(personServer)
-    const onMetadata = (m: AuthServerMetadata) => savePersonServerMetadata(personServer, m)
+    const onMetadata = (m: PersonServerMetadata) => savePersonServerMetadata(personServer, m)
     await runWithMetadataSelfHeal(personServer, cachedMetadata, (metadata) =>
       handleFullFlow({ ...args, url }, init, getKeyMaterial, personServer, metadata, onMetadata),
     )

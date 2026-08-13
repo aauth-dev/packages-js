@@ -18,9 +18,11 @@ npm install @aauth/local-keys
 |---------|-----------|----------|---------|
 | `yubikey-piv` | ES256, RS256 | Cross-platform | YubiKey slot 9e (no PIN) |
 | `secure-enclave` | ES256 | macOS (Apple Silicon) | Secure Enclave hardware |
-| `software` | EdDSA, ES256 | All | OS keychain |
+| `software` | Ed25519, ES256 | All | OS keychain |
 
 Hardware keys are always preferred over software keys. If a YubiKey is unplugged, signing automatically falls back to the next available key.
+
+Algorithm identifiers are fully specified per [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864.html), as AAuth -11 §Signature Algorithms requires: `Ed25519`, never the polymorphic `EdDSA`. Every JWK this package emits carries an `alg` that agrees with its `kty`/`crv`, and keys generated before 2.0.0 are normalized on read — see `withFullySpecifiedAlg` / `assertFullySpecifiedAlg`.
 
 ## API
 

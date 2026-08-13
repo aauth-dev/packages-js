@@ -1,0 +1,45 @@
+{
+  "name": "@aauth/resource",
+  "version": "2.0.0",
+  "description": "AAuth resource-side reference implementation: token verification, resource tokens, R3 documents and per-call proposals, challenge headers, interaction management",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aauth",
+    "resource",
+    "r3",
+    "authorization"
+  ],
+  "author": "Dick Hardt <dick.hardt@hello.coop>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aauth-dev/packages-js",
+    "directory": "resource"
+  },
+  "dependencies": {
+    "@aauth/interaction-code": "^0.1.0",
+    "@aauth/protocol": "^1.0.0",
+    "jose": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

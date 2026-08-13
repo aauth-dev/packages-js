@@ -4,6 +4,7 @@ import {
   resolveKeystoreAlgorithm,
   resolveAgentId,
   resolveLifetime,
+  withFullySpecifiedAlg,
 } from './resolve.js'
 
 describe('resolveProvider', () => {
@@ -23,14 +24,45 @@ describe('resolveProvider', () => {
 })
 
 describe('resolveKeystoreAlgorithm', () => {
-  it('defaults to software + EdDSA', () => {
-    expect(resolveKeystoreAlgorithm(undefined, undefined)).toEqual({ keystore: 'software', algorithm: 'EdDSA' })
+  it('defaults to software + Ed25519', () => {
+    expect(resolveKeystoreAlgorithm(undefined, undefined)).toEqual({ keystore: 'software', algorithm: 'Ed25519' })
   })
   it('defaults a hardware keystore to ES256', () => {
     expect(resolveKeystoreAlgorithm('secure-enclave', undefined)).toEqual({ keystore: 'secure-enclave', algorithm: 'ES256' })
   })
   it('respects an explicit algorithm', () => {
     expect(resolveKeystoreAlgorithm('software', 'ES256')).toEqual({ keystore: 'software', algorithm: 'ES256' })
+  })
+})
+
+describe('withFullySpecifiedAlg', () => {
+  const okp = { kty: 'OKP', crv: 'Ed25519', x: 'abc', use: 'sig', kid: '2026-08-11_a1c' }
+
+  it('replaces the polymorphic EdDSA with Ed25519 (RFC 9864)', () => {
+    expect(withFullySpecifiedAlg({ ...okp, alg: 'EdDSA' })).toEqual({ ...okp, alg: 'Ed25519' })
+  })
+
+  it('keeps every other JWK member intact, including private material', () => {
+    const priv = { ...okp, d: 'secret', alg: 'EdDSA' }
+    expect(withFullySpecifiedAlg(priv)).toEqual({ ...priv, alg: 'Ed25519' })
+  })
+
+  it('uses the curve — an Ed448 key labelled EdDSA becomes Ed448', () => {
+    const jwk = { kty: 'OKP', crv: 'Ed448', x: 'abc', alg: 'EdDSA' }
+    expect(withFullySpecifiedAlg(jwk)).toEqual({ ...jwk, alg: 'Ed448' })
+  })
+
+  it('leaves an already fully-specified alg alone', () => {
+    const ed = { ...okp, alg: 'Ed25519' }
+    expect(withFullySpecifiedAlg(ed)).toBe(ed)
+    const ec = { kty: 'EC', crv: 'P-256', alg: 'ES256' }
+    expect(withFullySpecifiedAlg(ec)).toBe(ec)
+  })
+
+  it('passes through null and non-objects rather than throwing', () => {
+    expect(withFullySpecifiedAlg(null)).toBeNull()
+    expect(withFullySpecifiedAlg(undefined)).toBeUndefined()
+    expect(withFullySpecifiedAlg('not a jwk')).toBe('not a jwk')
   })
 })
 

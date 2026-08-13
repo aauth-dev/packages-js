@@ -13,11 +13,11 @@ import type { SkillSummary } from './skills.js'
 describe('shapeKeystores', () => {
   it('maps BackendInfo to the keystore output shape', () => {
     const backends: BackendInfo[] = [
-      { backend: 'software', description: 'OS keychain', algorithms: ['EdDSA', 'ES256'], deviceId: 'local' },
+      { backend: 'software', description: 'OS keychain', algorithms: ['Ed25519', 'ES256'], deviceId: 'local' },
       { backend: 'secure-enclave', description: 'macOS Secure Enclave', algorithms: ['ES256'], deviceId: 'local' },
     ]
     expect(shapeKeystores(backends)).toEqual([
-      { keystore: 'software', description: 'OS keychain', algorithms: ['EdDSA', 'ES256'] },
+      { keystore: 'software', description: 'OS keychain', algorithms: ['Ed25519', 'ES256'] },
       { keystore: 'secure-enclave', description: 'macOS Secure Enclave', algorithms: ['ES256'] },
     ])
   })
@@ -89,6 +89,29 @@ describe('help text', () => {
       expect(COMMAND_HELP[cmd]).toContain('EXAMPLE')
       expect(COMMAND_HELP[cmd]).toContain('$ npx @aauth/bootstrap')
     }
+  })
+
+  it('every JWK shown carries a fully-specified alg — never the polymorphic EdDSA', () => {
+    for (const cmd of Object.keys(COMMAND_HELP)) {
+      expect(COMMAND_HELP[cmd]).not.toMatch(/"alg":\s*"EdDSA"/)
+    }
+    // The Ed25519 examples are still there — this isn't passing by deletion.
+    expect(COMMAND_HELP.list).toMatch(/"alg":\s*"Ed25519"/)
+    expect(COMMAND_HELP.create).toMatch(/"alg":\s*"Ed25519"/)
+    expect(COMMAND_HELP.token).toMatch(/"alg":\s*"Ed25519"/)
+  })
+
+  it('`token` help says the person token, not the agent token, is what a resource sees', () => {
+    expect(COMMAND_HELP.token).toContain('person_token_endpoint')
+    expect(COMMAND_HELP.token).toMatch(/person token/)
+    expect(COMMAND_HELP.token).toMatch(/not what a resource wants/)
+  })
+
+  it('`create` help states that a person server must publish person_token_endpoint', () => {
+    expect(COMMAND_HELP.create).toContain('person_token_endpoint')
+    expect(COMMAND_HELP.create).toContain('auth_token_endpoint')
+    // The -10 name is gone from the narration.
+    expect(COMMAND_HELP.create).not.toMatch(/(?<![a-z_])token_endpoint/)
   })
 })
 

@@ -15,7 +15,7 @@ npx @aauth/bootstrap create <your-agent-provider-url>
 npx @aauth/bootstrap create <your-agent-provider-url> --keystore secure-enclave --person-server https://person.example
 ```
 
-`create` detects available keystores (YubiKey PIV, macOS Secure Enclave, software), generates a key in the chosen one (default: software/EdDSA), binds it to the agent provider, and binds a person server. Then load a skill to publish your keys on GitHub Pages, GitLab Pages, Cloudflare Pages, or Netlify.
+`create` detects available keystores (YubiKey PIV, macOS Secure Enclave, software), generates a key in the chosen one (default: software/Ed25519), binds it to the agent provider, and binds a person server. Then load a skill to publish your keys on GitHub Pages, GitLab Pages, Cloudflare Pages, or Netlify.
 
 Output is **pretty-printed JSON** on stdout (pipe it to `jq`); errors are `{ "error": "…" }` on stderr with a non-zero exit. Help and `skill` output are markdown.
 

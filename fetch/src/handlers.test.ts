@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { KeyMaterial, AAuthFetchOptions } from '@aauth/mcp-agent'
+import type { KeyMaterial, AAuthFetchOptions } from '@aauth/agent'
 
 // --- Mocks ---
 
@@ -23,8 +23,8 @@ const { mockExchangeToken } = vi.hoisted(() => ({
   mockExchangeToken: vi.fn(),
 }))
 
-const { mockParseAAuthHeader } = vi.hoisted(() => ({
-  mockParseAAuthHeader: vi.fn(),
+const { mockParseRequirementHeader } = vi.hoisted(() => ({
+  mockParseRequirementHeader: vi.fn(),
 }))
 
 const { FakeTokenExchangeError } = vi.hoisted(() => ({
@@ -36,12 +36,16 @@ const { FakeTokenExchangeError } = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('@aauth/mcp-agent', () => ({
+vi.mock('@aauth/agent', () => ({
   createSignedFetch: mockCreateSignedFetch,
   createAAuthFetch: mockCreateAAuthFetch,
   exchangeToken: mockExchangeToken,
-  parseAAuthHeader: mockParseAAuthHeader,
   TokenExchangeError: FakeTokenExchangeError,
+}))
+
+vi.mock('@aauth/protocol', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@aauth/protocol')>()),
+  parseRequirementHeader: mockParseRequirementHeader,
 }))
 
 vi.mock('@aauth/local-keys', () => ({
@@ -68,7 +72,7 @@ import {
   tryParseJson,
 } from './handlers.js'
 import { readConfig, getAgentConfig, readCachedMetadata, writeCachedMetadata, evictCachedMetadata } from '@aauth/local-keys'
-import { TokenExchangeError } from '@aauth/mcp-agent'
+import { TokenExchangeError } from '@aauth/agent'
 import open from 'open'
 
 // --- Helpers ---
@@ -180,7 +184,7 @@ describe('resolvePersonServer', () => {
 
 describe('resolvePersonServerMetadata', () => {
   beforeEach(() => vi.clearAllMocks())
-  const meta = { token_endpoint: 'https://ps.com/aauth/token', jwks_uri: 'https://ps.com/jwks' }
+  const meta = { auth_token_endpoint: 'https://ps.com/aauth/token/auth', person_token_endpoint: 'https://ps.com/aauth/token/person', jwks_uri: 'https://ps.com/jwks' }
 
   it('returns the cached metadata for the PS host', () => {
     vi.mocked(readCachedMetadata).mockReturnValueOnce(meta)
@@ -201,7 +205,7 @@ describe('resolvePersonServerMetadata', () => {
 
 describe('savePersonServerMetadata', () => {
   beforeEach(() => vi.clearAllMocks())
-  const meta = { token_endpoint: 'https://ps.com/aauth/token', jwks_uri: 'https://ps.com/jwks' }
+  const meta = { auth_token_endpoint: 'https://ps.com/aauth/token/auth', person_token_endpoint: 'https://ps.com/aauth/token/person', jwks_uri: 'https://ps.com/jwks' }
 
   it('writes the fetched metadata to the cache, keyed by PS host', () => {
     savePersonServerMetadata('https://ps.com', meta)
@@ -216,7 +220,7 @@ describe('savePersonServerMetadata', () => {
 
 describe('runWithMetadataSelfHeal', () => {
   beforeEach(() => vi.clearAllMocks())
-  const meta = { token_endpoint: 'https://ps.com/aauth/token' }
+  const meta = { auth_token_endpoint: 'https://ps.com/aauth/token/auth' }
 
   it('passes the cached metadata through on success (no eviction)', async () => {
     const run = vi.fn().mockResolvedValue(undefined)
@@ -366,6 +370,119 @@ describe('handleAgentOnly', () => {
   })
 })
 
+// R3 -02 operation access annotations: fetching a resource's OpenAPI document is
+// how an agent learns what each operation needs, so fetch reads the annotations out
+// of the body it just printed and shows them. Advisory — nothing is gated on them.
+describe('operation access annotations', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const openapi = JSON.stringify({
+    openapi: '3.1.0',
+    paths: {
+      '/health': { get: { operationId: 'getHealth', 'x-aauth-access-mode': 'agent-token' } },
+      '/me': { get: { operationId: 'getMe', 'x-aauth-access-mode': 'person-token' } },
+      '/datasets': { get: { operationId: 'listDatasets', 'x-aauth-access-mode': 'auth-token' } },
+      '/datasets/{id}/purchase': {
+        post: { operationId: 'purchaseDataset', 'x-aauth-access-mode': 'per-call', 'x-aauth-budget': true },
+      },
+      '/unannotated': { get: { operationId: 'plainOp' } },
+    },
+  })
+
+  /** Fetch `body` with --agent-only and return everything written to stderr. */
+  async function runAgentOnly(body: string, personServer?: string): Promise<string> {
+    const lines: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((s: string) => { lines.push(String(s)); return true }) as typeof process.stderr.write
+    const stdout = captureStdout()
+    mockSignedFetch.mockResolvedValueOnce(new Response(body, { status: 200 }))
+    try {
+      await handleAgentOnly(
+        { url: 'https://api.example/openapi.json', explain: false, debug: false },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        personServer,
+      )
+    } finally {
+      process.stderr.write = origWrite
+      stdout.restore()
+    }
+    return lines.join('')
+  }
+
+  it('groups annotated operations by the credential each needs', async () => {
+    const err = await runAgentOnly(openapi, 'https://ps.example.com')
+    expect(err).toContain('Operation access annotations')
+    expect(err).toContain('advisory')
+    expect(err).toMatch(/agent-token —[\s\S]*getHealth/)
+    expect(err).toMatch(/person-token —[\s\S]*getMe/)
+    expect(err).toMatch(/auth-token —[\s\S]*listDatasets/)
+    expect(err).toMatch(/per-call —[\s\S]*purchaseDataset/)
+    expect(err).toContain('[budget]')
+    // Annotations are sparse: an unannotated operation takes the resource's own
+    // access_mode and is not listed.
+    expect(err).not.toContain('plainOp')
+  })
+
+  it('says which operations this agent cannot complete (no person server)', async () => {
+    const err = await runAgentOnly(openapi, undefined)
+    expect(err).toContain('not satisfiable with your setup')
+    expect(err).toContain('no person server')
+  })
+
+  it('prints nothing for a body that is not an OpenAPI document', async () => {
+    const err = await runAgentOnly('{"data":"ok"}', 'https://ps.example.com')
+    expect(err).not.toContain('Operation access annotations')
+  })
+
+  it('never gates the call — the body still reaches stdout', async () => {
+    const stdout = captureStdout()
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = (() => true) as typeof process.stderr.write
+    mockSignedFetch.mockResolvedValueOnce(new Response(openapi, { status: 200 }))
+    try {
+      await handleAgentOnly(
+        { url: 'https://api.example/openapi.json', explain: false, debug: false },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        undefined,
+      )
+    } finally {
+      process.stderr.write = origWrite
+      stdout.restore()
+    }
+    expect(stdout.output[0]).toContain('purchaseDataset')
+  })
+
+  it('with --explain, rides the event stream as an operation_annotations event', async () => {
+    const lines: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((s: string) => { lines.push(String(s)); return true }) as typeof process.stderr.write
+    const stdout = captureStdout()
+    mockSignedFetch.mockResolvedValueOnce(new Response(openapi, { status: 200 }))
+    try {
+      await handleAgentOnly(
+        { url: 'https://api.example/openapi.json', explain: true, debug: false },
+        { method: 'GET', headers: new Headers() },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+      )
+    } finally {
+      process.stderr.write = origWrite
+      stdout.restore()
+    }
+
+    const events = lines.filter((l) => l.trim().startsWith('{')).map((l) => JSON.parse(l) as Record<string, unknown>)
+    const event = events.find((e) => e.step === 'operation_annotations')
+    expect(event).toBeDefined()
+    const annotations = event!.annotations as Array<Record<string, unknown>>
+    expect(annotations.map((a) => a.operationId)).toEqual(['getHealth', 'getMe', 'listDatasets', 'purchaseDataset'])
+    expect(annotations[3]).toMatchObject({ access_mode: 'per-call', budget: true, plan: 'satisfiable' })
+    // stderr is captured (not a TTY) → prose would corrupt the JSONL stream.
+    expect(lines.join('')).not.toContain('Operation access annotations (advisory')
+  })
+})
+
 describe('handlePreAuthed', () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -441,7 +558,7 @@ describe('handleFullFlow', () => {
     }
 
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
-      authServerUrl: 'https://ps.example.com',
+      personServerUrl: 'https://ps.example.com',
     }))
     // getKeyMaterial is pinned, so it's a wrapper — not the original
     const passedGetKM = mockCreateAAuthFetch.mock.calls[0][0].getKeyMaterial
@@ -452,7 +569,7 @@ describe('handleFullFlow', () => {
 
   it('passes cached PS metadata through to createAAuthFetch', async () => {
     mockAAuthFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }))
-    const meta = { token_endpoint: 'https://ps.example.com/aauth/token' }
+    const meta = { auth_token_endpoint: 'https://ps.example.com/aauth/token/auth' }
 
     const stdout = captureStdout()
     try {
@@ -468,7 +585,7 @@ describe('handleFullFlow', () => {
     }
 
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
-      authServerMetadata: meta,
+      personServerMetadata: meta,
     }))
   })
 
@@ -488,7 +605,7 @@ describe('handleFullFlow', () => {
     }
 
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
-      authServerUrl: undefined,
+      personServerUrl: undefined,
     }))
   })
 
@@ -564,8 +681,8 @@ describe('handleFullFlow', () => {
     expect(stdout.output[0]).not.toContain('signingKey')
   })
 
-  it('--emit includes aauth_access_token in two-party mode', async () => {
-    // Simulate a resource handing back an AAuth-Access token.
+  it('--emit includes session_token in two-party mode', async () => {
+    // Simulate a resource handing back a session token via AAuth-Access.
     mockCreateAAuthFetch.mockImplementationOnce((opts) => {
       opts.onOpaqueToken?.('opaque-xyz')
       return mockAAuthFetch
@@ -585,19 +702,19 @@ describe('handleFullFlow', () => {
     }
 
     const result = JSON.parse(stdout.output[0])
-    expect(result.aauth_access_token).toBe('opaque-xyz')
+    expect(result.session_token).toBe('opaque-xyz')
     expect(result.auth_token).toBeUndefined()
     // Two-party reuse binds per-request to the agent identity — no signingKey to carry.
     expect(result.signingKey).toBeUndefined()
   })
 
-  it('--aauth-access-token seeds the AAuth-Access token into createAAuthFetch', async () => {
+  it('--session-token seeds the session token into createAAuthFetch', async () => {
     mockAAuthFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
 
     const stdout = captureStdout()
     try {
       await handleFullFlow(
-        { url: 'https://resource.example/api', nonInteractive: false, explain: false, opaqueToken: 'reuse-me' },
+        { url: 'https://resource.example/api', nonInteractive: false, explain: false, sessionToken: 'reuse-me' },
         { method: 'GET', headers: new Headers() },
         fakeGetKeyMaterial,
         undefined,
@@ -606,6 +723,8 @@ describe('handleFullFlow', () => {
       stdout.restore()
     }
 
+    // The agent package still names this option `opaqueToken`; the protocol only
+    // named the credential (`session token`) in -11.
     expect(mockCreateAAuthFetch).toHaveBeenCalledWith(expect.objectContaining({
       opaqueToken: 'reuse-me',
     }))
@@ -634,10 +753,10 @@ describe('handleAuthorize', () => {
     expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
     expect(result.signatureKey).toEqual(fakeKeyMaterial.signatureKey)
     expect(result.response).toEqual({ identity: 'me' })  // response IS the body
-    expect(result.aauth_access_token).toBeUndefined() // no AAuth-Access header → no field
+    expect(result.session_token).toBeUndefined() // no AAuth-Access header → no field
   })
 
-  it('surfaces aauth_access_token from a two-party 200 (AAuth-Access header)', async () => {
+  it('surfaces session_token from a two-party 200 (AAuth-Access header)', async () => {
     mockSignedFetch.mockResolvedValueOnce(new Response('{"data":1}', {
       status: 200,
       headers: { 'aauth-access': 'opaque-aaa' },
@@ -655,7 +774,7 @@ describe('handleAuthorize', () => {
     }
 
     const result = JSON.parse(stdout.output[0])
-    expect(result.aauth_access_token).toBe('opaque-aaa')
+    expect(result.session_token).toBe('opaque-aaa')
     expect(result.response).toEqual({ data: 1 })  // response IS the body
     // Two-party reuse doesn't need a signing key — none should be emitted.
     expect(result.signingKey).toBeUndefined()
@@ -667,7 +786,7 @@ describe('handleAuthorize', () => {
       status: 401,
       headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt123"' },
     }))
-    mockParseAAuthHeader.mockReturnValueOnce({
+    mockParseRequirementHeader.mockReturnValueOnce({
       requirement: 'auth-token',
       resourceToken: 'rt123',
     })
@@ -723,7 +842,7 @@ describe('handleAuthorize', () => {
       status: 401,
       headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt"' },
     }))
-    mockParseAAuthHeader.mockReturnValueOnce({
+    mockParseRequirementHeader.mockReturnValueOnce({
       requirement: 'auth-token',
       resourceToken: 'rt',
     })
@@ -750,7 +869,7 @@ describe('handleAuthorize', () => {
       status: 401,
       headers: { 'aauth-requirement': 'requirement=approval' },
     }))
-    mockParseAAuthHeader.mockReturnValueOnce({
+    mockParseRequirementHeader.mockReturnValueOnce({
       requirement: 'approval',
     })
 
@@ -868,6 +987,35 @@ describe('handleAuthorize', () => {
     expect(result.auth_token).toBe('eyJ.r3.auth')
     expect(result.expires_in).toBe(1800)
     expect(result.signingKey).toEqual(fakeKeyMaterial.signingKey)
+  })
+
+  // R3 -02 deleted `urn:aauth:vocabulary:openapi-gateway` (continued as
+  // dickhardt/AAuth#72). A colon in an id no longer selects a second vocabulary —
+  // ids are scoped to the one discovery endpoint the resource advertises, so they
+  // go over the wire verbatim.
+  it('R3: sends a colon-bearing id verbatim under the openapi vocabulary (no gateway)', async () => {
+    mockSignedFetch.mockResolvedValueOnce(new Response('{"resource_token":"rt"}', { status: 200 }))
+    mockExchangeToken.mockResolvedValueOnce({ authToken: 'eyJ.auth', expiresIn: 60 })
+
+    const stdout = captureStdout()
+    try {
+      await handleAuthorize(
+        { url: 'https://gw.aauth.dev/authorize', operations: 'gmail:messages.send, listNotes', nonInteractive: false, explain: false },
+        fakeGetKeyMaterial,
+        'https://ps.example.com',
+      )
+    } finally {
+      stdout.restore()
+    }
+
+    const body = JSON.parse((mockSignedFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.r3_operations.vocabulary).toBe('urn:aauth:vocabulary:openapi')
+    expect(body.r3_operations.operations).toEqual([
+      { operationId: 'gmail:messages.send' },
+      { operationId: 'listNotes' },
+    ])
+    // No mixed-form rejection either — there is no second form to mix with.
+    expect(process.exitCode).not.toBe(1)
   })
 
   it('R3: errors when the authorize endpoint returns non-200', async () => {

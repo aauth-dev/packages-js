@@ -8,7 +8,8 @@ const AGENT_URL = 'https://agent.example'
 
 const validMetadata = {
   issuer: PS_URL,
-  token_endpoint: `${PS_URL}/aauth/token`,
+  auth_token_endpoint: `${PS_URL}/aauth/token`,
+  person_token_endpoint: `${PS_URL}/aauth/person`,
   jwks_uri: `${PS_URL}/.well-known/jwks.json`,
   interaction_endpoint: `${PS_URL}/aauth/interact`,
 }
@@ -122,14 +123,82 @@ describe('bootstrapWithPS', () => {
     ).rejects.toThrow(/missing required field: issuer/)
   })
 
-  it('throws when metadata is missing token_endpoint', async () => {
-    const { token_endpoint, ...rest } = validMetadata
-    void token_endpoint
+  it('throws when metadata is missing auth_token_endpoint', async () => {
+    const { auth_token_endpoint, ...rest } = validMetadata
+    void auth_token_endpoint
     mockFetch.mockResolvedValueOnce(mockMetadataResponse(rest))
 
     await expect(
       bootstrapWithPS({ agentUrl: AGENT_URL, personServerUrl: PS_URL }),
-    ).rejects.toThrow(/missing required field: token_endpoint/)
+    ).rejects.toThrow(/missing required field: auth_token_endpoint/)
+  })
+
+  it('throws when metadata is missing person_token_endpoint, naming the field', async () => {
+    const { person_token_endpoint, ...rest } = validMetadata
+    void person_token_endpoint
+    mockFetch.mockResolvedValueOnce(mockMetadataResponse(rest))
+
+    await expect(
+      bootstrapWithPS({ agentUrl: AGENT_URL, personServerUrl: PS_URL }),
+    ).rejects.toThrow(/missing required field: person_token_endpoint/)
+  })
+
+  it('says why a missing person_token_endpoint is fatal, not deferred to first use', async () => {
+    const { person_token_endpoint, ...rest } = validMetadata
+    void person_token_endpoint
+    mockFetch.mockResolvedValueOnce(mockMetadataResponse(rest))
+
+    const error = await bootstrapWithPS({ agentUrl: AGENT_URL, personServerUrl: PS_URL })
+      .then(() => null, (e: Error) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    const message = (error as Error).message
+    expect(message).toContain('person_token_endpoint')
+    expect(message).toContain(PS_URL)
+    expect(message).toContain(`${PS_URL}/.well-known/aauth-person.json`)
+    expect(message).toMatch(/cannot issue person tokens/)
+  })
+
+  it('does not bind or cache anything when person_token_endpoint is missing', async () => {
+    const { person_token_endpoint, ...rest } = validMetadata
+    void person_token_endpoint
+    mockFetch.mockResolvedValueOnce(mockMetadataResponse(rest))
+
+    await expect(
+      bootstrapWithPS({ agentUrl: AGENT_URL, personServerUrl: PS_URL }),
+    ).rejects.toThrow()
+
+    // Binding to a PS that cannot issue person tokens would fail at first use —
+    // so nothing is written: no agent config, no cached metadata.
+    expect(getAgentConfig(AGENT_URL)).toBeNull()
+    expect(readCachedMetadata('ps.example')).toBeNull()
+  })
+
+  it('lists every missing required field at once (the -10 metadata a live PS still serves)', async () => {
+    // What https://person.hello.coop publishes today: -10 field names, no person endpoint.
+    mockFetch.mockResolvedValueOnce(
+      mockMetadataResponse({
+        issuer: PS_URL,
+        token_endpoint: `${PS_URL}/aauth/token`,
+        interaction_endpoint: `${PS_URL}/auth`,
+        jwks_uri: `${PS_URL}/.well-known/jwks.json`,
+      }),
+    )
+
+    await expect(
+      bootstrapWithPS({ agentUrl: AGENT_URL, personServerUrl: PS_URL }),
+    ).rejects.toThrow(/missing required fields: auth_token_endpoint, person_token_endpoint/)
+  })
+
+  it('explains the -10 → -11 rename when the PS still publishes token_endpoint', async () => {
+    const { auth_token_endpoint, ...rest } = validMetadata
+    mockFetch.mockResolvedValueOnce(
+      mockMetadataResponse({ ...rest, token_endpoint: auth_token_endpoint }),
+    )
+
+    await expect(
+      bootstrapWithPS({ agentUrl: AGENT_URL, personServerUrl: PS_URL }),
+    ).rejects.toThrow(/auth_token_endpoint[\s\S]*token_endpoint/)
   })
 
   it('throws when metadata is missing jwks_uri', async () => {

@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { JWK } from 'jose'
 import { machineLabel } from '../device-label.js'
+import { publicJwkWithAlg } from '../jwk-alg.js'
 import type {
   BackendInfo,
   KeyReference,
@@ -95,7 +96,8 @@ export const secureEnclaveBackend: KeyBackendDriver = {
     const label = `com.aauth.agent.${date}_${hex}`
 
     const result = callHelper('generate', label) as Record<string, unknown>
-    const publicJwk = result.publicJwk as JWK
+    // se-helper emits a bare EC JWK with no `alg`; AAuth -11 requires one.
+    const publicJwk = publicJwkWithAlg(result.publicJwk as JWK, 'ES256', 'secure enclave key')
 
     return {
       backend: 'secure-enclave',
@@ -138,7 +140,7 @@ export const secureEnclaveBackend: KeyBackendDriver = {
 
   async getPublicKey(keyId: string): Promise<JWK> {
     const result = callHelper('public-key', keyId) as Record<string, unknown>
-    return result.publicJwk as JWK
+    return publicJwkWithAlg(result.publicJwk as JWK, 'ES256', `secure enclave key ${keyId}`)
   },
 
   getDeviceLabel(): string {

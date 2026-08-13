@@ -18,15 +18,17 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@hellocoop/mockin": "^2.0.0",
     "vitest": "^3.0.0"
   },
   "workspaces": [
+    "protocol",
     "interaction-code",
     "local-keys",
     "bootstrap",
     "hardware-keys",
-    "mcp-agent",
-    "mcp-server",
+    "agent",
+    "resource",
     "mcp-stdio",
     "mcp-openclaw",
     "fetch"

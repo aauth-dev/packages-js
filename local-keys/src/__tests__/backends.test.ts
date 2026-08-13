@@ -12,7 +12,7 @@ describe('Backend Discovery', () => {
     expect(backends.length).toBeGreaterThanOrEqual(1)
     const software = backends.find((b) => b.backend === 'software')
     expect(software).toBeDefined()
-    expect(software!.algorithms).toContain('EdDSA')
+    expect(software!.algorithms).toContain('Ed25519')
     expect(software!.algorithms).toContain('ES256')
   })
 
@@ -30,10 +30,10 @@ describe('Backend Discovery', () => {
 describe('Software Backend', () => {
   const backend = getBackend('software')
 
-  it('generates EdDSA key', async () => {
-    const key = await backend.generateKey('EdDSA')
+  it('generates Ed25519 key', async () => {
+    const key = await backend.generateKey('Ed25519')
     expect(key.backend).toBe('software')
-    expect(key.algorithm).toBe('EdDSA')
+    expect(key.algorithm).toBe('Ed25519')
     expect(key.keyId).toMatch(/^\d{4}-\d{2}-\d{2}_[0-9a-f]{3}$/)
     expect(key.publicJwk.kty).toBe('OKP')
     expect(key.publicJwk.crv).toBe('Ed25519')
@@ -201,7 +201,7 @@ describe('Secure Enclave Backend', () => {
 
   it.skipIf(!seInfo)('rejects non-ES256 algorithms', async () => {
     const backend = getBackend('secure-enclave')
-    await expect(backend.generateKey('EdDSA')).rejects.toThrow(
+    await expect(backend.generateKey('Ed25519')).rejects.toThrow(
       'only supports ES256',
     )
   })

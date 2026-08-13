@@ -122,7 +122,7 @@ EXAMPLE
   $ npx @aauth/bootstrap list
   {
     "keystores": [
-      { "keystore": "software", "description": "Software keys stored in OS keychain", "algorithms": ["EdDSA", "ES256"] }
+      { "keystore": "software", "description": "Software keys stored in OS keychain", "algorithms": ["Ed25519", "ES256"] }
     ],
     "agentProviders": [
       {
@@ -131,7 +131,7 @@ EXAMPLE
         "personServer": "https://person.hello.coop",
         "keys": [
           { "kid": "bd3f9c…", "keystore": "software",
-            "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "…", "alg": "EdDSA" } }
+            "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "…", "alg": "Ed25519" } }
         ]
       }
     ]
@@ -143,6 +143,12 @@ EXAMPLE
     - binds that key to the agent provider
     - binds a person server (default: person.hello.coop, unless --person-server)
   Fails if the agent provider already exists (delete it first to re-create).
+
+  Binding fetches the person server's /.well-known/aauth-person.json and
+  requires it to publish issuer, jwks_uri, auth_token_endpoint, and
+  person_token_endpoint. A person server without person_token_endpoint cannot
+  issue the person token an agent needs at a resource, so create fails there
+  rather than binding to a server every later call would fail against.
 
 USAGE
   npx @aauth/bootstrap create <agent-provider-url> [flags]
@@ -165,7 +171,7 @@ EXAMPLE
     "personServer": "https://person.hello.coop",
     "keys": [
       { "kid": "bd3f9c…", "keystore": "software",
-        "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "…", "alg": "EdDSA",
+        "publicJwk": { "kty": "OKP", "crv": "Ed25519", "x": "…", "alg": "Ed25519",
           "aauth": { "device": "mac-mini", "created": "2026-05-22" } } }
     ]
   }`,
@@ -232,11 +238,16 @@ EXAMPLE
   }`,
 
   token: `DESCRIPTION
-  Generate an agent token — the credential an agent presents to make authenticated calls.
+  Generate an agent token — the credential that names this agent to its person server.
   With one agent provider configured it needs no arguments — the agent provider and
   its agent-id come from config. Output is the agent token (\`signatureKey\`) plus
   the ephemeral private key (\`signingKey\`) you sign requests with — the token's \`cnf\`
   binds to its public half.
+
+  The agent token is not what a resource wants. At a resource it has not used, an
+  agent first POSTs this agent token to its person server's \`person_token_endpoint\`
+  with the resource URL, and presents the person token it gets back — the person
+  server, not the agent, is what asserts to the resource whom the agent acts for.
 
 USAGE
   npx @aauth/bootstrap token [flags]

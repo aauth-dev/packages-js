@@ -1,6 +1,6 @@
 {
   "name": "@aauth/local-keys",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "description": "Manage AAuth agent signing keys across hardware and software backends",
   "type": "module",
   "exports": {
@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "@napi-rs/keyring": "^1.1.3",
-    "jose": "^5.0.0"
+    "jose": "^6.0.0"
   },
   "optionalDependencies": {
     "@aauth/hardware-keys": "^1.0.0"

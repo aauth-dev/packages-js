@@ -13,17 +13,28 @@ npm install @aauth/mcp-stdio
 ## CLI
 
 ```bash
-npx @aauth/mcp-stdio --server https://api.example.com/mcp --agent https://user.github.io
+npx @aauth/mcp-stdio https://api.example.com/mcp --agent-url https://user.github.io
 ```
 
 ### Options
 
+The remote MCP server URL is the first positional argument and is required.
+
 | Flag | Env var | Description |
 |------|---------|-------------|
-| `--server`, `-s` | `AAUTH_MCP_SERVER` | Remote MCP server URL (required) |
-| `--agent`, `-a` | `AAUTH_AGENT_URL` | Agent identity URL (required) |
-| `--delegate`, `-d` | `AAUTH_DELEGATE` | Delegate name (default: `claude`) |
+| `--agent-url` | `AAUTH_AGENT_URL` | Agent URL (default: from `~/.aauth/config.json`) |
+| `--local` | `AAUTH_LOCAL` | Local part of the agent identifier |
+| `--person-server` | `AAUTH_PERSON_SERVER` | Person server URL (default: from `~/.aauth/config.json`) |
 | `--token-lifetime` | `AAUTH_TOKEN_LIFETIME` | Agent token lifetime in seconds (default: `3600`) |
+
+### Person server
+
+The proxy needs a person server to reach a resource that asks for a person or an
+auth token. It stamps the PS as the agent token's `ps` claim, obtains a person
+token from the PS's `person_token_endpoint` when a resource answers
+`requirement=person-token`, and exchanges the resource token that follows at the
+PS's `auth_token_endpoint`. Without one it can only reach resources that serve on
+agent identity alone, and it says so on stderr at startup.
 
 ### Claude Code Configuration
 
@@ -34,7 +45,7 @@ Add to your MCP server config:
   "mcpServers": {
     "my-server": {
       "command": "npx",
-      "args": ["@aauth/mcp-stdio", "--server", "https://api.example.com/mcp", "--agent", "https://user.github.io"]
+      "args": ["@aauth/mcp-stdio", "https://api.example.com/mcp", "--agent-url", "https://user.github.io"]
     }
   }
 }
@@ -47,10 +58,10 @@ Or with environment variables:
   "mcpServers": {
     "my-server": {
       "command": "npx",
-      "args": ["@aauth/mcp-stdio"],
+      "args": ["@aauth/mcp-stdio", "https://api.example.com/mcp"],
       "env": {
-        "AAUTH_MCP_SERVER": "https://api.example.com/mcp",
-        "AAUTH_AGENT_URL": "https://user.github.io"
+        "AAUTH_AGENT_URL": "https://user.github.io",
+        "AAUTH_PERSON_SERVER": "https://ps.example.com"
       }
     }
   }
@@ -67,15 +78,25 @@ Bridges two MCP transports for bidirectional message forwarding.
 import { bridgeTransports } from '@aauth/mcp-stdio'
 ```
 
+### `serializeAuthFlows(fetch): ProxyFetch`
+
+Wraps a fetch so that only one POST — and so only one AAuth flow, and one
+browser interaction — is in flight at a time. GET passes straight through, since
+the transport's GET is the long-lived SSE stream.
+
+```ts
+import { serializeAuthFlows } from '@aauth/mcp-stdio'
+```
+
 ### `parseArgs(argv): StdioArgs`
 
-Parses CLI arguments with env var fallbacks.
+Parses CLI arguments with env var fallbacks. Takes the full `process.argv`.
 
 ```ts
 import { parseArgs } from '@aauth/mcp-stdio'
 
-const args = parseArgs(process.argv.slice(2))
-// { serverUrl, agentUrl, delegate?, tokenLifetime? }
+const args = parseArgs(process.argv)
+// { serverUrl, agentUrl?, local?, personServer?, tokenLifetime? }
 ```
 
 ## License

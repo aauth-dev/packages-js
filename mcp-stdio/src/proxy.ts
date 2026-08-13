@@ -1,6 +1,51 @@
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 
+/** The fetch shape `StreamableHTTPClientTransport` is handed, and the shape
+ *  `createAAuthFetch` returns. Declared here so this module stays free of
+ *  `@aauth/agent` — the AAuth flow itself lives there, not in the proxy. */
+export type ProxyFetch = (url: string | URL, init?: RequestInit) => Promise<Response>
+
+/**
+ * Serialize the requests that can trigger an AAuth flow.
+ *
+ * `createAAuthFetch` has no internal mutex. A fresh flow against a resource is
+ * now several round trips — 401 `requirement=person-token`, POST the PS's
+ * `person_token_endpoint`, retry, 401 `requirement=auth-token`, POST the PS's
+ * `auth_token_endpoint` (possibly with a browser interaction in between),
+ * retry — so the window in which concurrent requests would each start their own
+ * flow, and each open their own browser tab, is wider than it was under -10.
+ *
+ * Only POSTs are gated. The transport's GET is the long-lived SSE stream and
+ * must never wait behind an auth flow.
+ *
+ * Waiters re-take the gate one at a time rather than all resuming together, so
+ * the second request through uses the token the first one obtained.
+ */
+export function serializeAuthFlows(inner: ProxyFetch): ProxyFetch {
+  let inFlight: Promise<void> | null = null
+
+  return async (url, init) => {
+    const method = init?.method ?? 'GET'
+    if (method !== 'POST') {
+      return inner(url, init)
+    }
+
+    while (inFlight) {
+      await inFlight
+    }
+
+    let release!: () => void
+    inFlight = new Promise<void>((resolve) => { release = resolve })
+    try {
+      return await inner(url, init)
+    } finally {
+      inFlight = null
+      release()
+    }
+  }
+}
+
 export async function bridgeTransports(
   local: Transport,
   remote: Transport,

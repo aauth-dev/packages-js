@@ -1,0 +1,42 @@
+{
+  "name": "@aauth/agent",
+  "version": "3.0.0",
+  "description": "Agent-side AAuth protocol library — HTTP Signatures, person tokens, token exchange, deferred polling",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aauth",
+    "agent",
+    "http-signatures"
+  ],
+  "author": "Dick Hardt <dick.hardt@hello.coop>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aauth-dev/packages-js",
+    "directory": "agent"
+  },
+  "dependencies": {
+    "@aauth/protocol": "^1.0.0",
+    "@hellocoop/httpsig": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

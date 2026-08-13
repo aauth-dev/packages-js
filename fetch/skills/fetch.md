@@ -36,14 +36,60 @@ curl https://example.aauth.dev/.well-known/aauth-resource.json
 
 The metadata tells you:
 - What scopes are available (`scope_descriptions`)
+- `access_mode` — the credential flow the resource expects: `agent-token`, `person-token`, `session-token`, `auth-token`, or `per-call`
 - Whether it uses R3 vocabularies (`r3_vocabularies`) and which authorization endpoint to use
 - The resource's signing keys (`jwks_uri`)
 
-For R3 resources with OpenAPI vocabularies:
+`access_mode` is an IANA registry, not a closed list. A value you don't recognize means
+*no declaration*: call the resource and read the `AAuth-Requirement` it returns. The
+declaration is advisory either way — a resource may return any requirement at runtime.
+
+For R3 resources with OpenAPI vocabularies, fetch the spec to see the operationIds — and
+the access annotations on them:
+
 ```bash
-# Fetch the OpenAPI spec to see available operationIds
-curl https://notes.aauth.dev/openapi.json
+npx @aauth/fetch https://notes.aauth.dev/openapi.json > openapi.json
 ```
+
+### Operation access annotations
+
+An OpenAPI Operation Object may carry `x-aauth-access-mode` and `x-aauth-budget`
+(AAuth R3 §Operation Access Annotations). When the document you fetched has them,
+fetch prints them on stderr grouped by the credential each operation needs — stdout
+stays the raw spec:
+
+```
+Operation access annotations (advisory — the resource may return any AAuth-Requirement at runtime):
+
+  agent-token — your agent token alone — no person involved
+    getHealth        GET /health
+
+  person-token — a person token from your person server
+    getProfile       GET /me
+
+  auth-token — an auth token — costs one authorization round trip
+    listNotes        GET /notes
+    exportNotes      POST /notes/export   [budget]
+
+  per-call — authorized per invocation — will stop and wait for a person
+    purchaseReport   POST /reports/{id}/purchase  [budget]
+```
+
+Read this before planning unattended work: `agent-token` operations are free,
+`auth-token` operations cost one authorization round trip, and `per-call` operations
+will block on a person every time. `[budget]` means the operation draws down a budget,
+so state a ceiling in your authorization request.
+
+Three rules:
+- **Advisory, always.** A resource MAY return any `AAuth-Requirement` at runtime
+  regardless of what it published. Be ready for a `401` on any operation, including
+  one annotated as needing nothing more than you already hold. Never treat an
+  annotation as permission.
+- **Sparse.** An operation with no annotation takes the resource's own `access_mode`.
+- **Replaces, not intersects.** A `person-token` annotation on a resource declaring
+  `access_mode: auth-token` *lowers* the requirement for that operation.
+
+With `--explain`, the same data arrives structured as an `operation_annotations` event.
 
 ## One-shot request (simplest)
 
@@ -89,10 +135,10 @@ OUT=$(npx @aauth/fetch authorize https://notes.aauth.dev/authorize --operations 
 
 **Output shape — fields appear only when relevant:**
 - Three-party (PS-asserted): `{ auth_token, expires_in, signingKey, response? }`. `response` is the resource body (omitted by `authorize` since it makes no resource call); `signingKey` is the ephemeral private key the auth_token is `cnf`-bound to — needed on every reuse.
-- Two-party (resource-managed): `{ aauth_access_token, response? }`. **No `signingKey`** — the AAuth-Access token binds per-request to the agent identity, so reuse only needs the token.
+- Two-party (resource-managed): `{ session_token, response? }`. **No `signingKey`** — the session token binds per-request to the agent identity, so reuse only needs the token.
 - Agent-token-only 200 (resource accepted the agent token directly): `{ signingKey, signatureKey, response }` — both emitted so you can reuse that exact agent token without re-minting.
 
-(Spec-defined fields use snake_case — `auth_token`/`expires_in`/`aauth_access_token`; our own artifacts like `signingKey`/`signatureKey` stay camelCase.)
+(Spec-defined fields use snake_case — `auth_token`/`expires_in`/`session_token`; our own artifacts like `signingKey`/`signatureKey` stay camelCase.)
 
 ### Step 2: Reuse the captured token
 
@@ -154,20 +200,23 @@ you **must** use the same key on every reuse (it isn't re-minted).
 ### Two-party (resource-managed) reuse
 
 Some resources manage authorization themselves instead of delegating to a person
-server. After authorizing, they hand back an **`AAuth-Access` token** (in the
-`aauth_access_token` field of `authorize` / `--emit` output). Reuse it with
-`--aauth-access-token` — it's sent under the `AAuth` scheme and bound to the request
+server. After authorizing, they hand back a **session token** in the `AAuth-Access`
+header (the `session_token` field of `authorize` / `--emit` output). Reuse it with
+`--session-token` — it's sent under the `AAuth` scheme and bound to the request
 signature, so **no signing key is needed** (your agent identity from config signs it):
 
 ```bash
 OUT=$(npx @aauth/fetch --emit https://resource.example/api)
-export AAUTH_ACCESS_TOKEN=$(jq -r .aauth_access_token <<<"$OUT")   # or pass --aauth-access-token "$TOKEN"
-npx @aauth/fetch https://resource.example/api                     # reuses the AAuth-Access token
+export AAUTH_SESSION_TOKEN=$(jq -r .session_token <<<"$OUT")   # or pass --session-token "$TOKEN"
+npx @aauth/fetch https://resource.example/api                  # reuses the session token
 ```
 
-The resource may return a new `AAuth-Access` token on any response (rolling refresh);
-`--emit` surfaces the latest one. Unlike the three-party auth token, this token
+The resource may return a new `AAuth-Access` header on any response (rolling refresh);
+`--emit` surfaces the latest one. Unlike the three-party auth token, the session token
 is opaque and resource-specific — only send it back to the resource that issued it.
+
+(AAuth -11 named this credential the *session token*; it was previously unnamed, and
+these were `--aauth-access-token` / `AAUTH_ACCESS_TOKEN` / `aauth_access_token`.)
 
 ### Token expiration
 
@@ -197,7 +246,7 @@ echo '{"url":"https://notes.aauth.dev/notes","method":"GET","auth_token":"...","
   | npx @aauth/fetch --json
 ```
 
-The `--operations` flag takes comma-separated operationIds from the resource's OpenAPI spec. The person server presents these to the user for consent, showing what data access and actions are being requested.
+The `--operations` flag takes comma-separated operationIds from the resource's OpenAPI spec, exactly as they appear there — an id is scoped to the one discovery endpoint the resource advertises for that vocabulary, so it carries no qualifier. The person server presents these to the user for consent, showing what data access and actions are being requested.
 
 ## Agent identifier
 
@@ -323,13 +372,16 @@ Each distinct summary/description prints **once per step**: repeated events
 (the `consent_poll` heartbeat) carry only their payload, and a branch change
 (the final poll's 200) brings fresh lines.
 
-Step vocabulary, in flow order: `agent_token_request` (call signed with your
-agent token; a 2xx here is identity-based access, a 401 starts the three-party
-flow) → `requirement_parsed` → `ps_metadata` → `ps_token_request` (202 =
-consent needed, 200 = consent on file) → `interaction_required` →
-`consent_poll` (repeats; the final 200's body carries the issued `auth_token`)
-→ `auth_token_request` (the authorized call). R3 flows start with
-`authorize_request` instead of a 401.
+Step vocabulary, in flow order — `*_endpoint` is a person-server hop, `*_request` is
+a resource call: `ps_metadata` → `person_token_endpoint` (get a person token for this
+resource; under AAuth -11 a resource verifies one before it will issue a resource
+token) → `agent_token_request` (a 2xx here is identity-based access, a 401 starts the
+three-party flow) → `requirement_parsed` → `auth_token_endpoint` (renamed from
+`token_endpoint`; 202 = consent needed, 200 = consent on file) →
+`interaction_required` → `consent_poll` (repeats; the final 200's body carries the
+issued `auth_token`) → `auth_token_request` (the authorized call). R3 flows start with
+`authorize_request` instead of a 401. `operation_annotations` appears whenever the
+body just fetched was an annotated OpenAPI document.
 
 ### Following along (for agents narrating a flow)
 
@@ -337,12 +389,14 @@ When rendering a flow for a human, one section per exchange: the `summary` as
 the section's header line, the `description` as a quoted line, then the
 `request` / `response` payloads as fenced JSON. Two rules keep it readable:
 
-- **Elide repeated JWTs by role.** Three token roles ride in these events, each
+- **Elide repeated JWTs by role.** Four token roles ride in these events, each
   ~500+ chars: the **agent-token** (the `signature-key` JWT in
-  `agent_token_request`, `ps_token_request`, `consent_poll`), the
-  **resource-token** (first in the 401's `aauth-requirement` header, again in
-  `ps_token_request`'s body), and the **auth-token** (first in the final
-  `consent_poll` 200 body, again in `auth_token_request`'s `signature-key`).
+  `person_token_endpoint`, `agent_token_request`, `auth_token_endpoint`,
+  `consent_poll`), the **person-token** (the `person_token_endpoint` 200 body,
+  again on the resource call that draws the 401), the **resource-token** (first in
+  the 401's `aauth-requirement` header, again in `auth_token_endpoint`'s body), and
+  the **auth-token** (first in the final `consent_poll` 200 body, again in
+  `auth_token_request`'s `signature-key`).
   Render the *first* JWT of each role verbatim — it is the substance of that
   step — and elide later ones to `"…agent-token…"` etc. The `step` and field
   names tell you which role is in flight; no decoding needed.
@@ -371,7 +425,7 @@ plain-text prompt is suppressed in favor of that event.
 
 ## Caching
 
-- **Tokens are never cached to disk.** The `auth_token` and any access token are
+- **Tokens are never cached to disk.** The `auth_token` and any session token are
   output (with `authorize` / `--emit`) for you to reuse as you see fit —
   there is no automatic on-disk token reuse. See "Step 2: Reuse the captured token".
 - **Person-server metadata is cached** (it's public, not a secret) under

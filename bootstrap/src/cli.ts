@@ -16,7 +16,7 @@ import {
   validateUrl,
   ensureAgentUrls,
 } from '@aauth/local-keys'
-import type { LocalKeyMeta } from '@aauth/local-keys'
+import type { LocalKeyMeta, KeychainData } from '@aauth/local-keys'
 import { deleteAgent, uninstall, listBackups } from './teardown.js'
 import { bootstrapWithPS } from './bootstrap-ps.js'
 import { listSkills, getSkill } from './skills.js'
@@ -34,6 +34,7 @@ import {
   resolveKeystoreAlgorithm,
   resolveAgentId,
   resolveLifetime,
+  withFullySpecifiedAlg,
 } from './resolve.js'
 
 /** A JWK is opaque here — we only pass it through to JSON output. */
@@ -70,10 +71,10 @@ async function resolvePublicJwk(agentUrl: string, kid: string, meta: LocalKeyMet
   if (meta.backend === 'software') {
     const data = readKeychain(agentUrl)
     const jwk = data?.keys[kid]
-    return jwk ? toPublicJwk(jwk) : null
+    return jwk ? withFullySpecifiedAlg(toPublicJwk(jwk)) : null
   }
   try {
-    return await getBackend(meta.backend).getPublicKey(meta.keyId)
+    return withFullySpecifiedAlg(await getBackend(meta.backend).getPublicKey(meta.keyId))
   } catch {
     return null
   }
@@ -139,13 +140,26 @@ async function cmdCreate(positional: string[], flags: Record<string, string | bo
   const deviceLabel = driver.getDeviceLabel()
   const created = new Date().toISOString().slice(0, 10)
 
+  // Bind the person server BEFORE writing anything: this fetches and validates
+  // its metadata, and a PS with no `person_token_endpoint` is fatal. Binding
+  // first means a rejected person server leaves no orphaned key in the keystore
+  // and no half-created provider that `create` would then refuse to re-create.
+  const psError = validateUrl(personServer)
+  if (psError) return fail(`person-server: ${personServer} — ${psError}`)
+  await bootstrapWithPS({ agentUrl: url, personServerUrl: personServer, local })
+
   ensureAgentUrls(url)
 
   let kid: string
   let publicJwk: Jwk
 
   if (keystore === 'software') {
-    const { privateJwk, publicJwk: pub } = await generateKey(algorithm === 'ES256' ? 'ES256' : 'EdDSA')
+    // `Ed25519` selects the curve for key generation and is the fully-specified
+    // `alg` (RFC 9864) the JWKs come back stamped with. `@aauth/local-keys`
+    // 2.0.0 no longer accepts the polymorphic `EdDSA` here.
+    const generated = await generateKey(algorithm === 'ES256' ? 'ES256' : 'Ed25519')
+    const pub = withFullySpecifiedAlg(generated.publicJwk) as Record<string, unknown>
+    const privateJwk = withFullySpecifiedAlg(generated.privateJwk) as KeychainData['keys'][string]
     kid = pub.kid as string
     publicJwk = { ...pub, aauth: { device: deviceLabel, created } } as Jwk
     writeKeychain(url, { current: kid, keys: { [kid]: privateJwk } })
@@ -153,14 +167,10 @@ async function cmdCreate(positional: string[], flags: Record<string, string | bo
   } else {
     const ref = await driver.generateKey(algorithm)
     kid = generateKid()
-    publicJwk = { ...ref.publicJwk, kid, aauth: { device: deviceLabel, created } } as Jwk
+    const pub = withFullySpecifiedAlg(ref.publicJwk) as Record<string, unknown>
+    publicJwk = { ...pub, kid, aauth: { device: deviceLabel, created } } as Jwk
     addKeyToAgent(url, kid, { backend: keystore, algorithm, keyId: ref.keyId, deviceLabel })
   }
-
-  // Bind a person server (fetches + validates its metadata, persists agentId + ps).
-  const psError = validateUrl(personServer)
-  if (psError) return fail(`person-server: ${personServer} — ${psError}`)
-  await bootstrapWithPS({ agentUrl: url, personServerUrl: personServer, local })
 
   const cfg = getAgentConfig(url)
   printResult({

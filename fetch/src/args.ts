@@ -18,8 +18,13 @@ export interface FetchArgs {
   personServer?: string
   authToken?: string
   signingKey?: string
-  /** Opaque AAuth-Access token (two-party reuse) sent under the AAuth scheme. */
-  opaqueToken?: string
+  /**
+   * Session token (resource-managed / two-party reuse) — the opaque credential a
+   * resource issues via `AAuth-Access` and the agent presents back under the
+   * `AAuth` scheme. Named `session-token` since AAuth -11; it was previously
+   * unnamed in the spec and this flag called it `aauth-access-token`.
+   */
+  sessionToken?: string
 
   // Mode (modifiers)
   agentOnly: boolean
@@ -144,21 +149,21 @@ export const FLAGS: FlagSpec[] = [
     summary: 'Use an existing auth token (with --signing-key; three-party reuse)', json: 'auth_token', env: 'AAUTH_AUTH_TOKEN' },
   { long: 'signing-key', kind: 'value', field: 'signingKey', metavar: '<jwk>', group: 'Mode',
     summary: 'Ephemeral signing key for --auth-token (the auth token is cnf-bound to it)', json: 'signingKey', jsonKind: 'json', env: 'AAUTH_SIGNING_KEY' },
-  { long: 'aauth-access-token', kind: 'value', field: 'opaqueToken', metavar: '<token>', group: 'Mode',
-    summary: 'Reuse an AAuth-Access token (two-party / resource-managed); no signing key needed', json: 'aauth_access_token', env: 'AAUTH_ACCESS_TOKEN' },
+  { long: 'session-token', kind: 'value', field: 'sessionToken', metavar: '<token>', group: 'Mode',
+    summary: 'Reuse a session token (two-party / resource-managed, carried in AAuth-Access); no signing key needed', json: 'session_token', env: 'AAUTH_SESSION_TOKEN' },
   { long: 'emit', kind: 'boolean', field: 'emit', group: 'Mode',
     summary: 'Emit the reusable credential(s) to stdout alongside the response', json: 'emit', jsonKind: 'boolean',
     details: [
       'Shape (fields appear only when relevant):',
       '  { auth_token, expires_in, signingKey, response }     three-party',
-      '  { aauth_access_token, response }                     two-party',
+      '  { session_token, response }                          two-party',
       '`response` is the resource body (same as bare fetch); `signingKey` is emitted',
       'only with `auth_token` (three-party reuse needs it).',
     ] },
 
   // Authorize
   { long: 'operations', kind: 'value', field: 'operations', metavar: '<ids>', group: 'Authorize',
-    summary: 'R3 operation ids to authorize (comma-separated). Gateway resources qualify each as service:operationId', json: 'operations' },
+    summary: 'R3 operation ids to authorize (comma-separated), as they appear in the resource\'s vocabulary', json: 'operations' },
   { long: 'scope', kind: 'value', field: 'scope', metavar: '<scope>', group: 'Authorize',
     summary: 'Requested scopes', json: 'scope' },
   { long: 'account', kind: 'value', field: 'account', metavar: '<account>', group: 'Authorize',

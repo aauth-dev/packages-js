@@ -2,12 +2,12 @@
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { createAAuthFetch } from '@aauth/mcp-agent'
-import { createAgentToken } from '@aauth/local-keys'
+import { createAAuthFetch } from '@aauth/agent'
+import { createAgentToken, getAgentConfig, readConfig } from '@aauth/local-keys'
 import open from 'open'
 import { createRequire } from 'node:module'
 import { parseArgs } from './args.js'
-import { bridgeTransports } from './proxy.js'
+import { bridgeTransports, serializeAuthFlows } from './proxy.js'
 
 if (process.argv.includes('--version')) {
   const pkg = createRequire(import.meta.url)('../package.json') as { version: string }
@@ -15,7 +15,34 @@ if (process.argv.includes('--version')) {
   process.exit(0)
 }
 
-const { serverUrl, agentUrl, local, tokenLifetime } = parseArgs(process.argv)
+const { serverUrl, agentUrl, local, tokenLifetime, personServer } = parseArgs(process.argv)
+
+/**
+ * Resolve the person server: explicit flag/env first, then the PS recorded for
+ * this agent provider at bootstrap. Matches how `@aauth/fetch` resolves it.
+ */
+function resolvePersonServer(): string | undefined {
+  if (personServer) return personServer
+  if (agentUrl) return getAgentConfig(agentUrl)?.personServerUrl
+  const providers = Object.entries(readConfig().agents)
+  if (providers.length === 1) return providers[0][1].personServerUrl
+  return undefined
+}
+
+const personServerUrl = resolvePersonServer()
+
+// Without a PS the agent has no `ps` claim, so it can obtain neither a person
+// token nor an auth token. Two-party resources (agent identity only, or an
+// AAuth-Access session token) still work, so this is a warning, not a fatal —
+// but a resource answering `requirement=person-token` will fail, and saying so
+// up front beats an opaque error mid-session.
+if (!personServerUrl) {
+  console.error(
+    '[aauth-stdio] No person server configured — this agent can only reach resources ' +
+    'that accept agent identity alone. Pass --person-server <url> (or set ' +
+    'AAUTH_PERSON_SERVER) to satisfy requirement=person-token and requirement=auth-token.',
+  )
+}
 
 const innerFetch = createAAuthFetch({
   getKeyMaterial: () =>
@@ -23,39 +50,24 @@ const innerFetch = createAAuthFetch({
       agentUrl,
       local,
       tokenLifetime,
+      // Stamps the `ps` claim on the agent token. The resource reads it to
+      // decide where a resource token's `aud` points, and the PS reads the
+      // signing key to bind the person token's `cnf`.
+      ...(personServerUrl ? { personServerUrl } : {}),
     }),
-  onInteraction: (code, interactionEndpoint) => {
-    const url = `${interactionEndpoint}?code=${code}`
-    console.error(`[aauth-stdio] Opening browser for consent: ${url}`)
-    open(url)
+  // The PS whose metadata carries `person_token_endpoint` (person-token hop) and
+  // `auth_token_endpoint` (the -11 name for what -10 called `token_endpoint`).
+  ...(personServerUrl ? { personServerUrl } : {}),
+  // pollDeferred and the PS/resource interaction paths call this as
+  // (url, code) — the interaction endpoint first, the user-visible code second.
+  onInteraction: (url: string, code: string) => {
+    const interactionUrl = `${url}?code=${code}`
+    console.error(`[aauth-stdio] Opening browser for consent: ${interactionUrl}`)
+    open(interactionUrl)
   },
 })
 
-// Serialize requests that trigger auth — createAAuthFetch has no internal mutex,
-// so concurrent 401s would each open a browser tab. This wrapper ensures only one
-// auth flow runs at a time; others wait then retry with the cached token.
-let authInFlight: Promise<void> | null = null
-const aAuthFetch: typeof innerFetch = async (url, init) => {
-  const method = (init as RequestInit)?.method ?? 'GET'
-
-  // Only serialize POST requests — GET (SSE) is long-lived and must not block
-  if (method !== 'POST') {
-    return innerFetch(url, init)
-  }
-
-  if (authInFlight) {
-    await authInFlight
-    return innerFetch(url, init)
-  }
-  let resolve: () => void
-  authInFlight = new Promise<void>((r) => { resolve = r })
-  try {
-    return await innerFetch(url, init)
-  } finally {
-    authInFlight = null
-    resolve!()
-  }
-}
+const aAuthFetch = serializeAuthFlows(innerFetch)
 
 const remote = new StreamableHTTPClientTransport(new URL(serverUrl), {
   fetch: aAuthFetch,
