@@ -1,6 +1,6 @@
 {
   "name": "@aauth/protocol",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AAuth wire format — AAuth-Requirement and AAuth-Capabilities headers, access_mode planning, protocol constants",
   "type": "module",
   "exports": {

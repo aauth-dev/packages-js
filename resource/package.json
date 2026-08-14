@@ -1,6 +1,6 @@
 {
   "name": "@aauth/resource",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "AAuth resource-side reference implementation: token verification, resource tokens, R3 documents and per-call proposals, challenge headers, interaction management",
   "type": "module",
   "exports": {

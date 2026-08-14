@@ -1,6 +1,6 @@
 {
   "name": "@aauth/agent",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Agent-side AAuth protocol library — HTTP Signatures, person tokens, token exchange, deferred polling",
   "type": "module",
   "exports": {
