@@ -204,6 +204,84 @@ describe('pollDeferred', () => {
     expect(onInteraction).toHaveBeenCalledWith('https://auth.example/interact', 'WXYZ5678')
   })
 
+  it('dedupes onInteraction across polls re-advertising the same url and code', async () => {
+    // A PS re-advertises the interaction on every poll while it applies
+    // (e.g. Wallet's reach fallback) — the agent must not re-notify (and
+    // typically re-open a browser) per poll cycle (#17).
+    const onInteraction = vi.fn()
+    const readvertised = () =>
+      new Response(null, {
+        status: 202,
+        headers: {
+          'aauth-requirement': 'requirement=interaction; url="https://auth.example/interact"; code="WXYZ5678"',
+          'Retry-After': '1',
+        },
+      })
+    mockFetch
+      .mockResolvedValueOnce(readvertised())
+      .mockResolvedValueOnce(readvertised())
+      .mockResolvedValueOnce(readvertised())
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    await pollDeferred({
+      signedFetch: mockFetch,
+      locationUrl: 'https://auth.example/pending/123',
+      onInteraction,
+    })
+
+    expect(onInteraction).toHaveBeenCalledTimes(1)
+  })
+
+  it('notifies again when the advertised interaction code changes', async () => {
+    const onInteraction = vi.fn()
+    const withCode = (code: string) =>
+      new Response(null, {
+        status: 202,
+        headers: {
+          'aauth-requirement': `requirement=interaction; url="https://auth.example/interact"; code="${code}"`,
+          'Retry-After': '1',
+        },
+      })
+    mockFetch
+      .mockResolvedValueOnce(withCode('WXYZ5678'))
+      .mockResolvedValueOnce(withCode('ABCD1234'))
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    await pollDeferred({
+      signedFetch: mockFetch,
+      locationUrl: 'https://auth.example/pending/123',
+      onInteraction,
+    })
+
+    expect(onInteraction).toHaveBeenCalledTimes(2)
+    expect(onInteraction).toHaveBeenNthCalledWith(1, 'https://auth.example/interact', 'WXYZ5678')
+    expect(onInteraction).toHaveBeenNthCalledWith(2, 'https://auth.example/interact', 'ABCD1234')
+  })
+
+  it('does not re-notify from the header for the initial interaction it was given', async () => {
+    // The initial url/code passed into pollDeferred and the same pair
+    // arriving via AAuth-Requirement are one interaction, not two.
+    const onInteraction = vi.fn()
+    const pending = new Response(null, {
+      status: 202,
+      headers: {
+        'aauth-requirement': 'requirement=interaction; url="https://auth.example/interact"; code="ABCD1234"',
+        'Retry-After': '1',
+      },
+    })
+    mockFetch.mockResolvedValueOnce(pending).mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    await pollDeferred({
+      signedFetch: mockFetch,
+      locationUrl: 'https://auth.example/pending/123',
+      interactionUrl: 'https://auth.example/interact',
+      interactionCode: 'ABCD1234',
+      onInteraction,
+    })
+
+    expect(onInteraction).toHaveBeenCalledTimes(1)
+  })
+
   it('handles clarification flow', async () => {
     const onClarification = vi.fn().mockResolvedValue('42 widgets')
     const clarificationResponse = new Response(
