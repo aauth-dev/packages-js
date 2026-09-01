@@ -22,7 +22,8 @@ export interface PersonTokenReference {
   iss: string
   /** `sub` of the person token — directed, opaque, meaningful only with `iss`. */
   sub: string
-  /** `jti` of the person token — binds this resource token to that one. */
+  /** `jti` of the person token — binds this resource token to that one.
+   *  Emitted as `presented_jti` (and its pre-rename alias `person_token_jti`). */
   jti: string
   /** Copied unchanged when present. A resource MUST NOT omit it. */
   mission_s256?: string
@@ -34,7 +35,7 @@ export interface ResourceTokenOptions {
   resource: string
   /** `aud` — the PS in three-party access, the AS in four-party. */
   audience: string
-  /** The person token this resource verified. `ps`, `sub`, `person_token_jti`,
+  /** The person token this resource verified. `ps`, `sub`, `presented_jti`,
    *  `mission_s256` and `tenant` are copied from it. */
   personToken: VerifiedPersonToken | PersonTokenReference
   /** JWK thumbprint (RFC 7638) of the agent's current signing key. For a
@@ -179,7 +180,11 @@ export async function createResourceToken(
     jti: randomId(),
     ps: person.iss,
     sub: person.sub,
-    person_token_jti: person.jti,
+    // `presented_jti` is the -11 name (spec issue #95); `person_token_jti` is
+    // its pre-rename alias, emitted alongside until every PS reads the new
+    // name. Same value: the jti of the person token this resource verified.
+    presented_jti: person.jti,
+    person_token_jti: person.jti, // deprecated alias of presented_jti
     agent_jkt: agentJkt,
     iat: now,
     exp,
@@ -189,7 +194,7 @@ export async function createResourceToken(
   if (account !== undefined) payload.account = account
 
   // REQUIRED when the person token carried one, copied unchanged. A resource
-  // MUST NOT omit it: the PS resolves the person token by `person_token_jti`
+  // MUST NOT omit it: the PS resolves the person token by `presented_jti`
   // and compares, so dropping it is detected as mission stripping.
   if (person.mission_s256) payload.mission_s256 = person.mission_s256
 

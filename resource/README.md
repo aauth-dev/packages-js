@@ -105,7 +105,7 @@ const resourceToken = await createResourceToken(
   {
     resource: 'https://notes.example',   // iss
     audience: psUrl,                     // aud: the PS (three-party) or the AS (four-party)
-    personToken: verifiedPersonToken,    // ps, sub, person_token_jti, mission_s256, tenant come from here
+    personToken: verifiedPersonToken,    // ps, sub, presented_jti, mission_s256, tenant come from here
     agentJkt: sig.thumbprint,
     scope: 'notes.read notes.write',
     kid: publicJwk.kid,
@@ -121,8 +121,12 @@ given — `alg` is the fully-specified RFC 9864 identifier, and the polymorphic 
 used.
 
 `mission_s256` is copied from the person token unchanged and is REQUIRED when the person token
-carried one; a resource MUST NOT omit it. The PS resolves the person token by `person_token_jti` and
+carried one; a resource MUST NOT omit it. The PS resolves the person token by `presented_jti` and
 compares, so dropping it is detected as mission stripping.
+
+`presented_jti` is the claim's name since spec issue #95; the token also carries the deprecated
+pre-rename alias `person_token_jti` with the same value, so a PS that has not picked up the rename
+keeps working. The alias will be dropped once the transition ends.
 
 `clampToMission(exp, missionExpiresAt)` is exported for anything else a resource derives from a
 mission-scoped token: no token carrying `mission_s256` may outlive its mission.

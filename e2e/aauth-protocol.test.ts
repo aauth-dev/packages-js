@@ -268,10 +268,13 @@ describe('the three-party flow, end to end', () => {
       iss: RESOURCE,
       dwk: DWK.resource,
       aud: PS,
-      // ps, sub and person_token_jti are copied from the person token — this is
+      // ps, sub and presented_jti are copied from the person token — this is
       // what lets the PS resolve which person token this resource verified.
+      // person_token_jti is the pre-rename alias (spec issue #95), dual-emitted
+      // until every PS reads the new name.
       ps: person.iss,
       sub: person.sub,
+      presented_jti: person.jti,
       person_token_jti: person.jti,
       agent_jkt: agent.signingKey.thumbprint,
       scope: 'read',
@@ -330,7 +333,7 @@ describe('the three-party flow, end to end', () => {
     // The jti store is what makes step 6 of §Resource Token Verification
     // possible at all. Clearing it is the same as a PS restart.
     const personToken = await getPersonToken()
-    resource.mint = { forgePersonTokenJti: '00000000-0000-0000-0000-000000000000' }
+    resource.mint = { forgePresentedJti: '00000000-0000-0000-0000-000000000000' }
     const resourceToken = await getResourceToken(personToken)
 
     const refused = await redeemExpectingRefusal(resourceToken)

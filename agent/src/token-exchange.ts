@@ -254,7 +254,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   }
 
   // §Resource Token Verification rejections all land here — mission_s256 or
-  // tenant mismatch, an unknown person_token_jti, a prohibited alg. The server
+  // tenant mismatch, an unknown presented_jti, a prohibited alg. The server
   // names which one; report it rather than the status alone.
   throw new TokenExchangeError(response.status, await parseErrorBody(response))
 }
