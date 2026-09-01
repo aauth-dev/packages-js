@@ -500,8 +500,8 @@ export interface MintBehaviour {
   overrideTenant?: string
   /** Sign the resource token with the polymorphic `EdDSA`. */
   alg?: string
-  /** Name a `person_token_jti` this PS never issued. */
-  forgePersonTokenJti?: string
+  /** Name a `presented_jti` this PS never issued. */
+  forgePresentedJti?: string
   scope?: string
   lifetimeSeconds?: number
 }
@@ -592,7 +592,7 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
     /**
      * The `jti` of the person token this resource most recently verified.
      * AAuth issue #90: a per-call challenge fires on a request carrying an
-     * auth token, which has no `person_token_jti`, yet the resource token it
+     * auth token, which has no `presented_jti`, yet the resource token it
      * must issue makes that claim REQUIRED — so a resource has to retain the
      * person tokens it verified.
      */
@@ -857,7 +857,7 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
               personToken: {
                 iss: auth.ps,
                 sub: auth.sub,
-                // §Resource Token Structure makes `person_token_jti` REQUIRED,
+                // §Resource Token Structure makes `presented_jti` REQUIRED,
                 // but a per-call challenge fires on a request carrying an
                 // *auth* token, which has no such claim — AAuth issue #90. The
                 // resource retains the person token it verified and re-uses its
@@ -887,7 +887,7 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
         const ref: PersonTokenReference = {
           iss: person.iss,
           sub: person.sub,
-          jti: state.mint.forgePersonTokenJti ?? person.jti,
+          jti: state.mint.forgePresentedJti ?? person.jti,
         }
         // Honest path: copy `mission_s256` and `tenant` through unchanged.
         // §Resource Token Structure — a resource MUST NOT omit either.

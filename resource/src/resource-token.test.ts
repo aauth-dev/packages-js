@@ -57,11 +57,24 @@ describe('createResourceToken', () => {
     expect(typeof p.jti).toBe('string')
     expect(p.ps).toBe(PS)
     expect(p.sub).toBe('8f14e45fceea167a5a36dedd4bea2543')
-    expect(p.person_token_jti).toBe('pt-3ab910')
+    expect(p.presented_jti).toBe('pt-3ab910')
     expect(p.agent_jkt).toBe('NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs')
     expect(p.scope).toBe('notes.read notes.write')
     expect(p.iat).toBe(now)
     expect(p.exp).toBe(now + 300)
+  })
+
+  it('dual-emits presented_jti and its deprecated alias person_token_jti', async () => {
+    // Spec issue #95 renamed `person_token_jti` to `presented_jti`. Both are
+    // emitted with the same value until every PS reads the new name; the
+    // legacy claim goes away when the transition ends.
+    const { sign, captured } = capturingSign()
+    await createResourceToken(base(), sign)
+    const p = captured.payload!
+
+    expect(p.presented_jti).toBe('pt-3ab910')
+    expect(p.person_token_jti).toBe('pt-3ab910')
+    expect(p.person_token_jti).toBe(p.presented_jti)
   })
 
   it('carries none of the removed -10 claims', async () => {
