@@ -337,6 +337,54 @@ describe('time and key discovery', () => {
     }
   })
 
+  // Expiry is judged only after the issuer's signature has verified. Before
+  // that point the payload is bytes the presenter chose, so `token_expired`
+  // -- which tells a caller to go and get a fresh token -- would be a claim
+  // about a token nobody issued. A forgery has to report a signature failure
+  // no matter what `exp` it carries.
+  it('reports a signature failure, not token_expired, on a tampered expired token', async () => {
+    const past = Math.floor(Date.now() / 1000) - 7200
+    const jwt = await signTestJwt(
+      keys.issuerPrivate, 'aa-person+jwt', { ...personClaims(), iat: past, exp: past + 60 },
+    )
+
+    // Re-encode the payload with a raised expiry and reattach the original
+    // signature: edited and expired at once, which is the shape that used to
+    // report expired_jwt from an unauthenticated read.
+    const [h, p, sig] = jwt.split('.')
+    const payload = JSON.parse(Buffer.from(p, 'base64url').toString())
+    payload.sub = 'ffffffffffffffffffffffffffffffff'
+    const tampered = [
+      h,
+      Buffer.from(JSON.stringify(payload)).toString('base64url'),
+      sig,
+    ].join('.')
+
+    try {
+      await verifyToken(opts(tampered))
+      expect.fail('should have thrown')
+    } catch (err) {
+      expect((err as AAuthTokenError).code).not.toBe('token_expired')
+      expect((err as Error).message).toMatch(/signature verification failed/i)
+    }
+  })
+
+  it('reports a signature failure on a tampered unexpired token', async () => {
+    const jwt = await signTestJwt(keys.issuerPrivate, 'aa-person+jwt', personClaims())
+    const [h, p, sig] = jwt.split('.')
+    const payload = JSON.parse(Buffer.from(p, 'base64url').toString())
+    payload.sub = 'ffffffffffffffffffffffffffffffff'
+    const tampered = [
+      h,
+      Buffer.from(JSON.stringify(payload)).toString('base64url'),
+      sig,
+    ].join('.')
+
+    await expect(verifyToken(opts(tampered))).rejects.toThrow(
+      /signature verification failed/i,
+    )
+  })
+
   it('rejects an iat in the future', async () => {
     const future = Math.floor(Date.now() / 1000) + 7200
     const jwt = await signTestJwt(

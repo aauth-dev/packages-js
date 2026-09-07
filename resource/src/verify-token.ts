@@ -221,11 +221,28 @@ function selectKey(jwks: JSONWebKeySet, kid: unknown, code: string): JWK {
  * Verify an AAuth JWT presented via `Signature-Key: sig=jwt;jwt="…"`.
  *
  * Performs, in order: `typ` recognition, the `accept` check, required-claim
- * structure, expiry, key binding (`cnf.jwk` against the HTTP signing key),
- * `kid` selection and signature verification against the issuer's JWKS
- * discovered at `{iss}/.well-known/{dwk}`, then `iss` and `aud`.
+ * structure, key binding (`cnf.jwk` against the HTTP signing key), `kid`
+ * selection and signature verification against the issuer's JWKS discovered
+ * at `{iss}/.well-known/{dwk}`, then expiry, `iat` and `aud`.
  *
  * Nothing in the returned value is acted upon before the signature verifies.
+ *
+ * ── Why expiry comes after the signature ──────────────────────────────────
+ *
+ * Until the issuer's signature verifies, the payload is bytes the presenter
+ * chose. Judging `exp` before that point is not asking "has this token
+ * expired" — it is asking "does this string contain a number smaller than
+ * now", which anyone can arrange. What it costs is the meaning of the answer:
+ * `token_expired` is supposed to tell a caller to go and get a fresh token,
+ * and a forgery that reports it sends the caller off to refresh a token that
+ * was never the problem.
+ *
+ * The cheap-check-first instinct does not pay here either. The expensive step
+ * is JWKS discovery, and that is cached across every token from an issuer;
+ * what is left is a single signature verification. Structural checks that
+ * need no authentication — a claim being absent or the wrong type — still run
+ * first, because "this is not a well-formed AAuth token" is true of the bytes
+ * regardless of who wrote them.
  */
 export async function verifyToken(options: VerifyTokenOptions): Promise<VerifiedToken> {
   const {
@@ -321,16 +338,9 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
     requireString(claims, 'ps', code)
   }
 
-  // 3. Expiry and issuance time.
   const now = options.now ?? nowSeconds()
-  if (exp < now - clockToleranceSeconds) {
-    throw new AAuthTokenError('token_expired', 'Token has expired')
-  }
-  if (iat > now + clockToleranceSeconds) {
-    throw new AAuthTokenError(code, 'Token iat is in the future')
-  }
 
-  // 4. Key binding: cnf.jwk MUST be the key that signed the HTTP request.
+  // 3. Key binding: cnf.jwk MUST be the key that signed the HTTP request.
   const cnfThumbprint = await calculateJwkThumbprint(confirmationJwk, 'sha256')
   if (!timingSafeEqualString(cnfThumbprint, httpSignatureThumbprint)) {
     throw new AAuthTokenError(
@@ -339,7 +349,7 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
     )
   }
 
-  // 5. Issuer identity, then signature over the issuer's discovered key.
+  // 4. Issuer identity, then signature over the issuer's discovered key.
   if (!isServerIdentifier(iss)) {
     throw new AAuthTokenError(code, `iss is not a valid HTTPS server identifier: ${iss}`)
   }
@@ -359,13 +369,28 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
       algorithms: [header.alg as string],
       clockTolerance: clockToleranceSeconds,
       typ: typ as string,
+      currentDate: new Date(now * 1000),
     })
   } catch (err) {
     if (err instanceof AAuthTokenError) throw err
+    // jose validates `exp` and `nbf` *after* verifying the signature, which is
+    // the order this function wants: `token_expired` is a statement about a
+    // token the named issuer minted, and it is only worth making once that
+    // issuer's signature has checked out. Reported under its own code so a
+    // caller can still tell "go refresh" from "this was not issued by anyone".
+    if ((err as { code?: string }).code === 'ERR_JWT_EXPIRED') {
+      throw new AAuthTokenError('token_expired', 'Token has expired')
+    }
     throw new AAuthTokenError(
       code,
       `JWT signature verification failed: ${(err as Error).message}`,
     )
+  }
+
+  // 5. Issuance time. jose checks `exp` and `nbf` but not a future `iat`, so
+  //    that one is applied here — after the signature, for the same reason.
+  if (iat > now + clockToleranceSeconds) {
+    throw new AAuthTokenError(code, 'Token iat is in the future')
   }
 
   // 6. Audience. An agent token has none; a person or auth token names us.

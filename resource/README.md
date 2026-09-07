@@ -69,11 +69,24 @@ the values compare.
 | `unsupported_token_type` | `typ` is not an AAuth token type |
 | `token_type_not_accepted` | Recognized, but not allowed at this call site — including a person token where an auth token is required |
 | `invalid_agent_token` / `invalid_person_token` / `invalid_auth_token` | Structure, discovery or signature failed |
-| `token_expired` | `exp` is in the past |
+| `token_expired` | `exp` is in the past, on a token whose issuer signature verified |
 | `aud_mismatch` | `aud` is not this resource |
 | `key_binding_failed` | `cnf.jwk` is not the key that signed the request |
 | `metadata_fetch_failed` | `{iss}/.well-known/{dwk}` could not be read |
 | `invalid_configuration` | `accept` or `resource` was not supplied correctly |
+
+**Order matters, and expiry comes late.** Structural checks that need no
+authentication run first — a claim absent or of the wrong type says the bytes
+are not a well-formed AAuth token, whoever wrote them. Everything that
+interprets a claim's *value* runs after the issuer's signature verifies,
+`exp` included.
+
+That is why a token that was both edited and expired reports
+`invalid_person_token` (signature verification failed) rather than
+`token_expired`. `token_expired` tells a caller to go and get a fresh token;
+a forgery reporting it would send the caller off to refresh a token that was
+never the problem. Changed in 2.2.0 — earlier versions checked `exp` before
+resolving the issuer's JWKS.
 
 ## Challenging
 
