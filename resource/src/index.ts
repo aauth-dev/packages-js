@@ -41,6 +41,25 @@ export type {
   VerifiedToken,
 } from './verify-token.js'
 
+// --- Token revocation ---
+export {
+  MemoryRevocationStore,
+  KVRevocationStore,
+  applyRevocation,
+  revocationResponse,
+  handleRevocation,
+  REVOKED_JWT,
+  REVOCATION_CLOCK_SKEW_SECONDS,
+  DEFAULT_MAX_TOKEN_LIFETIME_SECONDS,
+} from './revocation.js'
+export type {
+  RevocationStore,
+  RevocationKV,
+  RevocationCaller,
+  RevocationEndpointOptions,
+  RevocationOutcome,
+} from './revocation.js'
+
 // --- Resource tokens ---
 export {
   createResourceToken,

@@ -40,8 +40,8 @@ forget.
 `verifyToken` performs: `typ` recognition → the `accept` check → required-claim structure → `exp`
 in the future and `iat` not in the future → key binding (`cnf.jwk` against the HTTP signing key) →
 `kid` selection and signature verification against the JWKS discovered at `{iss}/.well-known/{dwk}`
-→ `iss` a valid HTTPS server identifier → `aud` equal to `resource`. Nothing is acted on before the
-signature verifies.
+→ `iss` a valid HTTPS server identifier → `aud` equal to `resource` → the revocation list, when one
+is supplied (see [Revocation](#revocation)). Nothing is acted on before the signature verifies.
 
 The polymorphic `EdDSA` identifier is rejected in both the JWT header and `cnf.jwk`, per RFC 9864.
 
@@ -72,6 +72,7 @@ the values compare.
 | `token_expired` | `exp` is in the past, on a token whose issuer signature verified |
 | `aud_mismatch` | `aud` is not this resource |
 | `key_binding_failed` | `cnf.jwk` is not the key that signed the request |
+| `revoked_jwt` | The issuer revoked this token (`revocation` was supplied and holds its `(iss, jti)`). Answer `401` with `Signature-Error: error=revoked_jwt` |
 | `metadata_fetch_failed` | `{iss}/.well-known/{dwk}` could not be read |
 | `invalid_configuration` | `accept` or `resource` was not supplied correctly |
 
@@ -260,6 +261,52 @@ hash and a short excerpt appear in the proposal. The full bytes travel agent →
 time, where they are verified against the digest.
 
 The token carries only `r3_uri` / `r3_s256`, never the parameters.
+
+## Revocation
+
+A resource verifies tokens statelessly, so nothing in `verifyToken`'s path reports that an issuer
+withdrew a token. Revocation is the one piece of state a resource keeps: the `(iss, jti)` pairs an
+issuer has told it about, each held until the token's own `exp` (AAuth Protocol §Token Revocation).
+
+```ts
+import { KVRevocationStore, MemoryRevocationStore, handleRevocation, DWK } from '@aauth/resource'
+
+const revocation = new KVRevocationStore(env.TOKENS)   // or new MemoryRevocationStore() on one Node process
+
+// Every verifyToken call site passes the list; a revoked token throws code `revoked_jwt`.
+await verifyToken({ jwt, httpSignatureThumbprint, resource, accept: ['auth'], revocation })
+
+// POST /aauth/revoke — the caller signed as a server (Signature-Key sig=jwks_uri), which
+// the resource verified with @hellocoop/httpsig; `id` and `dwk` come off that result.
+app.post('/aauth/revoke', async (c) => {
+  const sig = await verify(...)                          // @hellocoop/httpsig
+  if (sig.keyType !== 'jwks_uri') return unsupportedScheme(['jwks_uri'])
+  return handleRevocation(c.req.raw, { id: sig.jwks_uri.id, dwk: sig.jwks_uri.dwk }, {
+    store: revocation,
+    issuers: ['https://ps.example', 'https://as.example'],   // the servers you exchange tokens with
+  })
+})
+```
+
+Advertise the endpoint as `revocation_endpoint` in `aauth-resource.json`.
+
+The request body is `{ "jti", "exp" }`, both REQUIRED. The issuer is never a parameter: the store
+is keyed by the **verified caller**, so a caller can only revoke its own tokens — revoking another
+issuer's is unreachable, not refused. `handleRevocation` answers `200 OK` with an empty body once
+recorded, whether or not the resource ever saw the token (there is no "not found"); `400
+invalid_request` for a malformed body, or an `exp` further out than `maxLifetimeSeconds` (default
+24 h); `403 unsupported_iss` for a caller not in `issuers` or not signing through
+`aauth-person.json` / `aauth-access.json` (`dwks`). An `exp` already past is `200` with nothing
+written. Signature failures — unsigned, unverifiable, or a `jwt`-scheme caller — are the resource's
+to answer with `401` and `Signature-Error` before it reaches this call. `applyRevocation` is the
+same logic without the `Response`, and `RevocationStore` is the two-method interface behind both
+stores if you keep the list elsewhere.
+
+**Presenting a revoked token.** The token is otherwise sound, so `verifyToken` refuses it last,
+with `revoked_jwt`, and the resource answers `401` with `Signature-Error: error=revoked_jwt`. For a
+revoked auth token it SHOULD also carry `AAuth-Requirement: requirement=auth-token` with a fresh
+resource token, so one response says why the token failed and how to recover; a revoked person
+token gets `requirement=person-token`, and a revoked agent token no requirement at all.
 
 ## Interaction (202 deferred responses)
 

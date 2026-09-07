@@ -5,6 +5,7 @@ import { AAuthTokenError } from './errors.js'
 import { discoverJwks, type FetchLike } from './jwks.js'
 import { isServerIdentifier, nowSeconds, timingSafeEqualString } from './util.js'
 import type { R3OperationSet } from './r3.js'
+import { REVOKED_JWT, type RevocationStore } from './revocation.js'
 
 // --- Types ---
 
@@ -38,6 +39,14 @@ export interface VerifyTokenOptions {
   clockToleranceSeconds?: number
   /** Override "now", in seconds since the epoch. For tests. */
   now?: number
+  /**
+   * The resource's revocation list (AAuth Protocol §Token Revocation). When
+   * supplied, a token whose `(iss, jti)` the issuer has revoked is refused
+   * with the code `revoked_jwt` — after every other check, since a revoked
+   * token is otherwise sound. The resource answers `401` with
+   * `Signature-Error: error=revoked_jwt`. Omitted: no revocation check.
+   */
+  revocation?: RevocationStore
 }
 
 interface VerifiedBase {
@@ -400,6 +409,18 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
         'aud_mismatch',
         `Token aud does not match this resource (${resource})`,
       )
+    }
+  }
+
+  // 7. Revocation, last: a revoked token verifies, is unexpired and has its
+  //    aud — saying it is malformed or expired would be false, and would
+  //    leave the caller with no reason not to present it again (§Token
+  //    Revocation). Keyed by (iss, jti): a jti is unique only within its
+  //    issuer. A token without a jti cannot have been named to us.
+  if (options.revocation) {
+    const jti = optionalString(claims, 'jti')
+    if (jti && (await options.revocation.isRevoked(iss, jti))) {
+      throw new AAuthTokenError(REVOKED_JWT, 'Token has been revoked by its issuer')
     }
   }
 
