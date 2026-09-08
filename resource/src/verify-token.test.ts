@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { generateKeyPair, exportJWK, SignJWT, calculateJwkThumbprint } from 'jose'
-import { verifyToken, AAuthTokenError, clearMetadataCache } from './index.js'
+import { verifyToken, AAuthTokenError, clearMetadataCache, CLOCK_SKEW } from './index.js'
 import type { VerifiedPersonToken, VerifiedAuthToken, VerifiedAgentToken } from './index.js'
 import {
   createTestKeys, signTestJwt, mockJwksFetch, RESOURCE, PS, AP, MISSION_S256,
@@ -385,12 +385,42 @@ describe('time and key discovery', () => {
     )
   })
 
-  it('rejects an iat in the future', async () => {
+  it('reports an iat beyond the window as clock_skew, not an invalid token', async () => {
     const future = Math.floor(Date.now() / 1000) + 7200
     const jwt = await signTestJwt(
       keys.issuerPrivate, 'aa-person+jwt', { ...personClaims(), iat: future, exp: future + 600 },
     )
-    await expect(verifyToken(opts(jwt))).rejects.toThrow('iat is in the future')
+    try {
+      await verifyToken(opts(jwt))
+      expect.unreachable()
+    } catch (err) {
+      expect(err).toBeInstanceOf(AAuthTokenError)
+      expect((err as AAuthTokenError).code).toBe(CLOCK_SKEW)
+      expect((err as AAuthTokenError).message).toMatch(/ahead of this verifier/)
+    }
+  })
+
+  it('accepts an iat inside the window', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const jwt = await signTestJwt(
+      keys.issuerPrivate, 'aa-person+jwt', { ...personClaims(), iat: now + 30, exp: now + 3600 },
+    )
+    await expect(verifyToken(opts(jwt))).resolves.toMatchObject({ type: 'person' })
+  })
+
+  it('judges exp with no tolerance', async () => {
+    // Five seconds past: a 60s tolerance would have accepted it. The agent
+    // refreshes before expiry; the verifier does not allow for it.
+    const now = Math.floor(Date.now() / 1000)
+    const jwt = await signTestJwt(
+      keys.issuerPrivate, 'aa-person+jwt', { ...personClaims(), iat: now - 3600, exp: now - 5 },
+    )
+    try {
+      await verifyToken(opts(jwt))
+      expect.unreachable()
+    } catch (err) {
+      expect((err as AAuthTokenError).code).toBe('token_expired')
+    }
   })
 
   it('rejects an iss that is not a server identifier', async () => {

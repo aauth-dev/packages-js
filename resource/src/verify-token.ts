@@ -35,7 +35,13 @@ export interface VerifyTokenOptions {
   accept: readonly TokenKind[]
   /** Injectable fetch, for Workers bindings and tests. Defaults to global fetch. */
   fetch?: FetchLike
-  /** Seconds of clock skew tolerated on `exp` and `iat`. Default 60. */
+  /**
+   * How far a token's `iat` may be ahead of this verifier's clock before it
+   * is refused with `clock_skew`. Default 60, the same window the HTTP
+   * signature's `created` gets. `exp` is judged against this verifier's clock
+   * with no tolerance (AAuth Protocol §Expiry and the Refresh Margin): the
+   * agent refreshes before expiry; the verifier does not allow for it.
+   */
   clockToleranceSeconds?: number
   /** Override "now", in seconds since the epoch. For tests. */
   now?: number
@@ -181,6 +187,14 @@ const TYP_TO_KIND: Record<string, TokenKind> = {
   [TOKEN_TYP.person]: 'person',
   [TOKEN_TYP.auth]: 'auth',
 }
+
+/**
+ * The code `verifyToken` throws — and the `Signature-Error` value a resource
+ * returns with `401` — when a token's `iat` is further ahead of the
+ * verifier's clock than `clockToleranceSeconds`. The issuer's clock, not the
+ * token, is at fault; the presenter waits rather than refreshes.
+ */
+export const CLOCK_SKEW = 'clock_skew'
 
 const ERROR_CODE: Record<TokenKind, string> = {
   agent: 'invalid_agent_token',
@@ -376,7 +390,7 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
     const key = await importJWK(signingKey, header.alg as string)
     await jwtVerify(rawJwt, key, {
       algorithms: [header.alg as string],
-      clockTolerance: clockToleranceSeconds,
+      clockTolerance: 0,
       typ: typ as string,
       currentDate: new Date(now * 1000),
     })
@@ -398,8 +412,15 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
 
   // 5. Issuance time. jose checks `exp` and `nbf` but not a future `iat`, so
   //    that one is applied here — after the signature, for the same reason.
+  //    An `iat` further ahead of our clock than the window is not a defect
+  //    in the token: the issuer's clock and ours disagree. Reported under
+  //    its own code so a caller does not refresh — a fresh token from the
+  //    same issuer carries the same skew — but waits the difference out.
   if (iat > now + clockToleranceSeconds) {
-    throw new AAuthTokenError(code, 'Token iat is in the future')
+    throw new AAuthTokenError(
+      CLOCK_SKEW,
+      `Token iat is ${iat - now}s ahead of this verifier's clock (window ${clockToleranceSeconds}s)`,
+    )
   }
 
   // 6. Audience. An agent token has none; a person or auth token names us.

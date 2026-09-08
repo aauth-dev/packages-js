@@ -69,7 +69,8 @@ the values compare.
 | `unsupported_token_type` | `typ` is not an AAuth token type |
 | `token_type_not_accepted` | Recognized, but not allowed at this call site — including a person token where an auth token is required |
 | `invalid_agent_token` / `invalid_person_token` / `invalid_auth_token` | Structure, discovery or signature failed |
-| `token_expired` | `exp` is in the past, on a token whose issuer signature verified |
+| `token_expired` | `exp` is in the past by this verifier's clock, with no tolerance, on a token whose issuer signature verified |
+| `clock_skew` | `iat` is further ahead of this verifier's clock than `clockToleranceSeconds` (default 60). The issuer's clock, not the token, is at fault: a fresh token carries the same skew, so the presenter waits the difference out (the response `Date` header is the verifier's clock). Answer `401` with `Signature-Error: error=clock_skew` |
 | `aud_mismatch` | `aud` is not this resource |
 | `key_binding_failed` | `cnf.jwk` is not the key that signed the request |
 | `revoked_jwt` | The issuer revoked this token (`revocation` was supplied and holds its `(iss, jti)`). Answer `401` with `Signature-Error: error=revoked_jwt` |
@@ -88,6 +89,13 @@ That is why a token that was both edited and expired reports
 a forgery reporting it would send the caller off to refresh a token that was
 never the problem. Changed in 2.2.0 — earlier versions checked `exp` before
 resolving the issuer's JWKS.
+
+**Changed in 2.4.0.** `exp` is judged against this verifier's clock with no
+tolerance, per AAuth -11 §Expiry and the Refresh Margin: the agent refreshes
+at least five minutes before expiry, and a verifier that allowed for skew on
+`exp` would only let a token that one hop accepted fail at the next.
+`clockToleranceSeconds` now bounds `iat` alone, and an `iat` beyond it is
+`clock_skew` rather than `invalid_*_token`.
 
 ## Challenging
 
