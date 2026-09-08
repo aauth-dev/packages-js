@@ -28,7 +28,7 @@ export type {
 } from './challenge.js'
 
 // --- Token verification ---
-export { verifyToken } from './verify-token.js'
+export { verifyToken, CLOCK_SKEW } from './verify-token.js'
 export { AAuthTokenError, R3Error } from './errors.js'
 export { clearMetadataCache, discoverJwks } from './jwks.js'
 export type { FetchLike } from './jwks.js'
