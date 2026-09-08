@@ -589,14 +589,6 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
     accessMode: options.accessMode,
     scopeGateReached: false,
     r3Served: [] as string[],
-    /**
-     * The `jti` of the person token this resource most recently verified.
-     * AAuth issue #90: a per-call challenge fires on a request carrying an
-     * auth token, which has no `presented_jti`, yet the resource token it
-     * must issue makes that claim REQUIRED — so a resource has to retain the
-     * person tokens it verified.
-     */
-    retainedPersonTokenJti: undefined as string | undefined,
     lastProposal: undefined as
       | { r3_uri: string; r3_s256: string; document: R3Document }
       | undefined,
@@ -735,7 +727,6 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
           })
         }
         const person = verified as VerifiedPersonToken
-        state.retainedPersonTokenJti = person.jti
         const body = rawBody.length
           ? JSON.parse(rawBody.toString('utf8')) as {
             r3_operations?: R3OperationSet
@@ -763,13 +754,7 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
           {
             resource: RESOURCE,
             audience: personServer,
-            personToken: {
-              iss: person.iss,
-              sub: person.sub,
-              jti: person.jti,
-              ...(person.mission_s256 ? { mission_s256: person.mission_s256 } : {}),
-              ...(person.tenant ? { tenant: person.tenant } : {}),
-            },
+            presentedToken: person,
             agentJkt: result.thumbprint,
             scope: state.mint.scope ?? RESOURCE_SCOPE,
             ...(body.account !== undefined ? { account: body.account } : {}),
@@ -854,18 +839,12 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
             {
               resource: RESOURCE,
               audience: personServer,
-              personToken: {
-                iss: auth.ps,
-                sub: auth.sub,
-                // §Resource Token Structure makes `presented_jti` REQUIRED,
-                // but a per-call challenge fires on a request carrying an
-                // *auth* token, which has no such claim — AAuth issue #90. The
-                // resource retains the person token it verified and re-uses its
-                // jti; this test resource keeps exactly one.
-                jti: state.retainedPersonTokenJti ?? '',
-                ...(auth.mission_s256 ? { mission_s256: auth.mission_s256 } : {}),
-                ...(auth.tenant ? { tenant: auth.tenant } : {}),
-              },
+              // AAuth -11 issue #152: a per-call challenge fires on a request
+              // carrying an *auth* token, and the resource token names that
+              // token — `ps` and `sub` copied from it, `presented_jti` its
+              // jti. The agent presents the same auth token to its PS. No
+              // record of the person token is kept here.
+              presentedToken: auth,
               agentJkt: result.thumbprint,
               scope: state.mint.scope ?? RESOURCE_SCOPE,
               r3: { uri: published.r3_uri, s256: published.r3_s256 },
@@ -883,7 +862,6 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
 
       if (verified.type === 'person') {
         const person = verified as VerifiedPersonToken
-        state.retainedPersonTokenJti = person.jti
         const ref: PersonTokenReference = {
           iss: person.iss,
           sub: person.sub,
@@ -899,7 +877,7 @@ export async function startResource(options: ResourceOptions): Promise<TestResou
           {
             resource: RESOURCE,
             audience: personServer,
-            personToken: ref,
+            presentedToken: ref,
             agentJkt: result.thumbprint,
             scope: state.mint.scope ?? RESOURCE_SCOPE,
             ...(state.mint.overrideTenant ? { tenant: state.mint.overrideTenant } : {}),

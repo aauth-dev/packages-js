@@ -127,7 +127,9 @@ const resourceToken = await createResourceToken(
   {
     resource: 'https://notes.example',   // iss
     audience: psUrl,                     // aud: the PS (three-party) or the AS (four-party)
-    personToken: verifiedPersonToken,    // ps, sub, presented_jti, mission_s256, tenant come from here
+    presentedToken: verifiedToken,       // the person token, or on a step-up the auth token, the
+                                         // request carried: ps, sub, presented_jti, mission_s256,
+                                         // tenant come from here
     agentJkt: sig.thumbprint,
     scope: 'notes.read notes.write',
     kid: publicJwk.kid,
@@ -142,9 +144,16 @@ The header handed to your signer is `{ alg: 'Ed25519', typ: 'aa-resource+jwt', k
 given — `alg` is the fully-specified RFC 9864 identifier, and the polymorphic `EdDSA` MUST NOT be
 used.
 
-`mission_s256` is copied from the person token unchanged and is REQUIRED when the person token
-carried one; a resource MUST NOT omit it. The PS resolves the person token by `presented_jti` and
-compares, so dropping it is detected as mission stripping.
+`presentedToken` is whatever `verifyToken` returned for the request being challenged: a
+`VerifiedPersonToken` on the first challenge of a grant, a `VerifiedAuthToken` on a step-up or
+per-call challenge (AAuth -11, issue #152). `ps` is a person token's `iss` or an auth token's `ps`;
+`presented_jti` is that token's `jti`. The agent hands the same token to its PS as `presented_token`,
+and the PS (and in four-party the AS) verifies it against the resource token — so a resource keeps
+no record of what it verified. `personToken` is accepted as a deprecated alias.
+
+`mission_s256` is copied from the presented token unchanged and is REQUIRED when that token carried
+one; a resource MUST NOT omit it. The PS compares the presented token to the resource token, so
+dropping it is detected as mission stripping.
 
 `presented_jti` is the claim's name since spec issue #95; the token also carries the deprecated
 pre-rename alias `person_token_jti` with the same value, so a PS that has not picked up the rename

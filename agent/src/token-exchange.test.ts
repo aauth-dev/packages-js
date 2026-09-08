@@ -44,6 +44,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'eyJ.resource.token',
+      presentedToken: 'eyJ.presented',
       justification: 'access files',
     })
 
@@ -74,6 +75,7 @@ describe('exchangeToken', () => {
     const body = JSON.parse(mockFetch.mock.calls[1][1].body)
     expect(body).toEqual({
       resource_token: 'eyJ.resource.token',
+      presented_token: 'eyJ.presented',
       justification: 'access files',
     })
   })
@@ -90,6 +92,7 @@ describe('exchangeToken', () => {
       authServerUrl: 'https://auth.example',
       authServerMetadata: metadata,
       resourceToken: 'eyJ.resource.token',
+      presentedToken: 'eyJ.presented',
     })
 
     expect(result).toEqual({ authToken: 'eyJ.auth.token', expiresIn: 3600 })
@@ -113,6 +116,7 @@ describe('exchangeToken', () => {
       authServerUrl: 'https://auth.example',
       authServerMetadata: metadata,
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
       onEvent,
       onMetadata,
     })
@@ -134,6 +138,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
       onMetadata,
     })
 
@@ -174,6 +179,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'eyJ.resource.token',
+      presentedToken: 'eyJ.presented',
       onInteraction,
     })
 
@@ -203,6 +209,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
       justification: 'read logs',
       loginHint: 'user@acme.com',
       tenant: 'acme.com',
@@ -213,6 +220,7 @@ describe('exchangeToken', () => {
     const body = JSON.parse(mockFetch.mock.calls[1][1].body)
     expect(body).toEqual({
       resource_token: 'rt',
+      presented_token: 'eyJ.presented',
       justification: 'read logs',
       login_hint: 'user@acme.com',
       tenant: 'acme.com',
@@ -234,6 +242,7 @@ describe('exchangeToken', () => {
       // from the person token the agent presented. The auth token request
       // itself has no mission parameter (#agent-token-request).
       resourceToken: 'eyJ.resource.token.with.mission_s256',
+      presentedToken: 'eyJ.presented',
       justification: 'book the flights',
     })
 
@@ -241,6 +250,7 @@ describe('exchangeToken', () => {
     expect(body).not.toHaveProperty('mission_s256')
     expect(body).toEqual({
       resource_token: 'eyJ.resource.token.with.mission_s256',
+      presented_token: 'eyJ.presented',
       justification: 'book the flights',
     })
   })
@@ -252,6 +262,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
     })).rejects.toThrow('Failed to fetch auth server metadata: 404')
   })
 
@@ -264,6 +275,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
     })).rejects.toThrow('Auth server metadata missing auth_token_endpoint')
   })
 
@@ -279,6 +291,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
     })).rejects.toThrow('missing person_token_endpoint')
   })
 
@@ -290,6 +303,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
     })).rejects.toThrow('Token exchange failed with status 500')
   })
 
@@ -301,6 +315,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
     })).rejects.toThrow('202 response missing Location header')
   })
 
@@ -318,6 +333,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
     })).rejects.toThrow('Token exchange failed with status 403')
   })
 
@@ -336,6 +352,7 @@ describe('exchangeToken', () => {
       signedFetch: mockFetch,
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt',
+      presentedToken: 'eyJ.presented',
     })
     await expect(promise).rejects.toBeInstanceOf(TokenExchangeError)
     try {
@@ -347,4 +364,78 @@ describe('exchangeToken', () => {
       expect(texErr.message).toBe('User denied the request')
     }
   })
+  describe('presented_token (AAuth -11, issue #152)', () => {
+    const b64 = (o: Record<string, unknown>) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    const jwt = (payload: Record<string, unknown>) => `${b64({ alg: 'Ed25519' })}.${b64(payload)}.sig`
+
+    it('is REQUIRED', async () => {
+      await expect(exchangeToken({
+        signedFetch: mockFetch,
+        authServerUrl: 'https://auth.example',
+        resourceToken: 'rt',
+      } as never)).rejects.toThrow(/presentedToken/)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('refuses a resource token whose presented_jti does not name the presented token', async () => {
+      // §Resource Token Verification (agent side) step 5 — the resource named
+      // some other token; the PS would say invalid_resource_token, and the
+      // agent can say so without the round trip.
+      const resourceToken = jwt({ iss: 'https://rs.example', presented_jti: 'pt-other' })
+      const presentedToken = jwt({ iss: 'https://ps.example', jti: 'pt-mine' })
+      await expect(exchangeToken({
+        signedFetch: mockFetch,
+        authServerUrl: 'https://auth.example',
+        resourceToken,
+        presentedToken,
+      })).rejects.toThrow(/presented_jti "pt-other" does not name the token the agent presented/)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('sends a resource token that names the presented token', async () => {
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(metadata), { status: 200 }))
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ auth_token: 'tok', expires_in: 3600 }), { status: 200 }))
+      const resourceToken = jwt({ iss: 'https://rs.example', presented_jti: 'pt-mine' })
+      const presentedToken = jwt({ iss: 'https://ps.example', jti: 'pt-mine' })
+      await exchangeToken({
+        signedFetch: mockFetch,
+        authServerUrl: 'https://auth.example',
+        resourceToken,
+        presentedToken,
+      })
+      const body = JSON.parse(mockFetch.mock.calls[1][1].body)
+      expect(body.presented_token).toBe(presentedToken)
+    })
+
+    it('clock_skew: reports how long to wait, from the server Date header', async () => {
+      // §Expiry and the Refresh Margin: the presented token's iat is ahead of
+      // the server's clock by more than its window. Refreshing does not help
+      // — a fresh token carries the same skew — so the error says how long
+      // to wait before presenting the same token again.
+      const serverNow = 1_700_000_000
+      const presentedToken = jwt({ iss: 'https://ps.example', jti: 'pt-1', iat: serverNow + 150 })
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(metadata), { status: 200 }))
+      mockFetch.mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: 'clock_skew', detail: 'presented_token iat is 150s ahead' }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/problem+json',
+            Date: new Date(serverNow * 1000).toUTCString(),
+          },
+        },
+      ))
+      const failure = await exchangeToken({
+        signedFetch: mockFetch,
+        authServerUrl: 'https://auth.example',
+        resourceToken: 'rt',
+        presentedToken,
+      }).catch((e: unknown) => e)
+      expect(failure).toBeInstanceOf(TokenExchangeError)
+      expect((failure as TokenExchangeError).error).toBe('clock_skew')
+      // 150 s ahead, 60 s window → wait 90 s.
+      expect((failure as TokenExchangeError).retryAfterSeconds).toBe(90)
+    })
+  })
+
 })

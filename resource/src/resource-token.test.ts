@@ -64,6 +64,39 @@ describe('createResourceToken', () => {
     expect(p.exp).toBe(now + 300)
   })
 
+  it('names an auth token on a step-up: ps from the auth token, presented_jti its jti', async () => {
+    // Issue #152: a step-up or per-call challenge fires on a request carrying
+    // an auth token, and the resource token names *that* token.
+    const { sign, captured } = capturingSign()
+    await createResourceToken(
+      {
+        ...base(),
+        presentedToken: {
+          type: 'auth',
+          iss: 'https://as.example',
+          ps: PS,
+          sub: '8f14e45fceea167a5a36dedd4bea2543',
+          jti: 'at-77',
+          mission_s256: 'm-1',
+        } as never,
+      },
+      sign,
+    )
+    const p = captured.payload!
+    expect(p.ps).toBe(PS)
+    expect(p.sub).toBe('8f14e45fceea167a5a36dedd4bea2543')
+    expect(p.presented_jti).toBe('at-77')
+    expect(p.mission_s256).toBe('m-1')
+  })
+
+  it('refuses an auth token with no jti — nothing to name', async () => {
+    const { sign } = capturingSign()
+    await expect(createResourceToken(
+      { ...base(), presentedToken: { ps: PS, sub: 's', jti: '' } },
+      sign,
+    )).rejects.toMatchObject({ code: 'presented_token_required' })
+  })
+
   it('dual-emits presented_jti and its deprecated alias person_token_jti', async () => {
     // Spec issue #95 renamed `person_token_jti` to `presented_jti`. Both are
     // emitted with the same value until every PS reads the new name; the
@@ -164,11 +197,11 @@ describe('createResourceToken', () => {
     ).rejects.toThrow('mission expires_at is in the past')
   })
 
-  it('requires a person token', async () => {
+  it('requires a presented token with a PS, sub and jti', async () => {
     const { sign } = capturingSign()
     await expect(
       createResourceToken(base({ personToken: { iss: PS, sub: 'u1' } }), sign),
-    ).rejects.toThrow('needs iss, sub and jti')
+    ).rejects.toThrow('needs a PS (ps or iss), sub and jti')
   })
 
   it('requires scope', async () => {

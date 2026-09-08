@@ -143,23 +143,113 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
     const urlStr = typeof url === 'string' ? url : url.toString()
     const resourceOrigin = new URL(urlStr).origin
 
+    // Send a resource token to the PS with the token the agent presented,
+    // cache the auth token, and retry the original request with it.
+    const exchangeAndRetry = async (resourceToken: string, presented: string): Promise<Response> => {
+      onEvent?.({
+        step: 'challenge_received',
+        phase: 'info',
+        requirement: 'auth-token',
+        resourceToken: decodeJwtPayloadSafe(resourceToken),
+      })
+      // The agent sends the resource token to its own auth server
+      const authServerUrl = configuredPersonServer
+      if (!authServerUrl) {
+        throw new Error('auth-token challenge received but no personServerUrl configured')
+      }
+
+      const result = await exchangeToken({
+        signedFetch: psSignedFetch,
+        authServerUrl,
+        authServerMetadata: personServerMetadata,
+        onMetadata,
+        resourceToken,
+        presentedToken: presented,
+        justification,
+        loginHint,
+        tenant,
+        domainHint,
+        capabilities,
+        prompt,
+        onInteraction,
+        onClarification,
+        onEvent,
+        maxPollDuration,
+        getKeyMaterial,
+        sentTracker,
+      })
+
+      // Cache the auth token
+      const key = cacheKey(resourceOrigin, authServerUrl)
+      tokenCache.set(key, {
+        authToken: result.authToken,
+        expiresAt: Date.now() + result.expiresIn * 1000,
+        authServer: authServerUrl,
+      })
+      // Surface it as a reusable credential (e.g. `fetch --with-token`).
+      onAuthToken?.(result.authToken, result.expiresIn)
+
+      // Retry with auth token
+      onEvent?.({
+        step: 'retry_with_auth_token',
+        phase: 'start',
+        url: urlStr,
+        auth_token: decodeJwtPayloadSafe(result.authToken),
+      })
+      const retryResponse = await fetchWithToken(
+        url, init, result.authToken, getKeyMaterial, onSigned,
+      )
+      const retryBody = onEvent ? await peekResponseBody(retryResponse) : undefined
+      onEvent?.({
+        step: 'retry_with_auth_token',
+        phase: 'done',
+        status: retryResponse.status,
+        request_headers: sentTracker.latest?.headers,
+        request_body: sentTracker.latest?.body,
+        response: {
+          headers: summarizeResponseHeaders(retryResponse.headers),
+          ...(retryBody !== undefined ? { body: retryBody } : {}),
+        },
+      })
+      cacheOpaqueToken(opaqueCache, resourceOrigin, retryResponse, onOpaqueToken)
+      return handleResourceInteraction(retryResponse, signedFetch, onInteraction, onClarification)
+    }
+
     // Seed a provided AAuth-Access token (two-party reuse) so the first request
     // to this resource sends it. A token the resource later returns replaces it.
     if (seedOpaqueToken && !opaqueCache.has(resourceOrigin)) {
       opaqueCache.set(resourceOrigin, { token: seedOpaqueToken })
     }
 
+    // The token this agent has presented to the resource on this call — the
+    // person token, or a cached auth token on a step-up. A resource token the
+    // resource issues names it, and the agent hands it to the PS as
+    // presented_token (AAuth -11, issue #152).
+    let presentedToken: string | undefined
+
     // Check cache for a valid auth token for this resource
     const cached = findCachedToken(tokenCache, resourceOrigin)
     if (cached) {
       // Use cached auth token — sign with auth token instead of agent token
       const response = await fetchWithToken(url, init, cached.authToken, getKeyMaterial, onSigned)
-      // If the cached token is rejected, fall through to challenge flow
       if (response.status !== 401) {
         cacheOpaqueToken(opaqueCache, resourceOrigin, response, onOpaqueToken)
         return handleResourceInteraction(response, signedFetch, onInteraction, onClarification)
       }
-      // Cached token rejected — remove and proceed with fresh exchange
+      // clock_skew: the resource's clock, not our token, is the problem. A
+      // fresh token carries the same skew, so keep what we have and let the
+      // caller see the 401 (§Expiry and the Refresh Margin).
+      if (isClockSkew(response)) return response
+      const stepUp = stepUpChallenge(response)
+      if (stepUp) {
+        // 401 requirement=auth-token on a request that carried a valid auth
+        // token: a step-up (more scope) or a per-call proposal. The resource
+        // token names the auth token we presented; present that to the PS.
+        presentedToken = cached.authToken
+        return await exchangeAndRetry(stepUp, presentedToken)
+      }
+      // Cached token rejected for another reason (expired, revoked) — drop it
+      // and start again from the person token.
       tokenCache.delete(cacheKey(resourceOrigin, cached.authServer))
     }
 
@@ -217,6 +307,7 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
           person_token: decodeJwtPayloadSafe(personToken),
         })
         response = await fetchWithToken(url, init, personToken, getKeyMaterial, onSigned)
+        presentedToken = personToken
         const retryBody = onEvent ? await peekResponseBody(response) : undefined
         onEvent?.({
           step: 'retry_with_person_token',
@@ -248,72 +339,16 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       const challenge = parseRequirementHeader(aauthHeader)
 
       if (challenge.requirement === 'auth-token' && challenge.resourceToken) {
-        onEvent?.({
-          step: 'challenge_received',
-          phase: 'info',
-          requirement: 'auth-token',
-          resourceToken: decodeJwtPayloadSafe(challenge.resourceToken),
-        })
-        // The agent sends the resource token to its own auth server
-        const authServerUrl = configuredPersonServer
-        if (!authServerUrl) {
-          throw new Error('auth-token challenge received but no personServerUrl configured')
+        if (!presentedToken) {
+          // §Requirement Responses: a resource MUST NOT issue this challenge
+          // to a request that carried neither a person token nor an auth
+          // token — it has nothing to name in presented_jti. Nothing this
+          // agent can send would satisfy the PS, so say so.
+          throw new Error(
+            'auth-token challenge on a request that presented no person token or auth token; the resource must challenge with requirement=person-token first',
+          )
         }
-
-        const result = await exchangeToken({
-          signedFetch: psSignedFetch,
-          authServerUrl,
-          authServerMetadata: personServerMetadata,
-          onMetadata,
-          resourceToken: challenge.resourceToken,
-          justification,
-          loginHint,
-          tenant,
-          domainHint,
-          capabilities,
-          prompt,
-          onInteraction,
-          onClarification,
-          onEvent,
-          maxPollDuration,
-          getKeyMaterial,
-          sentTracker,
-        })
-
-        // Cache the auth token
-        const key = cacheKey(resourceOrigin, authServerUrl)
-        tokenCache.set(key, {
-          authToken: result.authToken,
-          expiresAt: Date.now() + result.expiresIn * 1000,
-          authServer: authServerUrl,
-        })
-        // Surface it as a reusable credential (e.g. `fetch --with-token`).
-        onAuthToken?.(result.authToken, result.expiresIn)
-
-        // Retry with auth token
-        onEvent?.({
-          step: 'retry_with_auth_token',
-          phase: 'start',
-          url: urlStr,
-          auth_token: decodeJwtPayloadSafe(result.authToken),
-        })
-        const retryResponse = await fetchWithToken(
-          url, init, result.authToken, getKeyMaterial, onSigned,
-        )
-        const retryBody = onEvent ? await peekResponseBody(retryResponse) : undefined
-        onEvent?.({
-          step: 'retry_with_auth_token',
-          phase: 'done',
-          status: retryResponse.status,
-          request_headers: sentTracker.latest?.headers,
-          request_body: sentTracker.latest?.body,
-          response: {
-            headers: summarizeResponseHeaders(retryResponse.headers),
-            ...(retryBody !== undefined ? { body: retryBody } : {}),
-          },
-        })
-        cacheOpaqueToken(opaqueCache, resourceOrigin, retryResponse, onOpaqueToken)
-        return handleResourceInteraction(retryResponse, signedFetch, onInteraction, onClarification)
+        return await exchangeAndRetry(challenge.resourceToken, presentedToken)
       }
 
       // non-auth-token challenges (approval, clarification, claims) don't require token exchange
@@ -461,6 +496,29 @@ function cacheOpaqueToken(
     cache.set(resourceOrigin, { token: opaqueToken })
     onOpaqueToken?.(opaqueToken)
   }
+}
+
+/** A 401 whose Signature-Error names clock_skew: wait, do not refresh. */
+function isClockSkew(response: Response): boolean {
+  const header = response.headers.get('signature-error') ?? ''
+  return /(^|[;,\s])error=clock_skew(\s|;|,|$)/.test(header)
+}
+
+/**
+ * The resource token from a `requirement=auth-token` challenge, when the
+ * request that drew it carried a valid auth token — a step-up or per-call
+ * proposal. Undefined for any other 401.
+ */
+function stepUpChallenge(response: Response): string | undefined {
+  const header = response.headers.get('aauth-requirement')
+  if (!header) return undefined
+  try {
+    const challenge = parseRequirementHeader(header)
+    if (challenge.requirement === 'auth-token' && challenge.resourceToken) return challenge.resourceToken
+  } catch {
+    // not a parseable challenge
+  }
+  return undefined
 }
 
 function cacheKey(resourceOrigin: string, authServer: string): string {
