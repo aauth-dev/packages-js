@@ -79,7 +79,15 @@ describe('createAAuthFetch', () => {
   })
 
   it('handles 401 AAuth-Requirement challenge → token exchange → retry', async () => {
-    // First request → 401 with AAuth-Requirement challenge
+    // -11: the resource challenges for a person token first, and only a
+    // request carrying one draws the auth-token challenge — the resource token
+    // names what the agent presented.
+    mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+      status: 401,
+      headers: { 'aauth-requirement': 'requirement=person-token' },
+    }))
+    mockPersonTokenGet.mockResolvedValueOnce('eyJ.person.token')
+    // Person-token request → 401 with AAuth-Requirement challenge
     const challengeResponse = new Response('unauthorized', {
       status: 401,
       headers: {
@@ -115,12 +123,14 @@ describe('createAAuthFetch', () => {
     expect(mockExchangeToken).toHaveBeenCalledWith(expect.objectContaining({
       authServerUrl: 'https://auth.example',
       resourceToken: 'rt123',
+      // the token the agent presented to the resource, named by presented_jti
+      presentedToken: 'eyJ.person.token',
       justification: 'read files',
     }))
 
     // Verify retry used the auth token in signatureKey
-    expect(mockHttpSigFetch).toHaveBeenCalledTimes(2)
-    const retryCall = mockHttpSigFetch.mock.calls[1]
+    expect(mockHttpSigFetch).toHaveBeenCalledTimes(3)
+    const retryCall = mockHttpSigFetch.mock.calls[2]
     expect(retryCall[1].signatureKey).toEqual({ type: 'jwt', jwt: 'eyJ.auth.token' })
 
     // The minted auth token is surfaced for reuse (fetch --with-token / export).
@@ -167,6 +177,14 @@ describe('createAAuthFetch', () => {
   })
 
   it('caches auth token and reuses on second request', async () => {
+    // -11: the resource challenges for a person token first, and only a
+    // request carrying one draws the auth-token challenge — the resource token
+    // names what the agent presented.
+    mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+      status: 401,
+      headers: { 'aauth-requirement': 'requirement=person-token' },
+    }))
+    mockPersonTokenGet.mockResolvedValueOnce('eyJ.person.token')
     // First request: 401 challenge → exchange → retry → 200
     mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
       status: 401,
@@ -196,8 +214,8 @@ describe('createAAuthFetch', () => {
     // No additional exchange call
     expect(mockExchangeToken).toHaveBeenCalledOnce()
     // But the second request used the cached auth token
-    expect(mockHttpSigFetch).toHaveBeenCalledTimes(3)
-    const cachedCall = mockHttpSigFetch.mock.calls[2]
+    expect(mockHttpSigFetch).toHaveBeenCalledTimes(4)
+    const cachedCall = mockHttpSigFetch.mock.calls[3]
     expect(cachedCall[1].signatureKey).toEqual({ type: 'jwt', jwt: 'eyJ.cached.token' })
   })
 
@@ -293,6 +311,14 @@ describe('createAAuthFetch', () => {
   })
 
   it('passes enterprise hints to token exchange', async () => {
+    // -11: the resource challenges for a person token first, and only a
+    // request carrying one draws the auth-token challenge — the resource token
+    // names what the agent presented.
+    mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+      status: 401,
+      headers: { 'aauth-requirement': 'requirement=person-token' },
+    }))
+    mockPersonTokenGet.mockResolvedValueOnce('eyJ.person.token')
     mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
       status: 401,
       headers: {
@@ -397,6 +423,7 @@ describe('createAAuthFetch', () => {
       expect(result).toBe(okResponse)
       expect(mockExchangeToken).toHaveBeenCalledWith(expect.objectContaining({
         resourceToken: 'rt-with-mission',
+        presentedToken: 'pt',
       }))
       expect(mockHttpSigFetch.mock.calls[2][1].signatureKey)
         .toEqual({ type: 'jwt', jwt: 'at' })
@@ -418,8 +445,99 @@ describe('createAAuthFetch', () => {
     })
   })
 
+  describe('presented tokens (AAuth -11, issue #152)', () => {
+    it('refuses an auth-token challenge on a request that presented nothing', async () => {
+      // A resource MUST NOT issue this challenge to a request carrying neither
+      // a person token nor an auth token: it has nothing to name.
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+        status: 401,
+        headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt"' },
+      }))
+      const fetch = createAAuthFetch({ getKeyMaterial, personServerUrl: 'https://ps.example' })
+      await expect(fetch('https://resource.example/api')).rejects.toThrow(/presented no person token or auth token/)
+      expect(mockExchangeToken).not.toHaveBeenCalled()
+    })
+
+    it('step-up: a cached auth token drawing requirement=auth-token is what the agent presents', async () => {
+      // First call: person token → resource token → auth token, cached.
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+        status: 401,
+        headers: { 'aauth-requirement': 'requirement=person-token' },
+      }))
+      mockPersonTokenGet.mockResolvedValueOnce('pt')
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+        status: 401,
+        headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt-1"' },
+      }))
+      mockExchangeToken.mockResolvedValueOnce({ authToken: 'at-1', expiresIn: 3600 })
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+      const fetch = createAAuthFetch({ getKeyMaterial, personServerUrl: 'https://ps.example' })
+      await fetch('https://resource.example/read')
+
+      // Second call presents the cached auth token; the resource wants more
+      // (a step-up) and names that auth token in a new resource token.
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+        status: 401,
+        headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt-2"' },
+      }))
+      mockExchangeToken.mockResolvedValueOnce({ authToken: 'at-2', expiresIn: 1800 })
+      const okResponse = new Response('written', { status: 200 })
+      mockHttpSigFetch.mockResolvedValueOnce(okResponse)
+      const result = await fetch('https://resource.example/write', { method: 'POST' })
+
+      expect(result).toBe(okResponse)
+      expect(mockExchangeToken).toHaveBeenLastCalledWith(expect.objectContaining({
+        resourceToken: 'rt-2',
+        presentedToken: 'at-1',
+      }))
+      // No new person token was requested for the step-up.
+      expect(mockPersonTokenGet).toHaveBeenCalledTimes(1)
+      // The retry carried the stepped-up token.
+      expect(lastCall().signatureKey).toEqual({ type: 'jwt', jwt: 'at-2' })
+    })
+
+    it('clock_skew on a cached auth token: returns the 401 and keeps the token (wait, do not refresh)', async () => {
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+        status: 401,
+        headers: { 'aauth-requirement': 'requirement=person-token' },
+      }))
+      mockPersonTokenGet.mockResolvedValueOnce('pt')
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+        status: 401,
+        headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt-1"' },
+      }))
+      mockExchangeToken.mockResolvedValueOnce({ authToken: 'at-1', expiresIn: 3600 })
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+      const fetch = createAAuthFetch({ getKeyMaterial, personServerUrl: 'https://ps.example' })
+      await fetch('https://resource.example/read')
+
+      const skewed = new Response('', {
+        status: 401,
+        headers: { 'signature-error': 'error=clock_skew' },
+      })
+      mockHttpSigFetch.mockResolvedValueOnce(skewed)
+      const result = await fetch('https://resource.example/read')
+      expect(result).toBe(skewed)
+      expect(mockExchangeToken).toHaveBeenCalledTimes(1)
+      expect(mockPersonTokenGet).toHaveBeenCalledTimes(1)
+
+      // The cached token is still presented next time.
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+      await fetch('https://resource.example/read')
+      expect(lastCall().signatureKey).toEqual({ type: 'jwt', jwt: 'at-1' })
+    })
+  })
+
   describe('PS/AS body signing', () => {
     it('hands token exchange a PS-flavoured signedFetch, and the resource one an unflavoured one', async () => {
+      // -11: the resource challenges for a person token first, and only a
+      // request carrying one draws the auth-token challenge — the resource token
+      // names what the agent presented.
+      mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
+        status: 401,
+        headers: { 'aauth-requirement': 'requirement=person-token' },
+      }))
+      mockPersonTokenGet.mockResolvedValueOnce('eyJ.person.token')
       mockHttpSigFetch.mockResolvedValueOnce(new Response('', {
         status: 401,
         headers: { 'aauth-requirement': 'requirement=auth-token; resource-token="rt"' },

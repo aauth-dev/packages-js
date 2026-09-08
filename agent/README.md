@@ -135,6 +135,10 @@ const { authToken, expiresIn } = await exchangeToken({
 })
 ```
 
+`presentedToken` is REQUIRED (AAuth -11, issue #152): the token the agent presented to the resource that issued the resource token — the person token on the first challenge of a grant, or the auth token on a step-up or per-call challenge. The resource token's `presented_jti` names it; `exchangeToken` checks that binding before sending, and the PS verifies the token against the resource token (and, in four-party access, passes it to the AS). Its `exp` bounds the auth token issued. `createAAuthFetch` supplies it automatically: the person token it presented, or the cached auth token that drew a step-up challenge.
+
+A `clock_skew` refusal (AAuth -11 §Expiry and the Refresh Margin) means the presented token's `iat` is further ahead of the server's clock than its window. A fresh token from the same issuer carries the same skew, so do not refresh: `TokenExchangeError.retryAfterSeconds`, computed from the server's `Date` header, says how long to wait before presenting the same token again. `createAAuthFetch` returns such a `401` from a resource unchanged and keeps its cached token.
+
 The auth token request has no mission parameter — the mission reaches the PS inside the resource token, which copied it from the person token.
 
 ### `fetchAuthServerMetadata(options)` / `resolveAuthServerMetadata(options)`

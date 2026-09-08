@@ -23,6 +23,12 @@ const { mockExchangeToken } = vi.hoisted(() => ({
   mockExchangeToken: vi.fn(),
 }))
 
+// -11: `authorize` gets a person token first when a person server is
+// configured, and presents it to the resource. The token is opaque here.
+const { mockRequestPersonToken } = vi.hoisted(() => ({
+  mockRequestPersonToken: vi.fn(async () => ({ personToken: 'eyJ.person.token', expiresIn: 3600 })),
+}))
+
 const { mockParseRequirementHeader } = vi.hoisted(() => ({
   mockParseRequirementHeader: vi.fn(),
 }))
@@ -40,6 +46,7 @@ vi.mock('@aauth/agent', () => ({
   createSignedFetch: mockCreateSignedFetch,
   createAAuthFetch: mockCreateAAuthFetch,
   exchangeToken: mockExchangeToken,
+  requestPersonToken: mockRequestPersonToken,
   TokenExchangeError: FakeTokenExchangeError,
 }))
 
@@ -814,6 +821,12 @@ describe('handleAuthorize', () => {
     expect(mockExchangeToken).toHaveBeenCalledWith(expect.objectContaining({
       authServerUrl: 'https://ps.example.com',
       resourceToken: 'rt123',
+      // the person token the resource was shown (AAuth -11, issue #152)
+      presentedToken: 'eyJ.person.token',
+    }))
+    expect(mockRequestPersonToken).toHaveBeenCalledWith(expect.objectContaining({
+      personServerUrl: 'https://ps.example.com',
+      resource: 'https://resource.example',
     }))
   })
 

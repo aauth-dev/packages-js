@@ -11,6 +11,7 @@ import {
   createSignedFetch,
   exchangeToken,
   TokenExchangeError,
+  requestPersonToken,
 } from '@aauth/agent'
 import type { GetKeyMaterial, OnEvent, CapturedSent, PersonServerMetadata } from '@aauth/agent'
 // The challenge parser and the capability vocabulary moved to `@aauth/protocol`
@@ -373,6 +374,39 @@ export async function handleAuthorize(
 
   let resourceToken: string | undefined
 
+  // -11: a resource issues a resource token only to a request that carried a
+  // person token (or an auth token), and names it in `presented_jti`; the
+  // agent then hands the same token to its PS as `presented_token`. So with a
+  // person server configured, get the person token first and present it on
+  // the authorize / challenge call. Without one this is two-party access on
+  // the agent token alone, and no auth-token challenge can be answered.
+  let personToken: string | undefined
+  let presentingFetch = signedFetch
+  if (personServer) {
+    const resourceOrigin = new URL(args.url).origin
+    const issued = await requestPersonToken({
+      signedFetch,
+      personServerUrl: personServer,
+      personServerMetadata,
+      onMetadata,
+      resource: resourceOrigin,
+      justification: args.justification,
+      loginHint: args.loginHint,
+      tenant: args.tenant,
+      domainHint: args.domainHint,
+      capabilities: capabilities as string[],
+      onInteraction: makeOnInteraction(args),
+      onEvent,
+    })
+    personToken = issued.personToken
+    // The same signing key, presenting the person token instead of the agent
+    // token, for the calls to the resource.
+    presentingFetch = createSignedFetch(
+      async () => ({ signingKey: keyMaterial.signingKey, signatureKey: { type: 'jwt', jwt: personToken! } }),
+      { capabilities, ...(onEvent ? { onSigned: (s: CapturedSent) => { sent.latest = s } } : {}) },
+    )
+  }
+
   if (args.operations) {
     // Bare operation ids, sent verbatim. R3 -02 §Operation Identifier Scope: an id is
     // scoped to the one discovery endpoint the resource advertises for the vocabulary,
@@ -391,7 +425,7 @@ export async function handleAuthorize(
       ...(args.account ? { account: args.account } : {}),
     }
     onEvent?.({ step: 'r3_authorize_request', phase: 'start', url: args.url, method: 'POST' })
-    const response = await signedFetch(args.url, {
+    const response = await presentingFetch(args.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(r3Body),
@@ -408,7 +442,7 @@ export async function handleAuthorize(
     const url = new URL(args.url)
     if (args.scope) url.searchParams.set('scope', args.scope)
     onEvent?.({ step: 'signed_request', phase: 'start', url: url.toString(), method: 'GET' })
-    const response = await signedFetch(url.toString(), { method: 'GET' })
+    const response = await presentingFetch(url.toString(), { method: 'GET' })
     if (onEvent) onEvent({ step: 'signed_request', phase: 'done', status: response.status, request_headers: sent.latest?.headers, request_body: sent.latest?.body, response: await doneResponse(response) })
 
     if (response.status === 200) {
@@ -447,7 +481,7 @@ export async function handleAuthorize(
     resourceToken = challenge.resourceToken
   }
 
-  if (!personServer) {
+  if (!personServer || !personToken) {
     return fail('Person server URL required for token exchange. Set in config or use --person-server.')
   }
 
@@ -457,6 +491,7 @@ export async function handleAuthorize(
     authServerMetadata: personServerMetadata,
     onMetadata,
     resourceToken,
+    presentedToken: personToken,
     justification: args.justification,
     loginHint: args.loginHint,
     tenant: args.tenant,

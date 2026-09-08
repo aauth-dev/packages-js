@@ -1,7 +1,7 @@
 import { TOKEN_TYP, DWK, SIGNING_ALG } from '@aauth/protocol'
 import { AAuthTokenError } from './errors.js'
 import { isServerIdentifier, nowSeconds, randomId } from './util.js'
-import type { VerifiedPersonToken } from './verify-token.js'
+import type { VerifiedPersonToken, VerifiedAuthToken } from './verify-token.js'
 
 /**
  * Resource token minting (AAuth Protocol §Resource Token Structure).
@@ -16,13 +16,19 @@ import type { VerifiedPersonToken } from './verify-token.js'
 /** Default lifetime. The spec says SHOULD NOT exceed 5 minutes. */
 export const DEFAULT_RESOURCE_TOKEN_LIFETIME = 300
 
-/** The claims a resource token copies out of the person token it verified. */
-export interface PersonTokenReference {
-  /** `iss` of the person token — the PS whose namespace `sub` belongs to. */
-  iss: string
-  /** `sub` of the person token — directed, opaque, meaningful only with `iss`. */
+/**
+ * The claims a resource token copies out of the token the request carried —
+ * the person token on the first challenge of a grant, or the auth token on a
+ * step-up or per-call challenge (AAuth -11, issue #152).
+ */
+export interface PresentedTokenReference {
+  /** The PS whose namespace `sub` belongs to: a person token's `iss`, an auth
+   *  token's `ps`. Give either; `ps` wins when both are present. */
+  ps?: string
+  iss?: string
+  /** `sub` of the presented token — directed, opaque, meaningful only with the PS. */
   sub: string
-  /** `jti` of the person token — binds this resource token to that one.
+  /** `jti` of the presented token — binds this resource token to that one.
    *  Emitted as `presented_jti` (and its pre-rename alias `person_token_jti`). */
   jti: string
   /** Copied unchanged when present. A resource MUST NOT omit it. */
@@ -30,14 +36,23 @@ export interface PersonTokenReference {
   tenant?: string
 }
 
+/** @deprecated pre-#152 name for {@link PresentedTokenReference}. */
+export type PersonTokenReference = PresentedTokenReference
+
+export type PresentedToken = VerifiedPersonToken | VerifiedAuthToken | PresentedTokenReference
+
 export interface ResourceTokenOptions {
   /** `iss` — the resource's own server identifier. */
   resource: string
   /** `aud` — the PS in three-party access, the AS in four-party. */
   audience: string
-  /** The person token this resource verified. `ps`, `sub`, `presented_jti`,
-   *  `mission_s256` and `tenant` are copied from it. */
-  personToken: VerifiedPersonToken | PersonTokenReference
+  /** The token this resource verified on the request: the person token on the
+   *  first challenge, or the auth token on a step-up / per-call challenge.
+   *  `ps`, `sub`, `presented_jti`, `mission_s256` and `tenant` are copied from
+   *  it, and the agent presents the same token to its PS as `presented_token`. */
+  presentedToken?: PresentedToken
+  /** @deprecated pre-#152 name for `presentedToken`. */
+  personToken?: PresentedToken
   /** JWK thumbprint (RFC 7638) of the agent's current signing key. For a
    *  parent-mediated sub-agent authorization this is the sub-agent's key. */
   agentJkt: string
@@ -91,25 +106,27 @@ export function clampToMission(exp: number, missionExpiresAt?: number): number {
   return Math.min(exp, missionExpiresAt)
 }
 
-function personRef(
-  token: VerifiedPersonToken | PersonTokenReference,
-): PersonTokenReference {
+function presentedRef(token: PresentedToken | undefined): Required<Pick<PresentedTokenReference, 'ps' | 'sub' | 'jti'>> & Pick<PresentedTokenReference, 'mission_s256' | 'tenant'> {
   if (!token || typeof token !== 'object') {
     throw new AAuthTokenError(
-      'person_token_required',
-      'createResourceToken requires the person token this resource verified',
+      'presented_token_required',
+      'createResourceToken requires the person token or auth token this resource verified on the request',
     )
   }
-  const { iss, sub, jti } = token as PersonTokenReference
-  if (!iss || !sub || !jti) {
+  const t = token as PresentedTokenReference & { type?: string }
+  // An auth token names the PS as `ps` (its `iss` may be an AS); a person
+  // token's PS is its `iss`.
+  const ps = t.ps ?? t.iss
+  const { sub, jti } = t
+  if (!ps || !sub || !jti) {
     throw new AAuthTokenError(
-      'person_token_required',
-      'The person token reference needs iss, sub and jti',
+      'presented_token_required',
+      'The presented token needs a PS (ps or iss), sub and jti — an auth token without a jti cannot be named by a resource token',
     )
   }
-  const ref: PersonTokenReference = { iss, sub, jti }
-  if (token.mission_s256) ref.mission_s256 = token.mission_s256
-  if (token.tenant) ref.tenant = token.tenant
+  const ref: Required<Pick<PresentedTokenReference, 'ps' | 'sub' | 'jti'>> & Pick<PresentedTokenReference, 'mission_s256' | 'tenant'> = { ps, sub, jti }
+  if (t.mission_s256) ref.mission_s256 = t.mission_s256
+  if (t.tenant) ref.tenant = t.tenant
   return ref
 }
 
@@ -162,7 +179,7 @@ export async function createResourceToken(
     )
   }
 
-  const person = personRef(options.personToken)
+  const person = presentedRef(options.presentedToken ?? options.personToken)
 
   const now = options.now ?? nowSeconds()
   const exp = clampToMission(now + lifetime, missionExpiresAt)
@@ -178,11 +195,12 @@ export async function createResourceToken(
     dwk: DWK.resource,
     aud: audience,
     jti: randomId(),
-    ps: person.iss,
+    ps: person.ps,
     sub: person.sub,
     // `presented_jti` is the -11 name (spec issue #95); `person_token_jti` is
     // its pre-rename alias, emitted alongside until every PS reads the new
-    // name. Same value: the jti of the person token this resource verified.
+    // name. Same value: the jti of the token this resource verified on the
+    // request — the person token, or on a step-up the auth token (#152).
     presented_jti: person.jti,
     person_token_jti: person.jti, // deprecated alias of presented_jti
     agent_jkt: agentJkt,

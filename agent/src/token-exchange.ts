@@ -1,7 +1,7 @@
 import type { FetchLike, GetKeyMaterial, OnEvent, CapturedSent } from './types.js'
 import { pollDeferred, parseErrorBody, describeAAuthError } from './deferred.js'
 import type { AAuthError } from './deferred.js'
-import { parseRequirementHeader } from '@aauth/protocol'
+import { parseRequirementHeader, decodeJwtPayload } from '@aauth/protocol'
 import { summarizeResponseHeaders, decodeSignatureKey, peekResponseBody, decodeJwtPayloadSafe } from './log-helpers.js'
 
 export class TokenExchangeError extends Error {
@@ -23,6 +23,16 @@ export class TokenExchangeError extends Error {
     this.error = aauthError?.error
     this.detail = aauthError?.detail ?? aauthError?.error_description
   }
+
+  /**
+   * Set when `error` is `clock_skew` (AAuth -11 §Expiry and the Refresh
+   * Margin): the presented token's `iat` is further ahead of the server's
+   * clock than its window. A fresh token from the same issuer carries the same
+   * skew, so do not refresh; wait this many seconds and present the same token
+   * again. Computed from the server's `Date` header; `undefined` when the
+   * server sent none.
+   */
+  retryAfterSeconds?: number
 }
 
 export interface TokenExchangeOptions {
@@ -33,6 +43,15 @@ export interface TokenExchangeOptions {
   /** Called with freshly-fetched metadata (only when authServerMetadata wasn't provided) so callers can persist it. */
   onMetadata?: (metadata: PersonServerMetadata) => void
   resourceToken: string
+  /**
+   * REQUIRED (AAuth -11, issue #152): the token this agent presented to the
+   * resource that issued `resourceToken` — the person token on the first
+   * challenge of a grant, or the auth token on a step-up or per-call
+   * challenge. The resource token's `presented_jti` names it; the PS verifies
+   * it against the resource token and, in four-party access, passes it to
+   * the AS. Its `exp` bounds the auth token issued.
+   */
+  presentedToken: string
   justification?: string
   localhostCallback?: string
   loginHint?: string
@@ -105,9 +124,17 @@ const PREFER_WAIT = 45
  * Exchange a resource token for an auth token via the auth server.
  *
  * 1. Fetches auth server metadata (/.well-known/aauth-person.json)
- * 2. POSTs to auth_token_endpoint with resource_token + hints, Prefer: wait=45
+ * 2. POSTs to auth_token_endpoint with resource_token, presented_token and
+ *    hints, Prefer: wait=45
  * 3. If 200: returns tokens directly
  * 4. If 202: polls via pollDeferred until terminal response
+ *
+ * `presented_token` is the token the agent presented to the resource — the
+ * person token, or on a step-up the auth token — which the resource token's
+ * `presented_jti` names (AAuth -11, issue #152). Before the POST the agent
+ * checks that binding itself (§Resource Token Verification by the agent, step
+ * 5): a resource token naming some other token is refused here rather than
+ * sent.
  *
  * `mission_s256` is not a parameter here: the mission reaches the PS inside the
  * resource token, which copied it from the person token the agent presented
@@ -131,6 +158,16 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
     sentTracker,
   } = options
 
+  // The presented token is REQUIRED (AAuth -11, issue #152), and the
+  // resource token must name it — both checked before any request goes out.
+  const { presentedToken } = options
+  if (typeof presentedToken !== 'string' || !presentedToken) {
+    throw new Error(
+      'exchangeToken requires presentedToken: the person token or auth token the agent presented to the resource (AAuth -11 §PS Token Endpoint)',
+    )
+  }
+  assertPresentedJti(resourceToken, presentedToken)
+
   // 1. Auth server metadata — use the cached copy if provided, else fetch it
   // (and hand the fresh copy back via onMetadata so the caller can persist it).
   const metadata = await resolvePersonServerMetadata({
@@ -148,6 +185,7 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   // 2. Build token request body
   const body: Record<string, unknown> = {
     resource_token: resourceToken,
+    presented_token: presentedToken,
   }
   if (justification) body.justification = justification
   if (localhostCallback) body.localhost_callback = localhostCallback
@@ -254,9 +292,58 @@ export async function exchangeToken(options: TokenExchangeOptions): Promise<Toke
   }
 
   // §Resource Token Verification rejections all land here — mission_s256 or
-  // tenant mismatch, an unknown presented_jti, a prohibited alg. The server
-  // names which one; report it rather than the status alone.
-  throw new TokenExchangeError(response.status, await parseErrorBody(response))
+  // tenant mismatch, a presented token the resource token does not name, a
+  // prohibited alg. The server names which one; report it rather than the
+  // status alone.
+  const failure = new TokenExchangeError(response.status, await parseErrorBody(response))
+  if (failure.error === 'clock_skew') {
+    failure.retryAfterSeconds = clockSkewWait(presentedToken, response.headers.get('date'))
+  }
+  throw failure
+}
+
+/**
+ * §Resource Token Verification (agent side), step 5: `presented_jti` names the
+ * token the agent presented. A resource token naming anything else would be
+ * refused by the PS with `invalid_resource_token`; refusing it here saves the
+ * round trip and names the resource as the party at fault.
+ */
+function assertPresentedJti(resourceToken: string, presentedToken: string): void {
+  let rt: Record<string, unknown>
+  let pt: Record<string, unknown>
+  try {
+    rt = decodeJwtPayload(resourceToken)
+    pt = decodeJwtPayload(presentedToken)
+  } catch {
+    return // not decodable here: let the PS say what is wrong with it
+  }
+  const named = rt.presented_jti ?? rt.person_token_jti
+  if (typeof named !== 'string' || typeof pt.jti !== 'string') return
+  if (named !== pt.jti) {
+    throw new Error(
+      `resource token presented_jti "${named}" does not name the token the agent presented (jti "${pt.jti}"); the resource must name the token it verified`,
+    )
+  }
+}
+
+/**
+ * How long to wait before presenting the same token again after `clock_skew`:
+ * the presented token's `iat` minus the server's clock (its `Date` header)
+ * minus the 60 s window the server allows. The server's clock is the one that
+ * refused, so it is the one to measure against.
+ */
+function clockSkewWait(presentedToken: string, dateHeader: string | null): number | undefined {
+  if (!dateHeader) return undefined
+  const serverNow = Date.parse(dateHeader)
+  if (Number.isNaN(serverNow)) return undefined
+  let iat: unknown
+  try {
+    iat = decodeJwtPayload(presentedToken).iat
+  } catch {
+    return undefined
+  }
+  if (typeof iat !== 'number') return undefined
+  return Math.max(1, iat - Math.floor(serverNow / 1000) - 60)
 }
 
 export interface PersonServerMetadataOptions {

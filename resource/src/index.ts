@@ -69,6 +69,8 @@ export {
 export type {
   ResourceTokenOptions,
   PersonTokenReference,
+  PresentedTokenReference,
+  PresentedToken,
   SignFn,
 } from './resource-token.js'
 

@@ -31,10 +31,11 @@
  * **`revocation_endpoint` and `mission_control_endpoint`** are not published by
  * mockin.
  *
- * **mockin does not check that a resource token's `iss` equals the `aud` of the
- * person token it names.** Its jti store records the `aud` and never compares
- * it. So "resource A redeems a person token minted for resource B" is not a
- * rejection this suite can assert against mockin.
+ * **The presented token is verified, not looked up (issue #152, mockin 3.0).**
+ * The agent sends the token it presented to the resource as `presented_token`;
+ * mockin verifies it under its own key, checks `aud` against the resource
+ * token's `iss` and `cnf.jwk` against `agent_jkt`, and compares the copied
+ * claims. There is no jti store on the verification path any more.
  *
  * **One person only.** `login_hint`, `prompt` and `domain_hint` are validated
  * and recorded but select nothing, so nothing here tests choosing between
@@ -171,11 +172,18 @@ async function getResourceToken(personToken: string): Promise<string> {
   return resourceTokenFrom(challenged.headers)
 }
 
-async function getAuthToken(resourceToken: string): Promise<string> {
+/**
+ * Redeem a resource token at the PS. `presentedToken` is what the agent
+ * presented to the resource that issued it — the person token, or on a
+ * step-up the auth token — which the resource token's `presented_jti` names
+ * and the PS verifies against it (AAuth -11, issue #152).
+ */
+async function getAuthToken(resourceToken: string, presentedToken: string): Promise<string> {
   const { authToken } = await exchangeToken({
     signedFetch: agent.psFetch,
     authServerUrl: PS,
     resourceToken,
+    presentedToken,
   })
   return authToken
 }
@@ -187,9 +195,9 @@ async function getAuthToken(resourceToken: string): Promise<string> {
  * error code and explanation the PS sent are on the thrown
  * `TokenExchangeError` — no wire-reading helper needed.
  */
-async function redeemExpectingRefusal(resourceToken: string): Promise<TokenExchangeError> {
+async function redeemExpectingRefusal(resourceToken: string, presentedToken: string): Promise<TokenExchangeError> {
   try {
-    await getAuthToken(resourceToken)
+    await getAuthToken(resourceToken, presentedToken)
   } catch (err) {
     if (err instanceof TokenExchangeError) return err
     throw err
@@ -224,7 +232,7 @@ async function walkTheChain(
 ): Promise<Chain> {
   const personToken = await getPersonToken(options)
   const resourceToken = await getResourceToken(personToken)
-  const authToken = await getAuthToken(resourceToken)
+  const authToken = await getAuthToken(resourceToken, personToken)
   return { personToken, resourceToken, authToken }
 }
 
@@ -287,7 +295,7 @@ describe('the three-party flow, end to end', () => {
     expect((rt.exp as number) - (rt.iat as number)).toBeLessThanOrEqual(300)
 
     // --- Auth token, from the PS's auth_token_endpoint ---
-    const authToken = await getAuthToken(resourceToken)
+    const authToken = await getAuthToken(resourceToken, personToken)
     const at = claimsOf(authToken)
     expect(headerOf(authToken)).toMatchObject({ typ: TOKEN_TYP.auth, alg: SIGNING_ALG })
     expect(at).toMatchObject({
@@ -329,17 +337,30 @@ describe('the three-party flow, end to end', () => {
     }
   }, 30_000)
 
-  it('rejects a resource token naming a person token this PS never issued', async () => {
-    // The jti store is what makes step 6 of §Resource Token Verification
-    // possible at all. Clearing it is the same as a PS restart.
+  it('rejects a resource token whose presented_jti does not name the token the agent presented', async () => {
+    // Step 6 of §Resource Token Verification (issue #152): the PS verifies
+    // the presented token and checks the resource token names it by jti. A
+    // resource that names anything else is caught — and @aauth/agent catches
+    // it first, before the round trip, so this goes to the wire raw.
     const personToken = await getPersonToken()
     resource.mint = { forgePresentedJti: '00000000-0000-0000-0000-000000000000' }
     const resourceToken = await getResourceToken(personToken)
 
-    const refused = await redeemExpectingRefusal(resourceToken)
-    expect(refused.status).toBe(400)
-    expect(refused.error).toBe('invalid_resource_token')
-    expect(refused.detail).toMatch(/names no person token/)
+    await expect(exchangeToken({
+      signedFetch: agent.psFetch,
+      authServerUrl: PS,
+      resourceToken,
+      presentedToken: personToken,
+    })).rejects.toThrow(/does not name the token the agent presented/)
+
+    const res = await psPost('auth_token_endpoint', {
+      resource_token: resourceToken,
+      presented_token: personToken,
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: string; detail: string }
+    expect(body.error).toBe('invalid_resource_token')
+    expect(body.detail).toMatch(/does not name the presented token/)
   }, 30_000)
 })
 
@@ -435,7 +456,7 @@ describe('deferred person tokens (202)', () => {
 
     // And the deferred person token is a real one: it carries the whole chain.
     const resourceToken = await getResourceToken(personToken)
-    const authToken = await getAuthToken(resourceToken)
+    const authToken = await getAuthToken(resourceToken, personToken)
     const answered = await callResource(agent.presenting(authToken))
     expect(answered.status).toBe(200)
   }, 60_000)
@@ -454,6 +475,7 @@ describe('deferred person tokens (202)', () => {
       signedFetch: agent.psFetch,
       authServerUrl: PS,
       resourceToken,
+      presentedToken: personToken,
       onInteraction: (url, code) => {
         sawInteraction = true
         void mockin.consent(code, url)
@@ -505,13 +527,13 @@ describe('mission_s256', () => {
     const resourceToken = await getResourceToken(personToken)
     expect(claimsOf(resourceToken).mission_s256).toBeUndefined()
 
-    const refused = await redeemExpectingRefusal(resourceToken)
+    const refused = await redeemExpectingRefusal(resourceToken, personToken)
     expect(refused.status).toBe(400)
     expect(refused.error).toBe('invalid_resource_token')
     // The direction is in the message: the person token had it, the resource
     // token does not.
     expect(refused.detail)
-      .toMatch(/mission_s256 mismatch: person token has .+, resource_token has \(none\)/)
+      .toMatch(/mission_s256 mismatch: presented token has .+, resource_token has \(none\)/)
   }, 30_000)
 
   it('rejects a resource token that invented a mission the person token did not carry', async () => {
@@ -522,10 +544,10 @@ describe('mission_s256', () => {
     const resourceToken = await getResourceToken(personToken)
     expect(claimsOf(resourceToken).mission_s256).toBe(MISSION)
 
-    const refused = await redeemExpectingRefusal(resourceToken)
+    const refused = await redeemExpectingRefusal(resourceToken, personToken)
     expect(refused.status).toBe(400)
     expect(refused.detail)
-      .toMatch(/mission_s256 mismatch: person token has \(none\), resource_token has /)
+      .toMatch(/mission_s256 mismatch: presented token has \(none\), resource_token has /)
   }, 30_000)
 })
 
@@ -574,11 +596,11 @@ describe('tenant', () => {
     const resourceToken = await getResourceToken(personToken)
     expect(claimsOf(resourceToken).tenant).toBeUndefined()
 
-    const refused = await redeemExpectingRefusal(resourceToken)
+    const refused = await redeemExpectingRefusal(resourceToken, personToken)
     expect(refused.status).toBe(400)
     expect(refused.error).toBe('invalid_resource_token')
     expect(refused.detail)
-      .toMatch(/tenant mismatch: person token has acme-corp, resource_token has \(none\)/)
+      .toMatch(/tenant mismatch: presented token has acme-corp, resource_token has \(none\)/)
   }, 30_000)
 
   it('rejects a resource token that changed the tenant', async () => {
@@ -587,10 +609,10 @@ describe('tenant', () => {
     const resourceToken = await getResourceToken(personToken)
     expect(claimsOf(resourceToken).tenant).toBe('other-corp')
 
-    const refused = await redeemExpectingRefusal(resourceToken)
+    const refused = await redeemExpectingRefusal(resourceToken, personToken)
     expect(refused.status).toBe(400)
     expect(refused.detail)
-      .toMatch(/tenant mismatch: person token has acme-corp, resource_token has other-corp/)
+      .toMatch(/tenant mismatch: presented token has acme-corp, resource_token has other-corp/)
   }, 30_000)
 })
 
@@ -765,7 +787,7 @@ describe('signature algorithms', () => {
     const resourceToken = await getResourceToken(personToken)
     expect(headerOf(resourceToken).alg).toBe('EdDSA')
 
-    const refused = await redeemExpectingRefusal(resourceToken)
+    const refused = await redeemExpectingRefusal(resourceToken, personToken)
     expect(refused.status).toBe(400)
     expect(refused.error).toBe('invalid_resource_token')
     expect(refused.detail).toMatch(/EdDSA/)
@@ -945,7 +967,7 @@ describe('R3', () => {
     // The PS has not seen the document yet.
     expect(resource.r3Served).toHaveLength(0)
 
-    const authToken = await getAuthToken(authorized.resource_token)
+    const authToken = await getAuthToken(authorized.resource_token, personToken)
 
     // It fetched it — over a signed request it had to be entitled to make.
     expect(resource.r3Served).toHaveLength(1)
@@ -970,7 +992,7 @@ describe('R3', () => {
     const authorized = await authorize(personToken, 'work@example.com')
     expect(claimsOf(authorized.resource_token).account).toBe('work@example.com')
 
-    await getAuthToken(authorized.resource_token)
+    await getAuthToken(authorized.resource_token, personToken)
     const served = JSON.parse(resource.r3Served[0]) as { account?: string }
     expect(served.account).toBe('work@example.com')
   }, 30_000)
@@ -986,7 +1008,7 @@ describe('R3', () => {
       resource.signingKey, { typ: TOKEN_TYP.resource }, claims,
     )
 
-    const refused = await redeemExpectingRefusal(half)
+    const refused = await redeemExpectingRefusal(half, personToken)
     expect(refused.error).toBe('invalid_resource_token')
     expect(refused.detail).toMatch(/both r3_uri and r3_s256 or neither/)
   }, 30_000)
@@ -1005,11 +1027,11 @@ describe('R3', () => {
 
     // mockin does not cache R3 documents — it re-fetches on every exchange, so
     // two exchanges are two real fetches of the same URI.
-    await getAuthToken(authorized.resource_token)
+    await getAuthToken(authorized.resource_token, personToken)
     const second = await authorize(personToken)
     expect(second.r3_uri).toBe(authorized.r3_uri)   // content-addressed
     expect(second.r3_s256).toBe(authorized.r3_s256)
-    await getAuthToken(second.resource_token)
+    await getAuthToken(second.resource_token, personToken)
 
     expect(resource.r3Served).toHaveLength(2)
     expect(resource.r3Served[0]).toBe(resource.r3Served[1])
@@ -1026,7 +1048,7 @@ describe('R3', () => {
     const authorized = await authorize(personToken)
     await resource.tamperR3(authorized.r3_uri, '{"vocabulary":"urn:aauth:vocabulary:openapi","operations":[{"operationId":"listMessages"}]}')
 
-    const refused = await redeemExpectingRefusal(authorized.resource_token)
+    const refused = await redeemExpectingRefusal(authorized.resource_token, personToken)
     expect(refused.error).toBe('invalid_resource_token')
     expect(refused.detail).toMatch(/r3_s256 mismatch/)
   }, 30_000)
@@ -1093,7 +1115,7 @@ describe('R3', () => {
         per_call: { vocabulary: R3_VOCABULARY, operations: [PER_CALL_OPERATION] },
       },
     })
-    const classToken = await getAuthToken(authorized.resource_token)
+    const classToken = await getAuthToken(authorized.resource_token, personToken)
     expect(claimsOf(classToken).r3_per_call)
       .toEqual({ vocabulary: R3_VOCABULARY, operations: [PER_CALL_OPERATION] })
 
@@ -1104,7 +1126,7 @@ describe('R3', () => {
 
     // The person approves this specific call.
     await mockin.configure({ r3_grants: null })
-    const perCallToken = await getAuthToken(proposalToken)
+    const perCallToken = await getAuthToken(proposalToken, classToken)
 
     return { authorized, classToken, proposalToken, perCallToken }
   }
