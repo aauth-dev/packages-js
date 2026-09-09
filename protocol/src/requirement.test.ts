@@ -140,12 +140,18 @@ describe('parseRequirementHeader — malformed headers', () => {
     )
   })
 
-  it('rejects interaction missing url, code, or both', () => {
-    expect(() => parseRequirementHeader('requirement=interaction')).toThrow(/url or code/)
+  it('parses interaction with code only — the recipient composes the URL from interaction_endpoint', () => {
+    expect(parseRequirementHeader('requirement=interaction; code="A1B2-C3D4"')).toEqual({
+      requirement: 'interaction',
+      code: 'A1B2-C3D4',
+    })
+  })
+
+  it('rejects interaction missing code', () => {
+    expect(() => parseRequirementHeader('requirement=interaction')).toThrow(/missing the code/)
     expect(() => parseRequirementHeader('requirement=interaction; url="https://x.example"')).toThrow(
-      /url or code/,
+      /missing the code/,
     )
-    expect(() => parseRequirementHeader('requirement=interaction; code="A1B2"')).toThrow(/url or code/)
   })
 
   it('malformed-parameter errors are not UnsupportedRequirementError', () => {
@@ -187,7 +193,13 @@ describe('buildRequirementHeader', () => {
     expect(() => buildRequirementHeader({ requirement: 'auth-token' })).toThrow(/resourceToken/)
     expect(() =>
       buildRequirementHeader({ requirement: 'interaction', url: 'https://x.example' }),
-    ).toThrow(/url and code/)
+    ).toThrow(/requires a code/)
+  })
+
+  it('builds interaction with code only', () => {
+    expect(buildRequirementHeader({ requirement: 'interaction', code: 'A1B2-C3D4' })).toBe(
+      'requirement=interaction;code="A1B2-C3D4"',
+    )
   })
 
   it('throws UnsupportedRequirementError on a value it does not know', () => {

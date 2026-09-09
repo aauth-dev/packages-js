@@ -36,7 +36,12 @@ export interface AAuthChallenge {
   requirement: RequirementValue
   /** REQUIRED when `requirement === 'auth-token'`. */
   resourceToken?: string
-  /** REQUIRED when `requirement === 'interaction'`. */
+  /**
+   * OPTIONAL with `requirement === 'interaction'`. When absent the recipient
+   * composes the person-facing URL from the issuer's published
+   * `interaction_endpoint` (`{interaction_endpoint}?code=…`). Issuers SHOULD
+   * omit it; it is accepted for compatibility.
+   */
   url?: string
   /** REQUIRED when `requirement === 'interaction'`. */
   code?: string
@@ -72,6 +77,7 @@ export function isRequirementValue(value: string): value is RequirementValue {
  * Build an `AAuth-Requirement` response header value.
  *
  *   requirement=auth-token;resource-token="eyJ..."
+ *   requirement=interaction;code="A1B2-C3D4"
  *   requirement=interaction;url="https://example.com/interact";code="A1B2-C3D4"
  *   requirement=approval
  *
@@ -100,10 +106,10 @@ export function buildRequirementHeader(challenge: AAuthChallenge): string {
   }
 
   if (requirement === 'interaction') {
-    if (!challenge.url || !challenge.code) {
-      throw new Error('requirement=interaction requires both url and code')
+    if (!challenge.code) {
+      throw new Error('requirement=interaction requires a code')
     }
-    parameters.set('url', challenge.url)
+    if (challenge.url) parameters.set('url', challenge.url)
     parameters.set('code', challenge.code)
   }
 
@@ -186,8 +192,8 @@ export function parseRequirementHeader(headerValue: string): AAuthChallenge {
   if (challenge.requirement === 'auth-token' && !challenge.resourceToken) {
     throw new Error('requirement=auth-token is missing the resource-token parameter')
   }
-  if (challenge.requirement === 'interaction' && (!challenge.url || !challenge.code)) {
-    throw new Error('requirement=interaction is missing the url or code parameter')
+  if (challenge.requirement === 'interaction' && !challenge.code) {
+    throw new Error('requirement=interaction is missing the code parameter')
   }
 
   return challenge
