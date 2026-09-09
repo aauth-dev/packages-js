@@ -56,16 +56,30 @@ export interface ResourceTokenOptions {
   /** JWK thumbprint (RFC 7638) of the agent's current signing key. For a
    *  parent-mediated sub-agent authorization this is the sub-agent's key. */
   agentJkt: string
-  /** REQUIRED. Space-separated scope values. Pass the scopes the request needs;
-   *  an R3-only resource that expresses everything through `r3_uri` still
-   *  states a scope, because the claim is REQUIRED in the token. */
-  scope: string
+  /** Space-separated scope values. REQUIRED unless `connectionOnly` is set:
+   *  `scope` present means the PS will issue an auth token, so pass the scopes
+   *  the request needs. An R3-only resource that expresses everything through
+   *  `r3_uri` still states a scope, because the claim is REQUIRED on a token
+   *  that authorizes anything. */
+  scope?: string
+  /**
+   * A connection-only resource token (the answer to `POST /connections`): it
+   * carries `interaction_code` and NO `scope`, so the PS drives the resource's
+   * interaction and terminates with `connection_established` instead of issuing
+   * an auth token. Requires `interactionCode`; forbids `scope` and `r3`.
+   */
+  connectionOnly?: boolean
   /** Echoes the `account` parameter of the request that produced this token. */
   account?: string
   /** Overrides the `tenant` copied from the person token. */
   tenant?: string
-  /** The resource's own user-facing flow, needed before the PS can issue. */
-  interaction?: { url: string; code: string }
+  /**
+   * The resource's own user-facing flow, needed before the PS can issue. Emitted
+   * as the flat `interaction_code` claim; the PS composes the URL from the
+   * resource's published `interaction_endpoint` (`{interaction_endpoint}?code=…`).
+   * The nested `interaction: { url, code }` claim of 2.x is gone.
+   */
+  interactionCode?: string
   /** R3: both are REQUIRED together when either is present. */
   r3?: { uri: string; s256: string }
   /** Seconds. Default 300. */
@@ -146,8 +160,9 @@ export async function createResourceToken(
     audience,
     agentJkt,
     scope,
+    connectionOnly = false,
     account,
-    interaction,
+    interactionCode,
     r3,
     lifetime = DEFAULT_RESOURCE_TOKEN_LIFETIME,
     missionExpiresAt,
@@ -169,8 +184,30 @@ export async function createResourceToken(
   if (typeof agentJkt !== 'string' || !agentJkt) {
     throw new AAuthTokenError('invalid_agent_jkt', 'agentJkt is REQUIRED')
   }
-  if (typeof scope !== 'string' || !scope) {
+  if (connectionOnly) {
+    if (scope !== undefined) {
+      throw new AAuthTokenError(
+        'invalid_scope',
+        'A connection-only resource token carries no scope — scope present means the PS will issue an auth token',
+      )
+    }
+    if (typeof interactionCode !== 'string' || !interactionCode) {
+      throw new AAuthTokenError(
+        'interaction_code_required',
+        'A connection-only resource token needs an interactionCode — it exists only to drive the resource interaction',
+      )
+    }
+    if (r3) {
+      throw new AAuthTokenError(
+        'invalid_r3_reference',
+        'A connection-only resource token authorizes no operations and carries no R3 reference',
+      )
+    }
+  } else if (typeof scope !== 'string' || !scope) {
     throw new AAuthTokenError('invalid_scope', 'scope is a REQUIRED resource token claim')
+  }
+  if (interactionCode !== undefined && (typeof interactionCode !== 'string' || !interactionCode)) {
+    throw new AAuthTokenError('invalid_interaction_code', 'interactionCode must be a non-empty string')
   }
   if (r3 && (!r3.uri || !r3.s256)) {
     throw new AAuthTokenError(
@@ -206,8 +243,11 @@ export async function createResourceToken(
     agent_jkt: agentJkt,
     iat: now,
     exp,
-    scope,
   }
+
+  // Absent on a connection-only token: the PS reads "no scope" as "issue
+  // nothing, terminate with connection_established".
+  if (scope !== undefined) payload.scope = scope
 
   if (account !== undefined) payload.account = account
 
@@ -219,7 +259,7 @@ export async function createResourceToken(
   const tenant = options.tenant ?? person.tenant
   if (tenant) payload.tenant = tenant
 
-  if (interaction) payload.interaction = { url: interaction.url, code: interaction.code }
+  if (interactionCode !== undefined) payload.interaction_code = interactionCode
 
   if (r3) {
     payload.r3_uri = r3.uri

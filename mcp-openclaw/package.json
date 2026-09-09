@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@aauth/agent": "^4.0.0",
-    "@aauth/protocol": "^1.0.0",
+    "@aauth/protocol": "^2.0.0",
     "@aauth/local-keys": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.15.1"
   },

@@ -13,7 +13,12 @@ export interface PendingRequest<T = unknown> {
 
 export interface InteractionManagerOptions {
   baseUrl: string
-  interactionUrl: string  // the interaction endpoint URL for AAuth-Requirement header
+  /**
+   * @deprecated The 202 carries `requirement=interaction; code="…"` only; the
+   * agent composes the URL from the `interaction_endpoint` in the resource's
+   * metadata. Set this only to keep emitting `url=` for a 2.x-era recipient.
+   */
+  interactionUrl?: string
   pendingPath?: string   // default: '/pending'
   ttl?: number           // default: 600s
 }
@@ -32,13 +37,13 @@ const DEFAULT_TTL = 600
 export class InteractionManager {
   private pending = new Map<string, PendingRequest>()
   private baseUrl: string
-  private interactionUrl: string
+  private interactionUrl?: string
   private pendingPath: string
   private ttl: number
 
   constructor(options: InteractionManagerOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '')
-    this.interactionUrl = options.interactionUrl.replace(/\/$/, '')
+    this.interactionUrl = options.interactionUrl?.replace(/\/$/, '')
     this.pendingPath = options.pendingPath ?? DEFAULT_PENDING_PATH
     this.ttl = options.ttl ?? DEFAULT_TTL
   }
@@ -73,7 +78,7 @@ export class InteractionManager {
       Location: locationUrl,
       'Retry-After': '0',
       'Cache-Control': 'no-store',
-      'AAuth-Requirement': buildAAuthHeader('interaction', { url: this.interactionUrl, code }),
+      'AAuth-Requirement': buildAAuthHeader('interaction', this.interactionUrl ? { url: this.interactionUrl, code } : { code }),
     }
 
     return { headers, pending }

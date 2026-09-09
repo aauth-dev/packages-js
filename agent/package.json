@@ -32,7 +32,7 @@
     "directory": "agent"
   },
   "dependencies": {
-    "@aauth/protocol": "^1.0.0",
+    "@aauth/protocol": "^2.0.0",
     "@hellocoop/httpsig": "^2.4.0"
   },
   "devDependencies": {

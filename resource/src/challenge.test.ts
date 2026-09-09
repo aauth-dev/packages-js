@@ -31,6 +31,10 @@ describe('buildAAuthHeader', () => {
     })
   })
 
+  it('builds requirement=interaction with code only', () => {
+    expect(buildAAuthHeader('interaction', { code: 'A1B2-C3D4' })).toBe('requirement=interaction;code="A1B2-C3D4"')
+  })
+
   it('builds requirement=interaction with url and code', () => {
     const header = buildAAuthHeader('interaction', {
       url: 'https://resource.example/interact',

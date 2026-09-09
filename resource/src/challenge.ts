@@ -49,10 +49,13 @@ export type SimpleRequirement =
  *   401 + `requirement=person-token` — the resource needs the person's identity
  *                                      before it will issue a resource token.
  *   401 + `requirement=auth-token`   — carries the resource token.
- *   202 + `requirement=interaction`  — carries the interaction url and code.
+ *   202 + `requirement=interaction`  — carries the interaction code; the agent
+ *                                      composes the URL from the resource's
+ *                                      published `interaction_endpoint`. `url`
+ *                                      is optional and SHOULD be omitted.
  */
 export function buildAAuthHeader(requirement: 'auth-token', params: { resourceToken: string }): string
-export function buildAAuthHeader(requirement: 'interaction', params: { url: string; code: string }): string
+export function buildAAuthHeader(requirement: 'interaction', params: { code: string; url?: string }): string
 export function buildAAuthHeader(requirement: SimpleRequirement): string
 export function buildAAuthHeader(
   requirement: RequirementValue,

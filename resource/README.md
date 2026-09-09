@@ -105,7 +105,7 @@ import { buildAAuthHeader } from '@aauth/resource'
 buildAAuthHeader('agent-token')    // 401 — present your agent token
 buildAAuthHeader('person-token')   // 401 — obtain a person token from your PS and retry
 buildAAuthHeader('auth-token', { resourceToken })
-buildAAuthHeader('interaction', { url, code })   // 202
+buildAAuthHeader('interaction', { code })        // 202 — the agent composes {interaction_endpoint}?code=
 buildAAuthHeader('approval')
 buildAAuthHeader('clarification')
 buildAAuthHeader('claims')
@@ -134,11 +134,28 @@ const resourceToken = await createResourceToken(
     scope: 'notes.read notes.write',
     kid: publicJwk.kid,
     r3: { uri: r3_uri, s256: r3_s256 },  // optional; both or neither
+    interactionCode,                     // optional: the resource's own flow must run first
     missionExpiresAt,                    // optional clamp
   },
   async (payload, header) => signJwt(header, payload, privateKey),
 )
 ```
+
+`scope` present means the PS will issue an auth token once its own consent is done. A
+**connection-only** token — the answer to `POST /connections`, which asks the PS to drive the
+resource's upstream OAuth and nothing else — carries `interaction_code` and no `scope`, so the PS
+terminates the poll with `connection_established` instead of issuing:
+
+```ts
+await createResourceToken(
+  { resource, audience, presentedToken, agentJkt, kid, connectionOnly: true, interactionCode, account },
+  sign,
+)
+```
+
+`interactionCode` is emitted as the flat `interaction_code` claim; the PS composes
+`{interaction_endpoint}?code=…` from the resource's published metadata. The nested
+`interaction: { url, code }` claim of 2.x is gone (3.0.0).
 
 The header handed to your signer is `{ alg: 'Ed25519', typ: 'aa-resource+jwt', kid? }`. Sign it as
 given — `alg` is the fully-specified RFC 9864 identifier, and the polymorphic `EdDSA` MUST NOT be
@@ -330,13 +347,13 @@ token gets `requirement=person-token`, and a revoked agent token no requirement 
 ```ts
 import { InteractionManager } from '@aauth/resource'
 
-const manager = new InteractionManager({
-  baseUrl: 'https://notes.example',
-  interactionUrl: 'https://notes.example/interact',
-})
+const manager = new InteractionManager({ baseUrl: 'https://notes.example' })
 
 const { headers, pending } = manager.createPending()
-// headers: Location, Retry-After, Cache-Control, AAuth-Requirement
+// headers: Location, Retry-After, Cache-Control,
+//          AAuth-Requirement: requirement=interaction;code="XXXX-XXXX"
+// The agent composes the URL from the `interaction_endpoint` in your metadata.
+// `interactionUrl` (deprecated) keeps emitting `url=` for 2.x-era recipients.
 manager.resolve(pending.id, { granted: true })
 ```
 

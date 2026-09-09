@@ -27,6 +27,13 @@ describe('InteractionManager', () => {
     expect(headers['AAuth-Requirement']).toContain(`code="${pending.code}"`)
   })
 
+  it('emits requirement=interaction with code only when no interactionUrl is configured', () => {
+    const codeOnly = new InteractionManager({ baseUrl: 'https://resource.example' })
+    const { headers, pending } = codeOnly.createPending()
+    expect(headers['AAuth-Requirement']).toBe(`requirement=interaction;code="${pending.code}"`)
+    expect(headers['AAuth-Requirement']).not.toContain('url=')
+  })
+
   it('generates unique IDs and codes', () => {
     const a = manager.createPending()
     const b = manager.createPending()
