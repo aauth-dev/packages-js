@@ -1,6 +1,6 @@
 {
   "name": "@aauth/resource",
-  "version": "2.5.0",
+  "version": "3.0.0",
   "description": "AAuth resource-side reference implementation: token verification, resource tokens, R3 documents and per-call proposals, challenge headers, interaction management",
   "type": "module",
   "exports": {
@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@aauth/interaction-code": "^0.1.0",
-    "@aauth/protocol": "^1.0.0",
+    "@aauth/protocol": "^2.0.0",
     "jose": "^6.0.0"
   },
   "devDependencies": {

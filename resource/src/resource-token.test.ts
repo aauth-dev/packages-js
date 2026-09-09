@@ -151,21 +151,76 @@ describe('createResourceToken', () => {
     expect(second.captured.payload!.tenant).toBe('acme-eu')
   })
 
-  it('adds the optional account, interaction and R3 claims', async () => {
+  it('adds the optional account, interaction_code and R3 claims', async () => {
     const { sign, captured } = capturingSign()
     await createResourceToken(
       base({
         account: 'dick@example.com',
-        interaction: { url: 'https://resource.example/interact', code: 'A1B2-C3D4' },
+        interactionCode: 'A1B2-C3D4',
         r3: { uri: 'https://resource.example/r3/abc', s256: 'aBcDeF' },
       }),
       sign,
     )
     const p = captured.payload!
     expect(p.account).toBe('dick@example.com')
-    expect(p.interaction).toEqual({ url: 'https://resource.example/interact', code: 'A1B2-C3D4' })
+    expect(p.interaction_code).toBe('A1B2-C3D4')
+    expect(p.interaction).toBeUndefined()
     expect(p.r3_uri).toBe('https://resource.example/r3/abc')
     expect(p.r3_s256).toBe('aBcDeF')
+  })
+
+  it('omits interaction_code and the 2.x nested interaction object when no interaction is needed', async () => {
+    const { sign, captured } = capturingSign()
+    await createResourceToken(base(), sign)
+    expect(captured.payload).not.toHaveProperty('interaction_code')
+    expect(captured.payload).not.toHaveProperty('interaction')
+  })
+
+  describe('connection-only token', () => {
+    it('carries interaction_code and no scope, no r3', async () => {
+      const { sign, captured } = capturingSign()
+      await createResourceToken(
+        base({ scope: undefined, connectionOnly: true, interactionCode: 'A1B2-C3D4', account: 'dick@example.com' }),
+        sign,
+      )
+      const p = captured.payload!
+      expect(p.interaction_code).toBe('A1B2-C3D4')
+      expect(p.account).toBe('dick@example.com')
+      expect(p).not.toHaveProperty('scope')
+      expect(p).not.toHaveProperty('r3_uri')
+      expect(p.ps).toBe(PS)
+      expect(p.presented_jti).toBe('pt-3ab910')
+      expect(p.mission_s256).toBe(MISSION_S256)
+    })
+
+    it('rejects a scope — scope present means an auth token will be issued', async () => {
+      const { sign } = capturingSign()
+      await expect(
+        createResourceToken(base({ connectionOnly: true, interactionCode: 'A1B2-C3D4' }), sign),
+      ).rejects.toMatchObject({ code: 'invalid_scope' })
+    })
+
+    it('requires an interactionCode', async () => {
+      const { sign } = capturingSign()
+      await expect(
+        createResourceToken(base({ scope: undefined, connectionOnly: true }), sign),
+      ).rejects.toMatchObject({ code: 'interaction_code_required' })
+    })
+
+    it('rejects an R3 reference', async () => {
+      const { sign } = capturingSign()
+      await expect(
+        createResourceToken(
+          base({
+            scope: undefined,
+            connectionOnly: true,
+            interactionCode: 'A1B2-C3D4',
+            r3: { uri: 'https://resource.example/r3/abc', s256: 'aBcDeF' },
+          }),
+          sign,
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_r3_reference' })
+    })
   })
 
   it('rejects a half-specified R3 reference', async () => {
@@ -204,9 +259,10 @@ describe('createResourceToken', () => {
     ).rejects.toThrow('needs a PS (ps or iss), sub and jti')
   })
 
-  it('requires scope', async () => {
+  it('requires scope unless connectionOnly', async () => {
     const { sign } = capturingSign()
     await expect(createResourceToken(base({ scope: '' }), sign)).rejects.toThrow('scope is a REQUIRED')
+    await expect(createResourceToken(base({ scope: undefined }), sign)).rejects.toThrow('scope is a REQUIRED')
   })
 
   it('rejects an iss or aud that is not a server identifier', async () => {

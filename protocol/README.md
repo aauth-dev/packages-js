@@ -45,8 +45,10 @@ Recognized values: `agent-token`, `person-token`, `auth-token`, `approval`,
 MAY keep polling `Location` in case a later response carries a value it knows.
 
 `requirement=auth-token` requires a `resource-token` parameter and
-`requirement=interaction` requires both `url` and `code`; a header missing one
-is malformed and throws a plain `Error`. Unknown parameters are ignored.
+`requirement=interaction` requires `code`; a header missing one is malformed and
+throws a plain `Error`. `url` on `requirement=interaction` is optional: when it
+is absent the recipient composes `{interaction_endpoint}?code=…` from the
+issuer's published metadata. Unknown parameters are ignored.
 
 ## AAuth-Capabilities
 
