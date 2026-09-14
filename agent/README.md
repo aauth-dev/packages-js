@@ -70,7 +70,7 @@ const { personToken, expiresIn } = await requestPersonToken({
 })
 ```
 
-The request is a signed POST presenting the agent token via `Signature-Key: sig=jwt;jwt="…"`, with body `{resource, mission_s256?, subagent_token?}`. A `202` with `requirement=interaction` is polled at its `Location` like any other deferred response. `upstream_token` (call chaining) is not implemented.
+The request is a signed POST presenting the agent token via `Signature-Key: sig=jwt;jwt="…"`, with body `{resource, mission_s256?, subagent_token?}`. A `202` with `requirement=interaction` is polled at its `Location` like any other deferred response. Call chaining: pass `upstreamToken` (the person or auth token an upstream agent presented to you) and the body carries `upstream_token` in place of `mission_s256`; the PS issues the token for `resource` without a consent card.
 
 Present the token in place of the agent token:
 

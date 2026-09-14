@@ -54,6 +54,15 @@ export interface PersonTokenOptions {
    * on its behalf. The issued token's `cnf` is then the sub-agent's key.
    */
   subagentToken?: string
+  /**
+   * OPTIONAL. Call chaining (§Call Chaining). The person token or three-party
+   * auth token an upstream agent presented to this intermediary. The PS
+   * verifies its `aud` equals this agent token's `iss`, identifies the person
+   * from it, and issues a person token for `resource` without a consent card.
+   * `mission_s256` is not sent alongside it: the upstream token carries the
+   * mission itself.
+   */
+  upstreamToken?: string
 
   // -------------------------------------------------------------------------
   // The consent-flow parameter set, shared with the auth token endpoint.
@@ -122,8 +131,8 @@ const PREFER_WAIT = 45
  * `Signature-Key: sig=jwt;jwt="…"`, with body `{resource, mission_s256?,
  * subagent_token?}` plus the consent-flow parameter set both PS token
  * endpoints share — `justification`, `login_hint`, `tenant`, `domain_hint`,
- * `prompt`, `platform`, `device`, `capabilities`. `upstream_token` (call
- * chaining) is deliberately not implemented.
+ * `prompt`, `platform`, `device`, `capabilities`. With `upstreamToken` the
+ * body carries `upstream_token` instead of `mission_s256` (call chaining).
  *
  * A `202` with `requirement=interaction` is polled at its `Location` like any
  * other deferred response — the PS may ask the person whether this agent may
@@ -136,6 +145,7 @@ export async function requestPersonToken(options: PersonTokenOptions): Promise<P
     resource,
     missionS256,
     subagentToken,
+    upstreamToken,
     onInteraction,
     onClarification,
     onEvent,
@@ -154,9 +164,11 @@ export async function requestPersonToken(options: PersonTokenOptions): Promise<P
   })
 
   const body: Record<string, unknown> = { resource }
-  if (missionS256) body.mission_s256 = missionS256
+  // Spec: mission_s256 is "Not sent with upstream_token, which carries the
+  // mission itself".
+  if (upstreamToken) body.upstream_token = upstreamToken
+  else if (missionS256) body.mission_s256 = missionS256
   if (subagentToken) body.subagent_token = subagentToken
-  // `upstream_token` is deliberately absent — call chaining is out of scope.
   if (options.justification) body.justification = options.justification
   if (options.loginHint) body.login_hint = options.loginHint
   if (options.tenant) body.tenant = options.tenant
@@ -282,7 +294,7 @@ const EXPIRY_BUFFER_MS = 60_000
 
 export type PersonTokenCacheOptions = Omit<
   PersonTokenOptions,
-  'resource' | 'missionS256' | 'subagentToken'
+  'resource' | 'missionS256' | 'subagentToken' | 'upstreamToken'
 >
 
 export interface PersonTokenCache {

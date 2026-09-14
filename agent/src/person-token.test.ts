@@ -79,7 +79,7 @@ describe('requestPersonToken', () => {
       device: 'alice-macbook',
       capabilities: ['interaction'],
     })
-    // Call chaining is out of scope; it must never appear.
+    // Call chaining is opt-in; without upstreamToken it must never appear.
     expect(body.upstream_token).toBeUndefined()
   })
 
@@ -202,7 +202,7 @@ describe('requestPersonToken', () => {
     })
   })
 
-  it('never sends upstream_token — call chaining is deferred', async () => {
+  it('never sends upstream_token unless the caller is chaining', async () => {
     mockFetch.mockResolvedValueOnce(json(metadata))
     mockFetch.mockResolvedValueOnce(json({ person_token: 'pt', expires_in: 3600 }))
 
@@ -214,6 +214,26 @@ describe('requestPersonToken', () => {
     })
 
     expect(JSON.parse(mockFetch.mock.calls[1][1].body)).not.toHaveProperty('upstream_token')
+  })
+
+  it('call chaining: sends upstream_token and never mission_s256 beside it', async () => {
+    // §Call Chaining: the upstream token carries the mission, so mission_s256
+    // is "Not sent with upstream_token".
+    mockFetch.mockResolvedValueOnce(json(metadata))
+    mockFetch.mockResolvedValueOnce(json({ person_token: 'pt', expires_in: 3600 }))
+
+    await requestPersonToken({
+      signedFetch: mockFetch,
+      personServerUrl: 'https://ps.example',
+      resource: RESOURCE,
+      missionS256: MISSION,
+      upstreamToken: 'eyJ.upstream.token',
+    })
+
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({
+      resource: RESOURCE,
+      upstream_token: 'eyJ.upstream.token',
+    })
   })
 
   it('uses provided metadata and skips the /.well-known fetch', async () => {
