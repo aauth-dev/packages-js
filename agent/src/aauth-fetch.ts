@@ -121,6 +121,11 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
   const signedFetch = createSignedFetch(getKeyMaterial, { capabilities, onSigned })
   const psSignedFetch = createSignedFetch(getKeyMaterial, { capabilities, signBody: true, onSigned })
 
+  // The consent-flow options go on the person-token request too, not only on
+  // the auth-token exchange below: the PS reads `capabilities` from the body
+  // (AAuth-Capabilities is not used on PS endpoints) to know it may defer to
+  // the person, and `tenant`/`login_hint`/`domain_hint` narrow which account
+  // the binding is made for at first contact.
   const personTokens: PersonTokenCache | undefined = configuredPersonServer
     ? createPersonTokenCache({
       signedFetch: psSignedFetch,
@@ -133,6 +138,12 @@ export function createAAuthFetch(options: AAuthFetchOptions): FetchLike {
       maxPollDuration,
       getKeyMaterial,
       sentTracker,
+      justification,
+      loginHint,
+      tenant,
+      domainHint,
+      capabilities,
+      prompt,
     })
     : undefined
 
