@@ -16,7 +16,8 @@ export interface Token {
 }
 
 export type Signed =
-  | { scheme: 'jwt'; token?: Token }
+  /** `jkt`: RFC 7638 thumbprint of the token's `cnf.jwk` — the key that signed. The monitor learns which agent holds a key from any record naming both. */
+  | { scheme: 'jwt'; token?: Token; jkt?: string }
   | { scheme: 'jwks_uri'; id?: string; dwk?: string; kid?: string }
   | { scheme: 'hwk'; jkt?: string }
 
@@ -101,6 +102,28 @@ export async function callIdOf(signatureHeader: string | null | undefined): Prom
   if (!signatureHeader) return crypto.randomUUID()
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(signatureHeader))
   return b64url(new Uint8Array(digest))
+}
+
+/** RFC 7638 thumbprint of a public JWK, base64url; undefined for a key it cannot name. */
+export async function thumbprintOf(jwk: unknown): Promise<string | undefined> {
+  const k = jwk as Record<string, unknown> | null
+  if (!k || typeof k !== 'object' || typeof k.kty !== 'string') return undefined
+  const members: Record<string, string[]> = { EC: ['crv', 'kty', 'x', 'y'], OKP: ['crv', 'kty', 'x'], RSA: ['e', 'kty', 'n'], oct: ['k', 'kty'] }
+  const names = members[k.kty]
+  if (!names || names.some((n) => typeof k[n] !== 'string')) return undefined
+  const canonical = JSON.stringify(Object.fromEntries(names.map((n) => [n, k[n]])))
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(canonical))
+  return b64url(new Uint8Array(digest))
+}
+
+/** The signer with its key's thumbprint filled in, for a jwt scheme whose token carries cnf.jwk. */
+export async function withThumbprint<T extends { signed?: Signed }>(signer: T): Promise<T> {
+  const signed = signer.signed
+  if (signed?.scheme === 'jwt' && signed.token) {
+    const jkt = await thumbprintOf((signed.token.payload.cnf as { jwk?: unknown } | undefined)?.jwk)
+    if (jkt) signed.jkt = jkt
+  }
+  return signer
 }
 
 // ── Tokens ──

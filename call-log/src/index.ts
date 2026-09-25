@@ -8,7 +8,7 @@
 //            which agent a verified call is for.
 
 export type { CallRecord, RecordFields, Role, Side, Token, Signed, Part, Signer } from './record.js'
-export { callIdOf, tokenOf, tokenize, signerOf, paramsOf, errorOf, levelOf, partOf, cap, buildRecord, targetOf, MAX_RECORD_BYTES } from './record.js'
+export { callIdOf, tokenOf, tokenize, signerOf, thumbprintOf, withThumbprint, paramsOf, errorOf, levelOf, partOf, cap, buildRecord, targetOf, MAX_RECORD_BYTES } from './record.js'
 export type { CallLogHost } from './host.js'
 export { emit } from './host.js'
 export type { CallContext } from './context.js'

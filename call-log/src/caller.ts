@@ -13,7 +13,7 @@
 // off the caller's path, through host.defer. `parent` is the call being
 // handled (AsyncLocalStorage) unless the caller passes one.
 
-import { callIdOf, signerOf, paramsOf, errorOf, partOf, buildRecord, tokenize, targetOf, type Role, type Signed } from './record.js'
+import { callIdOf, signerOf, withThumbprint, paramsOf, errorOf, partOf, buildRecord, tokenize, targetOf, type Role, type Signed } from './record.js'
 import { parentFromContext, currentCall } from './context.js'
 import { emit, defer, type CallLogHost } from './host.js'
 
@@ -50,7 +50,7 @@ async function record(
 ): Promise<void> {
   const parent = call.parent ?? parentFromContext()
   const agent = call.agent ?? currentCall()?.agent
-  const signer: { signed?: Signed } = sent ? signerOf(headerOf(sent.headers, 'signature-key')) : {}
+  const signer: { signed?: Signed } = sent ? await withThumbprint(signerOf(headerOf(sent.headers, 'signature-key'))) : {}
   const call_id = await callIdOf(sent ? headerOf(sent.headers, 'signature') : undefined)
   const requestBody = typeof init?.body === 'string' ? safeJson(init.body) : undefined
   const base = {

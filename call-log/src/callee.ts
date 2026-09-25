@@ -7,7 +7,7 @@
 // nothing: `c.req.raw` (a Request), `c.res` (a Response after `next()`),
 // `c.executionCtx.waitUntil` when there is one.
 
-import { callIdOf, signerOf, paramsOf, errorOf, partOf, buildRecord } from './record.js'
+import { callIdOf, signerOf, withThumbprint, paramsOf, errorOf, partOf, buildRecord } from './record.js'
 import { runInCall, currentCall, type CallContext } from './context.js'
 import { emit, defer, type CallLogHost } from './host.js'
 
@@ -63,7 +63,7 @@ export function callLogMiddleware(host: CallLogHost, options: CalleeOptions = {}
     defer(
       hostWithCtx,
       (async () => {
-        const signer = signerOf(request.headers.get('signature-key'))
+        const signer = await withThumbprint(signerOf(request.headers.get('signature-key')))
         const agent = context.agent ?? signer.agent
         const params = paramsOf(response.headers)
         const url = new URL(request.url)

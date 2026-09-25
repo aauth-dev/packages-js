@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
-import { callIdOf, tokenOf, tokenize, signerOf, paramsOf, errorOf, levelOf, partOf, cap, buildRecord, targetOf, MAX_RECORD_BYTES } from './index.js'
+import { callIdOf, tokenOf, tokenize, signerOf, thumbprintOf, withThumbprint, paramsOf, errorOf, levelOf, partOf, cap, buildRecord, targetOf, MAX_RECORD_BYTES } from './index.js'
 
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const jwt = (typ: string, payload: Record<string, unknown>) => `${b64({ alg: 'Ed25519', typ })}.${b64(payload)}.c2ln`
@@ -41,6 +41,29 @@ describe('the signer', () => {
     expect(signerOf('sig=hwk; jwk="{\\"kty\\":\\"OKP\\"}"')).toEqual({ signed: { scheme: 'hwk' } })
     expect(signerOf('not a dictionary =')).toEqual({})
     expect(signerOf(null)).toEqual({})
+  })
+})
+
+describe('the key thumbprint', () => {
+  // RFC 7638 §3.1's example: this is the thumbprint its text gives.
+  const rsa = { kty: 'RSA', n: '0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw', e: 'AQAB' }
+  const rsaJkt = 'NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs'
+
+  it('is RFC 7638, and undefined for a key it cannot name', async () => {
+    expect(await thumbprintOf(rsa)).toBe(rsaJkt)
+    expect(await thumbprintOf({ ...rsa, alg: 'RS256', kid: 'x', use: 'sig' })).toBe(rsaJkt) // extra members are not in it
+    expect(await thumbprintOf({ kty: 'OKP', crv: 'Ed25519', x: 'abc' })).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(await thumbprintOf({ kty: 'EC', crv: 'P-256', x: 'a' })).toBeUndefined() // no y
+    expect(await thumbprintOf(null)).toBeUndefined()
+    expect(await thumbprintOf('not a key')).toBeUndefined()
+  })
+
+  it('a jwt signer gains its key thumbprint from cnf.jwk; others are untouched', async () => {
+    const bound = jwt('aa-person+jwt', { iss: PS, sub: 'pw_1', cnf: { jwk: rsa } })
+    const signer = await withThumbprint(signerOf(`sig=jwt; jwt="${bound}"`))
+    expect(signer.signed).toMatchObject({ scheme: 'jwt', jkt: rsaJkt })
+    expect((await withThumbprint(signerOf(`sig=jwt; jwt="${person}"`))).signed).not.toHaveProperty('jkt')
+    expect((await withThumbprint(signerOf('sig=jwks_uri; id="https://a.example"; dwk="aauth-access.json"; kid="k"'))).signed).toEqual({ scheme: 'jwks_uri', id: 'https://a.example', dwk: 'aauth-access.json', kid: 'k' })
   })
 })
 
