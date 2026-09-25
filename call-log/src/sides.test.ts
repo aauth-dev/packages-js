@@ -93,8 +93,8 @@ describe('the caller side', () => {
 
   it('loggedFetch: one signed fetch per call, call_id from what it sent, the parent from the context, the reply read from a clone', async () => {
     const { host, records, settled } = testHost()
-    const makeFetch = (onSigned: (s: { headers: Headers }) => void) => async (url: string) => {
-      onSigned(sent(`sig=:${url.endsWith('/a') ? 'AAAA' : 'BBBB'}:`))
+    const makeFetch = (onSigned: (s: { headers: Headers }) => void) => async (url: string | URL) => {
+      onSigned(sent(`sig=:${String(url).endsWith('/a') ? 'AAAA' : 'BBBB'}:`))
       return Response.json({ person_token: agentJwt }, { headers: { 'content-type': 'application/json' } })
     }
     const fetchA = loggedFetch(makeFetch, host, { to_role: 'ps', agent: 'aauth:owl@ap.example' })

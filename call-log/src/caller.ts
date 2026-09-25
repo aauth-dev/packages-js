@@ -42,7 +42,7 @@ const headerOf = (h: SentLike['headers'] | undefined, name: string): string | un
 async function record(
   host: CallLogHost,
   call: CallOptions,
-  url: string,
+  url: string | URL,
   init: Init | undefined,
   started: Date,
   sent: SentLike | undefined,
@@ -65,7 +65,7 @@ async function record(
     started_at: started.toISOString(),
     signed: signer.signed,
     request: requestBody === undefined ? undefined : { body: tokenize(requestBody) },
-    ...targetOf(url),
+    ...targetOf(String(url)),
   }
   if ('error' in outcome) {
     const err = outcome.error as { name?: string; message?: string } | undefined
@@ -87,7 +87,7 @@ function safeJson(text: string): unknown {
   }
 }
 
-export type FetchLike = (url: string, init?: Init) => Promise<Response>
+export type FetchLike = (url: string | URL, init?: Init) => Promise<Response>
 
 /**
  * For @aauth/agent's createSignedFetch. `makeFetch` is called once per call
