@@ -14,6 +14,7 @@ export default defineConfig({
       // unbuilt `dist/`. Resolve it from source like every other workspace.
       '@aauth/interaction-code': path.resolve(__dirname, 'interaction-code/src/index.ts'),
       '@aauth/hardware-keys': path.resolve(__dirname, 'hardware-keys/index.js'),
+      '@aauth/call-log': path.resolve(__dirname, 'call-log/src/index.ts'),
     },
   },
   test: {

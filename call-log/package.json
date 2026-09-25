@@ -1,0 +1,38 @@
+{
+  "name": "@aauth/call-log",
+  "version": "0.1.0",
+  "description": "The aauth.call record: one log record per HTTP call between AAuth roles, at each end. A pure builder, a Hono-shaped middleware for the callee side, and logged fetch wrappers for the caller side.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aauth",
+    "logging",
+    "observability"
+  ],
+  "author": "Dick Hardt <dick.hardt@hello.coop>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aauth-dev/packages-js",
+    "directory": "call-log"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
