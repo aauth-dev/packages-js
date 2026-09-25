@@ -31,6 +31,7 @@
     "resource",
     "mcp-stdio",
     "mcp-openclaw",
-    "fetch"
+    "fetch",
+    "call-log"
   ]
 }
