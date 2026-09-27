@@ -158,3 +158,55 @@ describe('the caller side', () => {
     expect(records[0]).toMatchObject({ side: 'caller', parent: 'p', method: 'GET', path: '/.well-known/aauth-resource.json', status: 404, level: 40 })
   })
 })
+
+describe('0.1.1', () => {
+  const resourceJwt = `${b64({ alg: 'Ed25519', typ: 'aa-resource+jwt' })}.${b64({ iss: 'https://notes.example', aud: 'https://as.example', scope: 'notes' })}.c2ln`
+
+  it('a resource token inside a parsed AAuth-Requirement is logged as payload, not as the JWT', async () => {
+    const { host, records, settled } = testHost()
+    const request = new Request('https://encrypt.aauth.dev/notes', { headers: { signature: 'sig=:BBBB:', 'signature-key': `sig=jwt; jwt="${agentJwt}"` } })
+    const { c, next } = contextFor(request, async () =>
+      Response.json({ error: 'auth_token_required' }, { status: 401, headers: { 'AAuth-Requirement': `requirement=auth-token; resource-token="${resourceJwt}"` } }),
+    )
+    await callLogMiddleware(host)(c, next)
+    await settled()
+    const [r] = records
+    expect(r.response?.params).toEqual({ 'AAuth-Requirement': { requirement: 'auth-token', 'resource-token': { type: 'aa-resource+jwt', payload: { iss: 'https://notes.example', aud: 'https://as.example', scope: 'notes' } } } })
+    expect(JSON.stringify(r)).not.toContain(resourceJwt)
+    expect(r.level).toBe(30) // still a challenge
+  })
+
+  it('a context whose executionCtx getter throws (Hono on Node) is logged, not a 500', async () => {
+    const { host, records, settled } = testHost()
+    const request = new Request('https://encrypt.aauth.dev/health-ish', { headers: { signature: 'sig=:CCCC:' } })
+    const c = {
+      req: { raw: request },
+      res: new Response(null, { status: 404 }),
+      get executionCtx(): { waitUntil(p: Promise<unknown>): void } {
+        throw new Error('This context has no ExecutionContext')
+      },
+    }
+    const next = async () => { c.res = Response.json({ ok: true }) }
+    await expect(callLogMiddleware(host)(c, next)).resolves.toBeUndefined()
+    await settled()
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({ status: 200, call_id: sha('sig=:CCCC:') })
+  })
+
+  it('loggedHttpsigFetch accepts a fetch typed like @hellocoop/httpsig (overloaded on returnSent)', async () => {
+    const { host, records, settled } = testHost('as')
+    // The shape of httpsig's fetch: with returnSent it answers { response, sent }.
+    async function httpsigLike(url: string | URL, options: { returnSent: true } & Record<string, unknown>): Promise<{ response: Response; sent: { headers: Headers } }>
+    async function httpsigLike(url: string | URL, options: Record<string, unknown>): Promise<Response>
+    async function httpsigLike(_url: string | URL, options: Record<string, unknown>): Promise<Response | { response: Response; sent: { headers: Headers } }> {
+      const response = new Response(null, { status: 200 })
+      const sent = { headers: new Headers({ signature: 'sig=:DDDD:', 'signature-key': 'sig=jwks_uri; id="https://access.aauth.dev"; dwk="aauth-access.json"; kid="k"' }) }
+      return options.returnSent ? { response, sent } : response
+    }
+    const send = loggedHttpsigFetch(httpsigLike, host, { to_role: 'resource' })
+    const res = await send('https://notes.example/aauth/revoke', { method: 'POST', body: JSON.stringify({ jti: 'x', exp: 1 }) })
+    expect(res.status).toBe(200)
+    await settled()
+    expect(records[0]).toMatchObject({ side: 'caller', call_id: sha('sig=:DDDD:'), to: 'https://notes.example', path: '/aauth/revoke', to_role: 'resource', signed: { scheme: 'jwks_uri', id: 'https://access.aauth.dev' } })
+  })
+})

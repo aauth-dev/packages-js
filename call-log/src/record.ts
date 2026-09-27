@@ -286,7 +286,8 @@ export async function partOf(
   params?: Record<string, unknown>,
 ): Promise<Part | undefined> {
   const out: Part = {}
-  if (params) out.params = params
+  // A resource token rides in AAuth-Requirement on the auth-token challenge: a token, so payload only.
+  if (params) out.params = tokenize(params) as Record<string, unknown>
   if (body) {
     const content_type = header(body.headers, 'content-type')
     const length = Number(header(body.headers, 'content-length'))
