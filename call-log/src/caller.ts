@@ -111,8 +111,14 @@ export function loggedFetch(makeFetch: (onSigned: (sent: SentLike) => void) => F
   }
 }
 
+/**
+ * @hellocoop/httpsig's `fetch`, loosely: it is overloaded on `dryRun` and
+ * `returnSent`, and the wrapper only ever calls it with `returnSent: true`.
+ * The options are `any` so the overloaded function is assignable as is.
+ */
 export interface HttpsigFetchLike {
-  (url: string, options: Record<string, unknown>): Promise<Response | { response: Response; sent: { headers: Headers } }>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (url: string | URL, options: any): Promise<Response | { response: Response; sent: { headers: Headers } } | { headers: Headers }>
 }
 
 /**
@@ -130,7 +136,8 @@ export function loggedHttpsigFetch(httpsigFetch: HttpsigFetchLike, host: CallLog
       defer(host, record(host, call, url, init, started, undefined, { error }))
       throw error
     }
-    const { response, sent } = 'response' in result ? result : { response: result, sent: undefined }
+    const { response, sent } =
+      'response' in result ? result : result instanceof Response ? { response: result, sent: undefined } : { response: new Response(null), sent: result }
     defer(host, record(host, call, url, init, started, sent, { response, clone: response.clone() }))
     return response
   }

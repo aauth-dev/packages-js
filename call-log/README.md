@@ -80,6 +80,17 @@ const res = await send(url, { method: 'POST', body, signingKey, signatureKey })
 For a fetch you cannot wrap, `failedFetch(host, { url, status | error })`
 records a failure.
 
+## Two things a host should know
+
+- **The callee record waits on the client reading the response.** The
+  record reads a clone of the response, and in workerd a clone is a tee
+  that completes when the original body is consumed. Every real caller
+  reads the body; a test that checks only `res.status` never gets the
+  record — read the body.
+- **Where a `Signature` header is fake and constant** (a test harness that
+  trusts `Signature-Key`), every call gets the same `call_id`. Make it
+  distinct per request.
+
 ## Pieces
 
 `callIdOf`, `tokenOf`, `tokenize`, `signerOf`, `paramsOf`, `errorOf`,

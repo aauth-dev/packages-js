@@ -23,6 +23,17 @@ export interface CalleeOptions {
   skip?: (request: Request) => boolean
 }
 
+// Hono's `executionCtx` is a getter that throws where there is none (Node,
+// `app.request` in tests); read it as such.
+const executionCtxOf = (c: ContextLike): { waitUntil(p: Promise<unknown>): void } | undefined => {
+  try {
+    const ctx = c.executionCtx
+    return ctx && typeof ctx.waitUntil === 'function' ? ctx : undefined
+  } catch {
+    return undefined
+  }
+}
+
 const skipByDefault = (request: Request) => {
   if (request.method === 'OPTIONS' || request.method === 'HEAD') return true
   const path = new URL(request.url).pathname
@@ -57,9 +68,8 @@ export function callLogMiddleware(host: CallLogHost, options: CalleeOptions = {}
     const response = c.res
     const ended = Date.now()
     const responseClone = response.clone()
-    const hostWithCtx: CallLogHost = c.executionCtx?.waitUntil
-      ? { ...host, defer: host.defer ?? ((p) => c.executionCtx!.waitUntil(p)) }
-      : host
+    const ctx = executionCtxOf(c)
+    const hostWithCtx: CallLogHost = ctx ? { ...host, defer: host.defer ?? ((p) => ctx.waitUntil(p)) } : host
     defer(
       hostWithCtx,
       (async () => {

@@ -1,6 +1,6 @@
 {
   "name": "@aauth/call-log",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The aauth.call record: one log record per HTTP call between AAuth roles, at each end. A pure builder, a Hono-shaped middleware for the callee side, and logged fetch wrappers for the caller side.",
   "type": "module",
   "exports": {
