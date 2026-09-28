@@ -40,6 +40,12 @@ const skipByDefault = (request: Request) => {
   return path.startsWith('/.well-known/') || path === '/health' || path === '/openapi.json'
 }
 
+// An unsigned request is a browser or a scanner, not a call between roles,
+// unless the response challenges it with `AAuth-Requirement`: that 401 is the
+// first step of a call. Applied after `skip`, so a host's own `skip` keeps it.
+const isUnsigned = (request: Request) => !request.headers.has('signature') && !request.headers.has('signature-key')
+const challenged = (response: Response) => response.headers.has('aauth-requirement')
+
 // A request body is read once by the handler. Clone before `next()` only
 // when it is worth logging: JSON, and small. Cloning tees the stream, and a
 // tee that nobody drains holds the bytes.
@@ -53,19 +59,22 @@ const worthCloning = (request: Request) => {
 
 /**
  * `app.use('*', callLogMiddleware(host))`, before the routes. Every request
- * not skipped gets one callee record.
+ * not skipped gets one callee record, except an unsigned one whose response
+ * carries no `AAuth-Requirement`.
  */
 export function callLogMiddleware(host: CallLogHost, options: CalleeOptions = {}) {
   const skip = options.skip ?? skipByDefault
   return async (c: ContextLike, next: Next): Promise<void> => {
     const request = c.req.raw
     if (skip(request)) return next()
+    const unsigned = isUnsigned(request)
     const started = new Date()
     const callId = await callIdOf(request.headers.get('signature'))
     const requestClone = worthCloning(request) ? request.clone() : null
     const context: CallContext = { callId }
     await runInCall(context, next)
     const response = c.res
+    if (unsigned && !challenged(response)) return
     const ended = Date.now()
     const responseClone = response.clone()
     const ctx = executionCtxOf(c)
