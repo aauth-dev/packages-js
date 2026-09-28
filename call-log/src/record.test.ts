@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
-import { callIdOf, tokenOf, tokenize, signerOf, thumbprintOf, withThumbprint, paramsOf, errorOf, levelOf, partOf, cap, buildRecord, targetOf, MAX_RECORD_BYTES } from './index.js'
+import { callIdOf, tokenOf, tokenize, signerOf, thumbprintOf, withThumbprint, paramsOf, errorOf, levelOf, partOf, cap, buildRecord, targetOf, MAX_RECORD_BYTES, MAX_BODY_BYTES } from './index.js'
 
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const jwt = (typ: string, payload: Record<string, unknown>) => `${b64({ alg: 'Ed25519', typ })}.${b64(payload)}.c2ln`
@@ -111,6 +111,18 @@ describe('bodies', () => {
     expect(await partOf(null)).toBeUndefined()
     expect(await partOf(null, { Location: '/x' })).toEqual({ params: { Location: '/x' } })
     expect(await partOf(new Response(null))).toBeUndefined()
+  })
+
+  it('a body over MAX_BODY_BYTES is not logged: its type and size stand in its place', async () => {
+    const json = (bytes: number) => JSON.stringify({ pad: 'x'.repeat(bytes - 10) })
+    expect(json(MAX_BODY_BYTES)).toHaveLength(MAX_BODY_BYTES)
+    const at = new Response(json(MAX_BODY_BYTES), { headers: { 'content-type': 'application/json' } })
+    expect((await partOf(at))?.body).toEqual({ pad: 'x'.repeat(MAX_BODY_BYTES - 10) })
+    const told = new Response(json(MAX_BODY_BYTES + 1), { headers: { 'content-type': 'application/json', 'content-length': String(MAX_BODY_BYTES + 1) } })
+    expect(await partOf(told)).toEqual({ content_type: 'application/json', size: MAX_BODY_BYTES + 1 })
+    expect(told.bodyUsed).toBe(false) // a stated length over the limit is not read
+    const measured = new Response(json(MAX_BODY_BYTES + 1), { headers: { 'content-type': 'application/json' } })
+    expect(await partOf(measured)).toEqual({ content_type: 'application/json', size: MAX_BODY_BYTES + 1 })
   })
 
   it('the cap cuts the larger body to text and says so', () => {

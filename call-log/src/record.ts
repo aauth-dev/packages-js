@@ -58,6 +58,14 @@ export interface CallRecord {
 /** A wallet_events entry is capped at 32 KB (Wallet #4285); every party keeps to it. */
 export const MAX_RECORD_BYTES = 32 * 1024 - 2048
 
+/**
+ * Bodies are logged if small (Dick, 2026-09-28): a body over this many bytes
+ * is not logged, and its `content_type` and `size` stand in its place. Every
+ * protocol body seen in the fleet is under 2 KB; two bodies at the limit
+ * still fit the record cap.
+ */
+export const MAX_BODY_BYTES = 8 * 1024
+
 const ROLE_BY_DWK: Record<string, Role> = {
   'aauth-person.json': 'ps',
   'aauth-access.json': 'as',
@@ -280,7 +288,7 @@ export function levelOf(r: { side: Side; status?: number; response?: Part }): nu
 
 const JSON_TYPES = /json/i
 
-/** What a body becomes in the record: JSON under the cap as a value, anything else as its type and size. */
+/** What a body becomes in the record: JSON up to MAX_BODY_BYTES as a value, anything else as its type and size. */
 export async function partOf(
   body: { text: () => Promise<string>; headers: HeadersLike } | null | undefined,
   params?: Record<string, unknown>,
@@ -292,15 +300,17 @@ export async function partOf(
     const content_type = header(body.headers, 'content-type')
     const length = Number(header(body.headers, 'content-length'))
     const size = Number.isFinite(length) && length > 0 ? length : undefined
-    if (content_type && JSON_TYPES.test(content_type) && (size === undefined || size <= MAX_RECORD_BYTES * 4)) {
+    if (content_type && JSON_TYPES.test(content_type) && (size === undefined || size <= MAX_BODY_BYTES)) {
       try {
         const text = await body.text()
         if (text) {
+          const bytes = encoder.encode(text).length
           try {
+            if (bytes > MAX_BODY_BYTES) throw new RangeError('over MAX_BODY_BYTES: not logged')
             out.body = tokenize(JSON.parse(text))
           } catch {
             out.content_type = content_type
-            out.size = encoder.encode(text).length
+            out.size = bytes
           }
         }
       } catch {
