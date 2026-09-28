@@ -13,9 +13,11 @@ The record is `aauth.call`, specified in `aauth-dev/monitor`
 - **Tokens are logged as `{ type, payload }`** — the JWT's `typ` header and its
   claims — wherever they appear: in `signed` and in place of the JWT string in
   a body, at any depth. Never the JWT, so no log holds a presentable token.
-- **Bodies are logged.** JSON bodies as values; anything else as its content
-  type and size. A record over 30 KB has its larger body cut to text and
-  `truncated: true`.
+- **Bodies are logged if small.** A JSON body up to 8 KB (`MAX_BODY_BYTES`)
+  as a value. A larger body, or one that is not JSON, as its `content_type`
+  and `size` in bytes — so a reader tells "no body" (neither field) from
+  "body not logged" (`size`). A record still over 30 KB has its larger body
+  cut to text and `truncated: true`.
 - **`call_id`** is base64url SHA-256 of the `Signature` header. Both ends hold
   it, so their records join with no new header on the wire.
 - **`parent`** is the call being handled when an outbound call is made. It is

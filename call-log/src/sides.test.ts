@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
-import { callLogMiddleware, loggedFetch, loggedHttpsigFetch, failedFetch, nameAgent, parentFromContext, runInCall, type CallRecord, type CallLogHost } from './index.js'
+import { callLogMiddleware, loggedFetch, loggedHttpsigFetch, failedFetch, nameAgent, parentFromContext, runInCall, MAX_BODY_BYTES, type CallRecord, type CallLogHost } from './index.js'
 
 const sha = (s: string) => createHash('sha256').update(s).digest('base64url')
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
@@ -137,6 +137,17 @@ describe('the caller side', () => {
     })
     expect(records.find((r) => r.path === '/b')!.call_id).toBe(sha('sig=:BBBB:'))
     expect(records.find((r) => r.path === '/b')!.request).toBeUndefined()
+  })
+
+  it('a request body over MAX_BODY_BYTES is logged as its size', async () => {
+    const { host, records, settled } = testHost()
+    const makeFetch = (onSigned: (s: { headers: Headers }) => void) => async () => { onSigned(sent('sig=:F:')); return new Response(null, { status: 204 }) }
+    const send = loggedFetch(makeFetch, host)
+    await send('https://r.example/small', { method: 'POST', body: JSON.stringify({ q: 'x' }) })
+    await send('https://r.example/large', { method: 'POST', body: JSON.stringify({ pad: 'x'.repeat(MAX_BODY_BYTES) }) })
+    await settled()
+    expect(records.find((r) => r.path === '/small')!.request).toEqual({ body: { q: 'x' } })
+    expect(records.find((r) => r.path === '/large')!.request).toEqual({ size: MAX_BODY_BYTES + 10 })
   })
 
   it('an explicit parent wins over the context; outside any call there is none', async () => {
