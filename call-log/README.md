@@ -48,9 +48,12 @@ app.use('*', async (c, next) => callLogMiddleware(host(c))(c, next))
 ```
 
 One record per request, skipping `OPTIONS`, `HEAD`, `/.well-known/*`,
-`/health` and `/openapi.json` (`skip` overrides). The caller is named from
-`Signature-Key` without verification, so a refused call still says who
-called. A person token names no agent; when your verifier resolves one, say so:
+`/health` and `/openapi.json` (`skip` overrides). An unsigned request — no
+`Signature` and no `Signature-Key` — is logged only when the response carries
+`AAuth-Requirement`: that challenge is the first step of a call, and anything
+else unsigned is a browser or a scanner. This holds under a host's own `skip`
+too. The caller is named from `Signature-Key` without verification, so a
+refused call still says who called. A person token names no agent; when your verifier resolves one, say so:
 
 ```ts
 nameAgent(verified.agent_id)

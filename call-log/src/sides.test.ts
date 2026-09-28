@@ -76,15 +76,36 @@ describe('the callee side', () => {
     expect(records).toHaveLength(1)
   })
 
-  it('an unsigned call has a random id and no caller; its own 5xx is error level', async () => {
+  it('an unsigned request is logged only when the response carries AAuth-Requirement, with a random id and no caller', async () => {
     const { host, records, settled } = testHost()
-    const { c, next } = contextFor(new Request('https://encrypt.aauth.dev/send', { method: 'POST' }), async () => new Response('boom', { status: 500 }))
+    const mw = callLogMiddleware(host, { skip: () => false }) // a host's own skip does not turn the rule off
+    const answers: [Request, Response][] = [
+      [new Request('https://encrypt.aauth.dev/'), Response.json({ error: 'signature_required' }, { status: 401, headers: { 'Accept-Signature': 'sig=("@method" "@authority" "@path" "signature-key")' } })],
+      [new Request('https://encrypt.aauth.dev/.env'), new Response('not found', { status: 404 })],
+      [new Request('https://encrypt.aauth.dev/send', { method: 'POST' }), new Response('boom', { status: 500 })],
+      [new Request('https://encrypt.aauth.dev/send', { method: 'POST' }), Response.json({ error: 'person_token_required' }, { status: 401, headers: { 'AAuth-Requirement': 'requirement=person-token' } })],
+    ]
+    for (const [request, response] of answers) {
+      const { c, next } = contextFor(request, async () => response)
+      await mw(c, next)
+    }
+    await settled()
+    expect(records).toHaveLength(1)
+    const [r] = records
+    expect(r).toMatchObject({ method: 'POST', path: '/send', status: 401, level: 30, response: { params: { 'AAuth-Requirement': { requirement: 'person-token' } } } })
+    expect(r.call_id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(r.from).toBeUndefined()
+    expect(r.signed).toBeUndefined()
+  })
+
+  it('a request carrying only Signature-Key is not unsigned; its own 5xx is error level', async () => {
+    const { host, records, settled } = testHost()
+    const request = new Request('https://encrypt.aauth.dev/send', { method: 'POST', headers: { 'signature-key': `sig=jwt; jwt="${agentJwt}"` } })
+    const { c, next } = contextFor(request, async () => new Response('boom', { status: 500 }))
     await callLogMiddleware(host)(c, next)
     await settled()
-    expect(records[0]).toMatchObject({ status: 500, level: 50 })
+    expect(records[0]).toMatchObject({ status: 500, level: 50, from: 'aauth:owl@ap.example' })
     expect(records[0].call_id).toMatch(/^[0-9a-f-]{36}$/)
-    expect(records[0].from).toBeUndefined()
-    expect(records[0].signed).toBeUndefined()
   })
 })
 
