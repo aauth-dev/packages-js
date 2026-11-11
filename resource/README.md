@@ -45,6 +45,36 @@ is supplied (see [Revocation](#revocation)). Nothing is acted on before the sign
 
 The polymorphic `EdDSA` identifier is rejected in both the JWT header and `cnf.jwk`, per RFC 9864.
 
+### Key discovery
+
+The issuer's JWKS is discovered through `@hellocoop/httpsig`'s key resolver. By default
+`verifyToken` uses a built-in one on a bounded in-memory store. Pass your own to supply the cache
+store, the fetch, the timeout, and a hook that logs every fetch:
+
+```ts
+import { createKeyResolver, verifyToken } from '@aauth/resource'
+
+// Create once and share across requests.
+const keyResolver = createKeyResolver({
+  fetch: guardedFetch,                    // egress admission belongs here
+  onFetch: (e) => log.info({ event: 'aauth.key_fetch', ...e }),
+})
+
+const sig = await verify(request, { keyResolver })       // jwks_uri-signed server requests
+const token = await verifyToken({ ...options, keyResolver }) // token issuers
+```
+
+The resolver enforces a fetch timeout (5 s), a one-minute refetch floor that also holds after a
+failed fetch, `Cache-Control: max-age` honored down to that floor and capped, and one fetch shared
+by concurrent lookups. A token whose `kid` is not in the cached JWKS triggers one rediscovery,
+subject to the floor, so a rotated key is picked up without waiting out the TTL. `onFetch` reports
+`url`, `doc` (`metadata` or `jwks`), `id`, `dwk`, `kid`, `reason` (`cold`, `expired`,
+`unknown_kid`), `ok`, `status`, `duration_ms` and `error`.
+
+**Changed in 3.1.0.** Discovery moved onto the resolver. A failed metadata or JWKS fetch is now
+remembered for one minute instead of being retried on every request, and fetches time out.
+`clearMetadataCache()` still empties the built-in cache.
+
 ### Results
 
 | `type` | Shape |
