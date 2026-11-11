@@ -32,6 +32,16 @@ export { verifyToken, CLOCK_SKEW } from './verify-token.js'
 export { AAuthTokenError, R3Error } from './errors.js'
 export { clearMetadataCache, discoverJwks } from './jwks.js'
 export type { FetchLike } from './jwks.js'
+// The key resolver discovery runs through. Re-exported so a resource can
+// build one (store, fetch, timeout, onFetch logging) without a second import.
+export { createKeyResolver } from '@hellocoop/httpsig'
+export type {
+  KeyResolver,
+  KeyResolverOptions,
+  KeyStore,
+  KeyStoreEntry,
+  KeyFetchEvent,
+} from '@hellocoop/httpsig'
 export type {
   TokenKind,
   VerifyTokenOptions,

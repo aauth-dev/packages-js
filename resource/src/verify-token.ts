@@ -2,6 +2,7 @@ import { jwtVerify, importJWK, calculateJwkThumbprint } from 'jose'
 import type { JWK, JSONWebKeySet } from 'jose'
 import { TOKEN_TYP, DWK, decodeJwtHeader, decodeJwtPayload } from '@aauth/protocol'
 import { AAuthTokenError } from './errors.js'
+import type { KeyResolver } from '@hellocoop/httpsig'
 import { discoverJwks, type FetchLike } from './jwks.js'
 import { isServerIdentifier, nowSeconds, timingSafeEqualString } from './util.js'
 import type { R3OperationSet } from './r3.js'
@@ -33,8 +34,20 @@ export interface VerifyTokenOptions {
    * identity assertion as a grant, and the mistake fails open.
    */
   accept: readonly TokenKind[]
-  /** Injectable fetch, for Workers bindings and tests. Defaults to global fetch. */
+  /**
+   * Injectable fetch, for Workers bindings and tests. Defaults to global
+   * fetch. Ignored when `keyResolver` is given.
+   */
   fetch?: FetchLike
+  /**
+   * The key resolver to discover the issuer's JWKS through, from
+   * `createKeyResolver()` in `@hellocoop/httpsig`. Supplies the cache store,
+   * the fetch, the timeout, and an `onFetch` hook that reports every
+   * metadata and JWKS fetch with its reason — the place to log them. Pass the
+   * same resolver to `@hellocoop/httpsig` `verify()` so both share one cache.
+   * Omitted: a built-in resolver on a bounded in-memory store.
+   */
+  keyResolver?: KeyResolver
   /**
    * How far a token's `iat` may be ahead of this verifier's clock before it
    * is refused with `clock_skew`. Default 60, the same window the HTTP
@@ -377,7 +390,24 @@ export async function verifyToken(options: VerifyTokenOptions): Promise<Verified
     throw new AAuthTokenError(code, `iss is not a valid HTTPS server identifier: ${iss}`)
   }
 
-  const jwks = await discoverJwks({ iss, dwk, fetch: options.fetch, errorCode: code })
+  const kid = typeof header.kid === 'string' && header.kid.length > 0 ? header.kid : undefined
+  const discover = (refresh?: 'unknown_kid') =>
+    discoverJwks({
+      iss,
+      dwk,
+      fetch: options.fetch,
+      keyResolver: options.keyResolver,
+      errorCode: code,
+      kid,
+      refresh,
+    })
+  let jwks = await discover()
+  // An unknown kid is how key rotation looks from here. Discover again once;
+  // the resolver's refetch floor keeps a caller from turning this into a
+  // fetch per request.
+  if (kid !== undefined && !(jwks.keys ?? []).some(k => k.kid === kid)) {
+    jwks = await discover('unknown_kid')
+  }
   const signingKey = selectKey(jwks, header.kid, code)
   if (typeof signingKey.alg === 'string' && signingKey.alg !== header.alg) {
     throw new AAuthTokenError(
